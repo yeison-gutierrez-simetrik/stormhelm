@@ -1,0 +1,194 @@
+---
+name: plan
+description: |
+  Generates the technical plan for each issue: file paths, port interfaces, adapter
+  responsibilities, migration files, test layout, dependency graph. Bridges the
+  gap between /to-issues (what + scope) and /tdd (red-green-refactor). The plan
+  is intentionally specific so /tdd can be invoked AFK with no further design
+  decisions left.
+  Use when: /to-issues has produced the issue queue. Step 9 of /feature. One /plan
+  invocation per issue (or per module in §107 mode).
+---
+
+# /plan — Technical Plan per Slice
+
+## Purpose
+
+A spec says "what." A scenario says "observable result." A plan says **exactly which files change, what interfaces appear, what tests run, in what order**. Without a plan, `/tdd` has to make design decisions on the fly — exactly when the agent is most likely to drift.
+
+`/plan` produces a plan that is detailed enough for Ralph to execute AFK without further input, but high-level enough to fit in the issue body. It is the last design-thinking step before code.
+
+## When to invoke
+
+- After `/to-issues` creates issues.
+- Step 9 of `/feature`.
+- For each issue separately (or per module in §107 Agent Teams).
+- When `/tdd` reports "the issue is underspecified."
+
+## When NOT to invoke
+
+- For bugs → `/debug` Step 4 produces a plan implicit in the root cause.
+- For improvements → rule-specific contracts (§97 baseline) replace this skill.
+
+## Inputs
+
+- The issue body (from `/to-issues`).
+- The scenarios it covers (`features/<context>/*.feature`).
+- The active capability stack (`AGENTS.md`).
+- `docs/CONTEXT.md` (vocabulary).
+- `docs/constitution.md`.
+- For multi-module: module contracts (§103).
+
+## Outputs
+
+- A plan section added to the issue body (via `gh issue comment` or by editing the issue body).
+- The plan template (see below).
+- Returned to the workflow for `/tdd` consumption.
+
+## Rule files to load (progressive disclosure)
+
+`/plan` is where the architecture becomes concrete (specific file paths, port interfaces, layer assignments). It must load architectural rules **always**, and stack-specific rules **based on the active capabilities** declared in `AGENTS.md`.
+
+- **Always (every plan):**
+  - `docs/engineering/core/02-architecture.md` — §3 (hexagonal direction is inviolable), §24 (adapters boring), §37 (OOP-lite frontier). The plan's "layers affected" section maps directly to §3.
+  - `docs/engineering/core/05-domain-modeling.md` — §19 (Result types with `code`), §20 (no boolean blindness), §21 (illegal states hard to represent). Every use case the plan declares uses Result types.
+  - `docs/engineering/core/08-testability.md` — §25 (don't hide time), §26 (don't hide IDs), §29 (test through public boundaries). The plan's "Tests" section reflects these.
+
+- **If the plan touches `src/application/` (use cases — almost always):**
+  - `docs/engineering/core/06-commands-and-security.md` — §27 (security gates before domain actions), §12 (prefer local reasoning), §13 (mutation APIs return IDs/status), §28 (defensive checks). Every use case in the plan reflects these.
+
+- **If the plan touches input boundaries (HTTP routes, webhooks, MCP tools, CLI args, env vars):**
+  - `docs/engineering/core/04-input-boundaries.md` — §4 (parse and validate at the perimeter with Zod/Pydantic/etc.), §34 (environment variables are input too — parse once at startup). The plan declares the validation schema location and the boundary parser.
+
+- **If the plan touches `src/infrastructure/` (adapters, repositories — almost always):**
+  - `docs/engineering/core/07-infrastructure.md` — §15-§18 (transactions short, external side effects explicit, idempotency).
+  - `docs/engineering/core/10-cross-cutting.md` — §45 (`tenantId` in every repo filter), §46 (idempotency for critical commands), §47 (pagination from day one), §49 (expand-then-contract migrations).
+
+- **If TypeScript capability is active:**
+  - `docs/engineering/capabilities/typescript/03-style.md` — §5-§10, §33. The plan respects type-system rules from the start (no `any` in declared interfaces).
+  - `docs/engineering/capabilities/typescript/11-async.md` — §50-§55. The plan declares timeouts and concurrency bounds explicitly when async work is involved.
+
+- **If TypeScript + Hono capability is active and the plan touches HTTP:**
+  - `docs/engineering/capabilities/typescript-hono/09-stack-conventions.md` — §38-§44. The plan's "Infrastructure: Route" lines respect middleware ordering, Result-to-HTTP mapping, and DI conventions.
+
+- **If multi-module (§107 detected):**
+  - The plan references the `features/<context>/contracts/<module>/` artifacts created by `/to-issues`. Re-read those contracts before writing the plan section for each module.
+
+- **If brownfield (B-flow active):**
+  - `docs/engineering/core/14-brownfield.md` — §71-§76. The plan must declare whether characterization tests are needed before changes, and whether impact-analysis flagged cross-context references.
+
+- **If the issue is `improvement:*`:**
+  - `docs/engineering/core/18-improvements.md` — the kind-specific section (§97 for perf, §99 for tech-debt, §100 for dep-upgrade, §101 for hardening, §102 for refactor).
+
+The plan is the "design memory" that `/tdd` consumes. Loading the right rules here means `/tdd` can be invoked AFK with no further design questions — every architectural choice was made in the plan, citing the §N that justifies it.
+
+## Workflow
+
+### Step 1 — Read scenarios and identify behaviors
+
+For each scenario, identify the domain behavior it asserts. Group behaviors that share a use case.
+
+### Step 2 — Map to hexagonal layers
+
+For the active stack (e.g., typescript-hono), determine:
+
+- **Domain layer** changes: new entities, value objects, ports, errors, states (§3, §5-§10, §19-§22).
+- **Application layer** changes: new use cases, DTOs (§3, §6).
+- **Infrastructure layer** changes: adapters, repositories, migrations, routes (§24, §38-§44).
+- **Entrypoints** changes: rarely — usually only when adding a new server/worker.
+
+For each layer, list the exact file paths the slice will create or modify.
+
+### Step 3 — Identify cross-cutting concerns
+
+For this slice, which §N rules apply non-trivially?
+
+- §45 tenant filter? (almost always yes).
+- §46 idempotency? (only for critical commands).
+- §47 pagination? (only for list endpoints).
+- §52 timeout/abort signal? (only for external calls).
+- §83 SLO target? (only for endpoints with declared SLO).
+
+Each applicable rule becomes a checklist item in the plan.
+
+### Step 4 — Determine test layout
+
+For the active testing stack:
+
+- Domain unit tests location and count.
+- Use case unit tests with mocked ports.
+- Adapter integration tests (DB, HTTP client).
+- Step definitions for the `.feature` scenarios (§61 — must reuse use case directly, not HTTP).
+- E2E if necessary (rare; most coverage via integration).
+
+### Step 5 — Identify migrations
+
+If schema changes:
+
+- New Alembic / Flyway / Drizzle migration file.
+- Sequential numbering: `ls migrations/` to find next.
+- Naming convention from `core/09-stack-conventions.md` (active capability).
+- Expand-then-contract pattern (§49) if the change is destructive.
+
+### Step 6 — Write the plan
+
+Append to the issue body (or as comment):
+
+```markdown
+## Plan
+
+### Layers affected
+- **Domain:** src/domain/listings/listing.ts (add `publish()`), src/domain/listings/listing-state.ts (new state).
+- **Application:** src/application/use-cases/publish-listing.use-case.ts (new), src/application/ports/listing.repository.ts (add `save`).
+- **Infrastructure:**
+  - Repository: src/infrastructure/persistence/drizzle/listing.repository.ts.
+  - Route: src/infrastructure/http/routes/v1/listing.routes.ts (POST /v1/listings/:id/publish).
+  - Migration: migrations/0023_listing_published_state.ts.
+- **Tests:**
+  - src/domain/listings/__tests__/listing.test.ts (3 new tests).
+  - src/application/use-cases/__tests__/publish-listing.use-case.test.ts (4 new tests).
+  - src/infrastructure/http/routes/v1/__tests__/listing.routes.test.ts (2 new tests).
+  - features/listings/steps/listing-publication.steps.ts (step definitions).
+
+### Rules to apply
+- §3 hexagonal direction — no infrastructure imports in domain.
+- §19 Result type with codes `LISTING_NOT_FOUND`, `PROVIDER_NOT_VERIFIED`, `LISTING_NOT_OWNED`.
+- §27 authorization in use case (Provider must own the Listing).
+- §45 tenant filter on the repository.
+- §92 regression tests fail-first before implementation.
+
+### Dependency graph (intra-slice)
+1. Add `listing-state.ts` (no deps).
+2. Add `publish()` to `listing.ts` (depends on 1).
+3. Add port to `listing.repository.ts` (depends on 2).
+4. Add use case (depends on 2 + 3).
+5. Add adapter implementing port (depends on 3).
+6. Add migration (depends on 5).
+7. Add route (depends on 4).
+8. Add step definitions (depends on 4).
+
+### Estimated tokens
+~50000 (matches issue's budget:50k label).
+
+### Open questions for /tdd
+- None.
+```
+
+### Step 7 — Save and return
+
+Save plan to issue (via `gh issue edit --body` or `gh issue comment`). Return path to workflow.
+
+## Integration with the framework
+
+- **Invoked by `/feature` Step 9** for each issue from Step 8.
+- **Output consumed by `/tdd`**: the plan tells `/tdd` exactly which file to create next.
+- **For §107 Agent Teams**: each teammate (arch, fe, devops) reads only the section of the plan that applies to its module.
+- **Read by `reviewer` agent**: the plan is the "should match" against which the diff is reviewed.
+
+## What this skill never does
+
+- Decide on the **what** (that's `/specify`).
+- Choose an alternative architecture (uses the active capability's conventions strictly).
+- Skip a §N that applies to the slice.
+- Mention a library not allowed by the active capability.
+- Decide budget (already decided by `/to-issues`).

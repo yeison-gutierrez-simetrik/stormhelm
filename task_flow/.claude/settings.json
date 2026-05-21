@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_comment": "Stormhelm scaffold para task_flow. Personaliza permissions según tu stack tras /setup.",
+
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(node:*)",
+      "Bash(tsc:*)",
+      "Bash(vitest:*)",
+      "Bash(jest:*)",
+      "Bash(cucumber-js:*)",
+      "Bash(semgrep:*)",
+      "Bash(gitleaks:*)",
+      "Bash(pip-audit:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-pre.js" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-post.js" }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/context-monitor.js" }
+        ]
+      }
+    ]
+  }
+}

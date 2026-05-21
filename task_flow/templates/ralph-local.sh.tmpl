@@ -1,0 +1,41 @@
+#!/bin/bash
+# Ralph local AFK loop — bootstrap por /setup
+#
+# Uso:
+#   ./templates/ralph-local.sh <issue-number> [max-iterations]
+#
+# Lee el issue de GitHub, ejecuta /tdd + /run-acceptance hasta
+# que todos los @release pasen, o hasta agotar el budget.
+
+set -euo pipefail
+
+ISSUE_NUM="${1:?Uso: ./ralph-local.sh <issue-number> [max-iterations]}"
+MAX_ITER="${2:-5}"
+BRANCH_PREFIX="agent/feature"
+
+LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name')
+echo "$LABELS" | grep -q "ralph-ready" || { echo "❌ Issue #$ISSUE_NUM no tiene label ralph-ready"; exit 1; }
+echo "$LABELS" | grep -q "scenarios:" || { echo "❌ Issue #$ISSUE_NUM no tiene label scenarios:*"; exit 1; }
+echo "$LABELS" | grep -q "budget:" || { echo "❌ Issue #$ISSUE_NUM no tiene label budget:*"; exit 1; }
+
+SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' | tr ' ' '-' | tr -d ',' | tr '[:upper:]' '[:lower:]' | head -c 40)
+BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
+git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+
+echo "🤖 Ralph iniciando loop para issue #$ISSUE_NUM en rama $BRANCH"
+
+for i in $(seq 1 "$MAX_ITER"); do
+  echo ""
+  echo "=== Iteración $i de $MAX_ITER ==="
+  claude -p "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados, y avanza un slice."
+  if claude -p "/run-acceptance para los scn-* del issue #$ISSUE_NUM. Reporta exit code." | grep -q "exit code: 0"; then
+    echo "✅ Todos los @release pasan. Creando PR…"
+    gh pr create --draft --title "fix #$ISSUE_NUM" --body "Automated by Ralph. Closes #$ISSUE_NUM"
+    exit 0
+  fi
+  echo "⚠️  Iteración $i no logró green. Continuando…"
+done
+
+echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Escalando a humano."
+gh issue comment "$ISSUE_NUM" --body "Ralph ejecutó $MAX_ITER iteraciones sin lograr green. Requiere intervención humana."
+exit 1
