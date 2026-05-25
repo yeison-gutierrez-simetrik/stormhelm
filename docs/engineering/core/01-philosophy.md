@@ -4,7 +4,7 @@
 
 **When to read.** Planning a task, scoping a PR, choosing between two designs, deciding what to omit, reviewing a PR for breadth.
 
-**Rules in this file.** §1, §2, §30, §31, §35
+**Rules in this file.** §1, §2, §30, §31, §35, §122
 
 > See `../../AGENTS.md` (or `../../../AGENTS.md` from capabilities) for the full rule index.
 
@@ -133,3 +133,50 @@ A PR should be easy to answer:
 > What user-visible behavior changed?
 
 If that answer is unclear, the PR is probably too broad or too horizontal.
+
+---
+
+## §122. Verify external library APIs against current docs before writing code against them
+
+When writing or reviewing code that uses a third-party library, framework, SDK, CLI, or cloud service, **fetch the current documentation** instead of relying on training-data memory. The model's knowledge of fast-moving ecosystems (Next.js, Tailwind, Drizzle, AWS SDK, Hono, Vite, framework CLIs) is stale by months and silently produces invented APIs.
+
+The default tool for this is the **Context7 MCP server** (`mcp__plugin_context7_context7__resolve-library-id` then `query-docs`). It is configured in `.claude/settings.json` by `/setup`. When Context7 cannot resolve the library, fall back to `WebFetch` against the library's official docs URL (cached per §108).
+
+### Why
+
+- Library APIs change between minor versions. A function signature, an option name, or a default value the model "remembers" is often gone or renamed.
+- Invented APIs compile-time-fail at best and run-time-explode at worst. Both waste a TDD cycle and erode trust in the agent.
+- The `WebFetch` cache (§108) and the Context7 MCP make this nearly free — one verified lookup is cheaper than one wrong red test.
+
+### When this rule fires
+
+- The change introduces a new `import` from a third-party package.
+- The change calls a method on a third-party object that the agent has not used elsewhere in this session.
+- A PR review encounters a third-party API call that does not match the version pinned in `package.json` / `pyproject.toml`.
+- `/debug` is investigating a failure that looks like a library-version mismatch.
+
+### Good
+
+```ts
+// agent fetched current Drizzle docs before writing this
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+
+const client = postgres(env.DATABASE_URL, { prepare: false });
+const db = drizzle(client, { schema });
+```
+
+### Bad
+
+```ts
+// invented from memory — Drizzle never exported `connect`
+import { connect } from "drizzle-orm";
+const db = connect(env.DATABASE_URL);
+```
+
+### Enforcement
+
+- The reviewer agent (§114) flags third-party API calls that do not appear in current docs.
+- For Ralph (`shift:afk`), the same hook setup that handles WebFetch caching (§108) is sufficient — there is no separate Context7 hook. The rule is enforced by skill convention, not by runtime guard.
+- When the `introduces-capability:<name>` label is set (§63), the slice **must** include a Context7 lookup in the agent log; the reviewer rejects PRs that show an invented API.
+
