@@ -114,18 +114,44 @@ Each unchecked box produces a targeted question for Step 2 unless the spec alrea
 Different from `/grill-me`:
 
 - Each question quotes the **exact sentence** that is ambiguous.
-- Each question proposes 2-3 specific interpretations.
-- Each question links to the §N or `CONTEXT.md` term in play.
+- Each question proposes **2-3 specific interpretations as multiple-choice options**, with the recommended interpretation marked and a one-line rationale per option.
+- Each option cites the §N, constitution clause, or `CONTEXT.md` term that justifies (or troubles) it.
+- The last option is always **`Other / correction`** for cases where the listed interpretations miss the real ambiguity.
+- One question per turn — wait for the answer before asking the next.
 
-Example:
+#### Question format
 
-> **FR-3 currently reads:** "Listings MUST be visible to Customers only when state = 'published'."
->
-> Two possible interpretations:
-> - (a) Only `published` Listings appear in search results.
-> - (b) Only `published` Listings can be viewed at all (404 on direct URL access to non-published).
->
-> Which is the contract?
+```markdown
+**Clarification on FR-<N>.** <Spec sentence quoted verbatim.>
+
+Two interpretations are consistent with the wording:
+
+- **(a) <interpretation A>** — ✅ recommended. <one-line rationale citing §N, constitution, or precedent>.
+- **(b) <interpretation B>** — <one-line rationale; what trade-off this interpretation makes>.
+- **(c) Other / correction** — neither captures the real contract; describe what does.
+
+Which is the contract?
+```
+
+#### Example
+
+```markdown
+**Clarification on FR-3.** "Listings MUST be visible to Customers only when state = 'published'."
+
+Two interpretations are consistent with the wording:
+
+- **(a) Non-published Listings 404 on direct URL access AND are excluded from search** — ✅ recommended. Strongest consistency: §45 tenant isolation + §57 BDD prefers a single observable rule; one acceptance scenario covers both surfaces.
+- **(b) Only excluded from search results; direct URL still returns the Listing** — viable if Product wants providers to share preview links with selected Customers before publication; requires an additional §48 versioning note about the `state` field becoming part of the public contract.
+- **(c) Other / correction** — neither captures the real contract; describe what does.
+
+Which is the contract?
+```
+
+#### Why this format
+
+- Forces the agent to do the design work *before* asking, so the human is choosing between named, costed alternatives instead of editing prose.
+- The rejected interpretation is preserved in the spec's `Clarifications log` (Step 4), turning a clarification into an audit-grade record of *what the spec does not mean*.
+- The `Other / correction` option prevents the agent from forcing a false dichotomy when the spec is ambiguous in a way the agent missed.
 
 ### Step 3 — Inline the clarifications
 
@@ -139,13 +165,15 @@ Each answer becomes a sub-bullet under the FR it clarifies:
 
 ### Step 4 — Add clarifications log
 
-At the end of the spec, append:
+At the end of the spec, append. The log records the chosen interpretation **and** the rejected one(s), so a future reviewer can audit what the spec deliberately excludes:
 
 ```markdown
 ## Clarifications log
 
-- **2026-05-20:** FR-3 clarified — non-published Listings return 404.
-- **2026-05-20:** NFR-1 clarified — p95 measured at the /v1/listings endpoint, not at the page render.
+- **2026-05-20 — FR-3.** Non-published Listings return 404 on direct URL access AND are excluded from search (option a).
+  Rejected: visible at direct URL but hidden from search (option b) — would have required §48 versioning of the `state` field.
+- **2026-05-20 — NFR-1.** p95 measured at the `/v1/listings` endpoint, not at the page render (option a).
+  Rejected: end-to-end p95 including client render (option b) — outside the service boundary.
 ```
 
 ### Step 5 — Update status, save, return
