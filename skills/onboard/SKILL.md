@@ -157,7 +157,7 @@ Stormhelm Cheat Sheet
 FRAMEWORK SKILLS (entry points)
   /setup                Configure Stormhelm for your project (run once)
   /onboard              This orientation (run when joining or returning)
-  /feature              End-to-end feature workflow (12 steps, 2 human checkpoints)
+  /feature              End-to-end feature workflow (13 steps, 2 human checkpoints)
   /debug                Disciplined bug fix workflow (6 steps)
   /optimize             Performance optimization with mandatory baseline (5 steps)
 

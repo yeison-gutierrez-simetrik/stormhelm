@@ -63,7 +63,7 @@ Internally, `/feature` invokes the same skills that are callable individually. I
   - `issues/*.md` (from `/to-issues`)
   - One traceability matrix snapshot.
 
-## Workflow — 12 steps with 2 human checkpoints
+## Workflow — 13 steps with 2 human checkpoints
 
 The agent **cannot skip steps**. Each step calls the corresponding individual skill or rule.
 
@@ -244,7 +244,7 @@ The skill detects mode early and adapts:
 
 | Detection | Mode |
 |---|---|
-| Single bounded context, ≤2 modules | Single-agent path through all 12 steps |
+| Single bounded context, ≤2 modules | Single-agent path through all 13 steps |
 | 3+ modules or 2+ bounded contexts | Agent Teams (§107) at Steps 10-11 |
 | Any sensitive domain (auth, payments, PII) | Forces `require-human-review` (§64) on all slices |
 | UI involved | Activates §104 visual gate in Step 11 |

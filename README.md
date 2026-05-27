@@ -101,7 +101,7 @@ stormhelm/
     # === Framework & Onboarding ===
     ├── setup/SKILL.md                           # /setup — configure Stormhelm for your project
     ├── onboard/SKILL.md                         # /onboard — orient new developers to the workflow
-    ├── feature/SKILL.md                         # /feature — end-to-end orchestrator (12 steps, 2 human checkpoints)
+    ├── feature/SKILL.md                         # /feature — end-to-end orchestrator (13 steps, 2 human checkpoints)
     # === Workflow (used by /feature) ===
     ├── constitution/SKILL.md                    # /constitution — establish non-negotiable principles
     ├── grill-me/SKILL.md                        # /grill-me — pre-coding interrogation (40-100 questions)

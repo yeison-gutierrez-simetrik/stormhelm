@@ -1591,4 +1591,4 @@ Para feedback sobre esta guía o sugerencias de mejora basadas en uso real, come
 ---
 
 *Última actualización: 2026-06-01*
-*Versión del framework: Stormhelm v1.0 (122 reglas, 28 skills, 1 agente, 4 hooks, 12 steps en flujo principal)*
+*Versión del framework: Stormhelm v1.0 (122 reglas, 28 skills, 1 agente, 4 hooks, 13 steps en flujo principal)*
