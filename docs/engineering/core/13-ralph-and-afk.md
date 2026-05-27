@@ -339,6 +339,8 @@ The disable flag is **never** set by the Ralph script.
 
 Every AFK session produces a single, line-delimited JSON log file. This is the source of truth for postmortems, billing reconciliation, and the audit trail.
 
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_init_session`, `ralph_log_event`, `ralph_iteration_start`, `ralph_scenario_passed`, `ralph_git_action`, `ralph_budget_checkpoint`, `ralph_error_tool`, and `ralph_end_session`. The main `ralph-local.sh` invokes these at every significant operation. All events are NDJSON (one JSON object per line), validated by `jq -c '.'`.
+
 ### Log location
 
 ```

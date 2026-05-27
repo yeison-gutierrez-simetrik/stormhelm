@@ -1,0 +1,151 @@
+#!/bin/bash
+# Ralph local AFK loop — bootstrap por /setup
+#
+# Uso:
+#   ./templates/ralph-local.sh <issue-number> [max-iterations]
+#
+# Lee el issue de GitHub, ejecuta /tdd + /run-acceptance hasta
+# que todos los @release pasen, o hasta agotar el budget.
+#
+# Implementa: §63 (label gate), §65 (max-iterations), §67 (draft PR),
+#             §69 (NDJSON session log via ralph-lib.sh).
+# Pendiente para slices futuros del Ralph hardening: §66 reviewer
+# pre-PR + ralph-blocked automation, §70 backoff 429.
+
+set -euo pipefail
+
+# ──────────────────────────────────────────────────────────────────────
+# Bootstrap: locate and source ralph-lib.sh
+# ──────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RALPH_LIB="${SCRIPT_DIR}/ralph-lib.sh"
+
+if [ ! -f "$RALPH_LIB" ]; then
+  echo "❌ ralph-lib.sh no encontrado en ${SCRIPT_DIR}" >&2
+  echo "   Esperado: $RALPH_LIB" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$RALPH_LIB"
+
+# ──────────────────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────────────────
+ISSUE_NUM="${1:?Uso: ./ralph-local.sh <issue-number> [max-iterations]}"
+MAX_ITER="${2:-30}"
+BRANCH_PREFIX="agent/feature"
+
+# ──────────────────────────────────────────────────────────────────────
+# §63 label-contract validation (must run BEFORE init_session so we
+# never leave an empty log file for issues we refuse to process).
+# ──────────────────────────────────────────────────────────────────────
+LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
+
+if [ -z "$LABELS" ]; then
+  echo "❌ Issue #$ISSUE_NUM no existe o gh CLI no está autenticado" >&2
+  exit 1
+fi
+
+if ! ralph_has_label "$LABELS" "ralph-ready"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'ralph-ready' (§63)" >&2
+  exit 1
+fi
+
+if ! echo "$LABELS" | grep -qE "^scenarios:"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'scenarios:scn-*' (§63 obligatorio)" >&2
+  exit 1
+fi
+
+if ! echo "$LABELS" | grep -qE "^budget:"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'budget:NNk' (§63 obligatorio)" >&2
+  exit 1
+fi
+
+# Extract labeled metadata
+SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
+BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
+
+# ──────────────────────────────────────────────────────────────────────
+# Initialize session log (§69) — from here on, every action is recorded
+# ──────────────────────────────────────────────────────────────────────
+ralph_init_session "$ISSUE_NUM"
+
+ralph_log_event "info" "ralph.contract.validated" \
+  "{\"scenarios\":$(ralph_json_string "$SCENARIOS"),\"budget\":$(ralph_json_string "$BUDGET"),\"max_iterations\":${MAX_ITER}}"
+
+# ──────────────────────────────────────────────────────────────────────
+# Branch setup
+# ──────────────────────────────────────────────────────────────────────
+SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' | tr ' ' '-' | tr -d ',' | tr '[:upper:]' '[:lower:]' | head -c 40)
+BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
+
+if git checkout -b "$BRANCH" 2>/dev/null; then
+  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH"
+else
+  git checkout "$BRANCH"
+  ralph_git_action "checkout-existing" "success" "git checkout $BRANCH"
+fi
+
+echo "🤖 Ralph iniciando loop para issue #$ISSUE_NUM en rama $BRANCH"
+echo "   Session log: $RALPH_SESSION_LOG"
+echo "   Scenarios: $SCENARIOS"
+echo "   Budget: $BUDGET, Max iterations: $MAX_ITER"
+
+# ──────────────────────────────────────────────────────────────────────
+# Main loop
+# ──────────────────────────────────────────────────────────────────────
+for i in $(seq 1 "$MAX_ITER"); do
+  echo ""
+  echo "=== Iteración $i de $MAX_ITER ==="
+
+  ralph_iteration_start "tdd"
+
+  if ! claude -p "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice."; then
+    ralph_error_tool "claude" "/tdd returned non-zero in iteration $i"
+    ralph_iteration_end "tdd-failed"
+    continue
+  fi
+
+  if claude -p "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." | grep -q "exit code: 0"; then
+    ralph_iteration_end "green"
+
+    # All scenarios reported as passing — emit one event per
+    for scn in $(echo "$SCENARIOS" | tr ',' ' '); do
+      ralph_scenario_passed "$scn"
+    done
+
+    echo "✅ Todos los @release pasan. Creando PR…"
+
+    PR_BODY="Automated by Ralph. Closes #$ISSUE_NUM
+
+Iterations consumed: $i / $MAX_ITER
+Scenarios: $SCENARIOS
+Session log: $RALPH_SESSION_LOG
+
+Reviewer report: (pending — slice 3 of ralph-hardening)"
+
+    if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+      ralph_git_action "pr-create" "success" "gh pr create --draft"
+      ralph_end_session "completed"
+      exit 0
+    else
+      ralph_git_action "pr-create" "failed" "gh pr create --draft"
+      ralph_error_tool "gh" "gh pr create returned non-zero"
+      ralph_end_session "blocked" "gh-pr-create-failed"
+      exit 1
+    fi
+  fi
+
+  ralph_iteration_end "acceptance-failing"
+  echo "⚠️  Iteración $i no logró green. Continuando…"
+done
+
+echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Escalando a humano."
+
+# Comentario al issue (la automación de labels llega en slice 4)
+gh issue comment "$ISSUE_NUM" \
+  --body "Ralph ejecutó $MAX_ITER iteraciones sin lograr green. Session log: \`${RALPH_SESSION_LOG}\`. Requiere intervención humana."
+
+ralph_end_session "budget_exceeded" "max-iterations-reached"
+exit 1
