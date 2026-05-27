@@ -212,6 +212,8 @@ After `/tdd` Green + `/run-acceptance` pass on an issue, but **before** `gh pr c
 
 The reviewer's report is always attached to the PR description regardless of outcome, so the human Day-Shift review starts with the same information.
 
+Shipped implementation: `templates/ralph-local.sh` invokes the reviewer (`claude -p "/code-review …"`) immediately after `/run-acceptance` returns green. The lib's `ralph_reviewer_severity` classifies stdout into `blocking | should-fix | suggestion | clean`; `ralph_format_reviewer_section` produces a markdown section (with collapsible `<details>` wrapping for long reports) that is embedded in the PR body alongside iteration count and session log path. Log events `ralph.reviewer.invoked`, `ralph.reviewer.findings`, and (on retry) `ralph.reviewer.retry` are emitted.
+
 ### Required behavior on `max-iterations` exceeded
 
 1. Stop the loop for this issue (continue to the next in the queue).

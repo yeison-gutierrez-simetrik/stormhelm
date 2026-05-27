@@ -5,12 +5,14 @@
 #   ./templates/ralph-local.sh <issue-number> [max-iterations]
 #
 # Lee el issue de GitHub, ejecuta /tdd + /run-acceptance hasta
-# que todos los @release pasen, o hasta agotar el budget.
+# que todos los @release pasen, o hasta agotar el budget. Antes de
+# abrir el PR draft invoca al reviewer agent y embebe su reporte.
 #
-# Implementa: §63 (label gate), §65 (max-iterations), §67 (draft PR),
+# Implementa: §63 (label gate), §65 (max-iterations), §66 (reviewer
+#             pre-PR + retry on blocking), §67 (draft PR),
 #             §69 (NDJSON session log via ralph-lib.sh).
-# Pendiente para slices futuros del Ralph hardening: §66 reviewer
-# pre-PR + ralph-blocked automation, §70 backoff 429.
+# Pendiente para slices futuros: ralph-blocked label automation
+# (slice 4), §70 backoff 429 (slice 5).
 
 set -euo pipefail
 
@@ -115,18 +117,67 @@ for i in $(seq 1 "$MAX_ITER"); do
       ralph_scenario_passed "$scn"
     done
 
-    echo "✅ Todos los @release pasan. Creando PR…"
+    # ──────────────────────────────────────────────────────────────
+    # §66 — Invoke reviewer agent on the diff BEFORE opening PR.
+    # Retry policy:
+    #   blocking  → one extra /tdd iteration (counts toward MAX_ITER)
+    #   should-fix → embed report, open PR, human decides
+    #   suggestion → embed report, open PR
+    #   clean      → open PR with brief reviewer-ok note
+    # ──────────────────────────────────────────────────────────────
+    echo "🧐 Invocando reviewer agent sobre el diff..."
+    ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
-    PR_BODY="Automated by Ralph. Closes #$ISSUE_NUM
+    REVIEWER_OUTPUT=$(claude -p "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
+    REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
 
-Iterations consumed: $i / $MAX_ITER
-Scenarios: $SCENARIOS
-Session log: $RALPH_SESSION_LOG
+    ralph_log_event "info" "ralph.reviewer.findings" \
+      "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
 
-Reviewer report: (pending — slice 3 of ralph-hardening)"
+    if [ "$REVIEWER_SEVERITY" = "blocking" ] && [ "$i" -lt "$MAX_ITER" ]; then
+      echo "🛑 Reviewer reportó findings blocking. Intentando una iteración extra de /tdd para corregir…"
+      ralph_log_event "warn" "ralph.reviewer.retry" \
+        "{\"reason\":\"blocking-findings\",\"retry_iteration\":$((i+1))}"
+      # Loop back to the top of the for-loop body for one more iteration.
+      # The retry counts toward MAX_ITER because the for-loop increment is implicit.
+      continue
+    fi
+
+    if [ "$REVIEWER_SEVERITY" = "blocking" ]; then
+      # Out of budget for retries — fall through to the "max-iterations exhausted"
+      # exit path below. Slice 4 will replace this with proper ralph-blocked
+      # automation including the reviewer report in the comment.
+      echo "🛑 Reviewer findings still blocking and budget exhausted. Falling through to escalation."
+      ralph_log_event "error" "ralph.reviewer.blocked_no_retry_budget" \
+        "{\"iterations_used\":${i},\"max_iterations\":${MAX_ITER}}"
+      break
+    fi
+
+    echo "✅ Reviewer severity: ${REVIEWER_SEVERITY}. Creando PR…"
+
+    REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
+
+    PR_BODY=$(cat <<EOF
+Automated by Ralph. Closes #$ISSUE_NUM
+
+**Iterations consumed:** $i / $MAX_ITER
+**Scenarios satisfied:** $SCENARIOS
+**Session log:** \`$RALPH_SESSION_LOG\`
+
+---
+
+$REVIEWER_SECTION
+
+---
+
+> ⚠️ This PR is in draft state per §67. Merge requires human approval.
+EOF
+)
 
     if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
+      ralph_log_event "info" "ralph.pr.opened" \
+        "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
       ralph_end_session "completed"
       exit 0
     else

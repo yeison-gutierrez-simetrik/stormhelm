@@ -250,6 +250,69 @@ ralph_json_string() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# reviewer_severity <reviewer_output_text>
+#
+# Classify the reviewer agent's output into one of:
+#   blocking    — has any 🛑 marker or "BLOCKED:" line → must retry /tdd
+#   should-fix  — has any ⚠️ marker or "SHOULD FIX:" line → embed in PR, human decides
+#   suggestion  — only 💡 markers — proceed to PR
+#   clean       — no findings at all
+#
+# Conventions match the reviewer agent (agents/reviewer.md):
+# - 🛑 / "BLOCKED:" → blocking finding (must fix before merge)
+# - ⚠️ / "SHOULD FIX:" → significant but not blocking
+# - 💡 / "SUGGESTION:" → suggestion / nit
+# ──────────────────────────────────────────────────────────────────────
+ralph_reviewer_severity() {
+  local output="${1:-}"
+  if [ -z "$output" ]; then
+    echo "clean"
+    return 0
+  fi
+  if echo "$output" | grep -qE "🛑|^BLOCKED:|^\s*BLOCKING:"; then
+    echo "blocking"
+  elif echo "$output" | grep -qE "⚠️|^SHOULD FIX:|^\s*WARNING:"; then
+    echo "should-fix"
+  elif echo "$output" | grep -qE "💡|^SUGGESTION:"; then
+    echo "suggestion"
+  else
+    echo "clean"
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# format_reviewer_section <reviewer_output_text> <severity>
+#
+# Produce the "Reviewer report" markdown section that goes into the
+# PR body. Trims excessive whitespace and wraps in a collapsible
+# <details> block if the report is long (>30 lines).
+# ──────────────────────────────────────────────────────────────────────
+ralph_format_reviewer_section() {
+  local output="${1:-}"
+  local severity="${2:-unknown}"
+  local line_count
+  line_count=$(printf '%s\n' "$output" | wc -l | tr -d ' ')
+
+  echo "## Reviewer report"
+  echo ""
+  echo "**Severity:** ${severity}"
+  echo ""
+  if [ "$line_count" -gt 30 ]; then
+    echo "<details><summary>Full report (${line_count} lines) — click to expand</summary>"
+    echo ""
+    echo '```'
+    printf '%s\n' "$output"
+    echo '```'
+    echo ""
+    echo "</details>"
+  else
+    echo '```'
+    printf '%s\n' "$output"
+    echo '```'
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # read_label_value <labels_newline_separated> <prefix>
 #
 # Given a newline-separated list of labels from `gh issue view`, return
@@ -289,3 +352,5 @@ error_tool() { ralph_error_tool "$@"; }
 json_string() { ralph_json_string "$@"; }
 read_label_value() { ralph_read_label_value "$@"; }
 has_label() { ralph_has_label "$@"; }
+reviewer_severity() { ralph_reviewer_severity "$@"; }
+format_reviewer_section() { ralph_format_reviewer_section "$@"; }
