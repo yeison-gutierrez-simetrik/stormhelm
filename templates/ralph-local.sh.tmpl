@@ -1,0 +1,301 @@
+#!/bin/bash
+# Ralph local AFK loop — bootstrap por /setup
+#
+# Uso:
+#   ./templates/ralph-local.sh <issue-number> [max-iterations]
+#
+# Lee el issue de GitHub, ejecuta /tdd + /run-acceptance hasta
+# que todos los @release pasen, o hasta agotar el budget. Antes de
+# abrir el PR draft invoca al reviewer agent y embebe su reporte.
+#
+# Implementa: §63 (label gate), §65 (max-iterations), §66 (reviewer
+#             pre-PR + retry on blocking), §67 (draft PR),
+#             §66 (ralph-blocked label + structured comment via
+#                  block_issue + comment template),
+#             §69 (NDJSON session log via ralph-lib.sh),
+#             §70 (exponential backoff on HTTP 429 via
+#                  call_claude_with_retry).
+# Status: production-ready (per docs/specs/ralph-hardening.md).
+
+set -euo pipefail
+
+# ──────────────────────────────────────────────────────────────────────
+# Bootstrap: locate and source ralph-lib.sh
+# ──────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RALPH_LIB="${SCRIPT_DIR}/ralph-lib.sh"
+BLOCKED_COMMENT_TEMPLATE="${SCRIPT_DIR}/ralph-blocked-comment.md.tmpl"
+
+if [ ! -f "$RALPH_LIB" ]; then
+  echo "❌ ralph-lib.sh no encontrado en ${SCRIPT_DIR}" >&2
+  echo "   Esperado: $RALPH_LIB" >&2
+  exit 1
+fi
+
+if [ ! -f "$BLOCKED_COMMENT_TEMPLATE" ]; then
+  echo "❌ ralph-blocked-comment.md.tmpl no encontrado en ${SCRIPT_DIR}" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$RALPH_LIB"
+
+# Reviewer output captured for the "current attempt" — used to enrich
+# the ralph-blocked comment when reviewer findings drive the block.
+LAST_REVIEWER_OUTPUT=""
+LAST_REVIEWER_SEVERITY=""
+
+# ──────────────────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────────────────
+ISSUE_NUM="${1:?Uso: ./ralph-local.sh <issue-number> [max-iterations]}"
+MAX_ITER="${2:-30}"
+BRANCH_PREFIX="agent/feature"
+
+# ──────────────────────────────────────────────────────────────────────
+# §63 label-contract validation (must run BEFORE init_session so we
+# never leave an empty log file for issues we refuse to process).
+# ──────────────────────────────────────────────────────────────────────
+LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
+
+if [ -z "$LABELS" ]; then
+  echo "❌ Issue #$ISSUE_NUM no existe o gh CLI no está autenticado" >&2
+  exit 1
+fi
+
+if ! ralph_has_label "$LABELS" "ralph-ready"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'ralph-ready' (§63)" >&2
+  exit 1
+fi
+
+if ! echo "$LABELS" | grep -qE "^scenarios:"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'scenarios:scn-*' (§63 obligatorio)" >&2
+  exit 1
+fi
+
+if ! echo "$LABELS" | grep -qE "^budget:"; then
+  echo "❌ Issue #$ISSUE_NUM no tiene label 'budget:NNk' (§63 obligatorio)" >&2
+  exit 1
+fi
+
+# Extract labeled metadata
+SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
+BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
+BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
+
+# ──────────────────────────────────────────────────────────────────────
+# Initialize session log (§69) — from here on, every action is recorded
+# ──────────────────────────────────────────────────────────────────────
+ralph_init_session "$ISSUE_NUM"
+
+ralph_log_event "info" "ralph.contract.validated" \
+  "{\"scenarios\":$(ralph_json_string "$SCENARIOS"),\"budget\":$(ralph_json_string "$BUDGET"),\"budget_tokens\":${BUDGET_TOKENS},\"max_iterations\":${MAX_ITER}}"
+
+# ──────────────────────────────────────────────────────────────────────
+# Helper: after each successful claude call, check if we've exceeded
+# the issue's budget. If yes, block the issue and exit cleanly.
+# ──────────────────────────────────────────────────────────────────────
+check_budget_or_block() {
+  local context_label="${1:-unknown}"
+  if ! ralph_check_budget "$BUDGET_TOKENS"; then
+    echo "💸 Budget exceeded after ${context_label}: ${RALPH_TOKENS_CUMULATIVE} > ${BUDGET_TOKENS} tokens."
+    ralph_log_event "error" "ralph.budget.exceeded" \
+      "{\"cumulative\":${RALPH_TOKENS_CUMULATIVE},\"budget\":${BUDGET_TOKENS},\"at_call\":$(ralph_json_string "$context_label")}"
+    REVIEWER_SECTION="${LAST_REVIEWER_OUTPUT:+$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")}"
+    REVIEWER_SECTION="${REVIEWER_SECTION:-_Reviewer not invoked before budget exhaustion._}"
+    ralph_block_issue "$ISSUE_NUM" \
+      "budget-exceeded-during-${context_label}" \
+      "$BRANCH" \
+      "$RALPH_SESSION_LOG" \
+      "$SCENARIOS" \
+      "$REVIEWER_SECTION" \
+      "$BLOCKED_COMMENT_TEMPLATE"
+    ralph_end_session "budget_exceeded" "${context_label}"
+    exit 1
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# Branch setup
+# ──────────────────────────────────────────────────────────────────────
+SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' | tr ' ' '-' | tr -d ',' | tr '[:upper:]' '[:lower:]' | head -c 40)
+BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
+
+if git checkout -b "$BRANCH" 2>/dev/null; then
+  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH"
+else
+  git checkout "$BRANCH"
+  ralph_git_action "checkout-existing" "success" "git checkout $BRANCH"
+fi
+
+echo "🤖 Ralph iniciando loop para issue #$ISSUE_NUM en rama $BRANCH"
+echo "   Session log: $RALPH_SESSION_LOG"
+echo "   Scenarios: $SCENARIOS"
+echo "   Budget: $BUDGET, Max iterations: $MAX_ITER"
+
+# ──────────────────────────────────────────────────────────────────────
+# Main loop
+# ──────────────────────────────────────────────────────────────────────
+for i in $(seq 1 "$MAX_ITER"); do
+  echo ""
+  echo "=== Iteración $i de $MAX_ITER ==="
+
+  ralph_iteration_start "tdd"
+
+  TDD_OUT=$(ralph_call_claude_with_retry "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice." 2>&1)
+  TDD_RC=$?
+  if [ "$TDD_RC" -ne 0 ]; then
+    if [ "$TDD_RC" -eq 124 ]; then
+      # Rate-limit exhausted — block the issue and bail out.
+      ralph_error_tool "claude" "/tdd hit rate-limit exhaustion"
+      ralph_iteration_end "rate-limit-exhausted"
+      REVIEWER_SECTION="_Not invoked: API rate-limit exhausted during /tdd._"
+      ralph_block_issue "$ISSUE_NUM" \
+        "rate-limit-exhausted-during-tdd" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "rate_limit_exhausted" "tdd-call"
+      exit 1
+    fi
+    ralph_error_tool "claude" "/tdd returned non-zero (code $TDD_RC) in iteration $i"
+    ralph_iteration_end "tdd-failed"
+    continue
+  fi
+
+  check_budget_or_block "tdd"
+
+  ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." 2>&1)
+  ACCEPTANCE_RC=$?
+  if [ "$ACCEPTANCE_RC" -eq 124 ]; then
+    ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
+    ralph_iteration_end "rate-limit-exhausted"
+    REVIEWER_SECTION="_Not invoked: API rate-limit exhausted during /run-acceptance._"
+    ralph_block_issue "$ISSUE_NUM" \
+      "rate-limit-exhausted-during-acceptance" \
+      "$BRANCH" \
+      "$RALPH_SESSION_LOG" \
+      "$SCENARIOS" \
+      "$REVIEWER_SECTION" \
+      "$BLOCKED_COMMENT_TEMPLATE"
+    ralph_end_session "rate_limit_exhausted" "run-acceptance-call"
+    exit 1
+  fi
+
+  check_budget_or_block "run-acceptance"
+
+  if echo "$ACCEPTANCE_OUT" | grep -q "exit code: 0"; then
+    ralph_iteration_end "green"
+
+    # All scenarios reported as passing — emit one event per
+    for scn in $(echo "$SCENARIOS" | tr ',' ' '); do
+      ralph_scenario_passed "$scn"
+    done
+
+    # ──────────────────────────────────────────────────────────────
+    # §66 — Invoke reviewer agent on the diff BEFORE opening PR.
+    # Retry policy:
+    #   blocking  → one extra /tdd iteration (counts toward MAX_ITER)
+    #   should-fix → embed report, open PR, human decides
+    #   suggestion → embed report, open PR
+    #   clean      → open PR with brief reviewer-ok note
+    # ──────────────────────────────────────────────────────────────
+    echo "🧐 Invocando reviewer agent sobre el diff..."
+    ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
+
+    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
+    check_budget_or_block "code-review"
+    REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
+    LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
+    LAST_REVIEWER_SEVERITY="$REVIEWER_SEVERITY"
+
+    ralph_log_event "info" "ralph.reviewer.findings" \
+      "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
+
+    if [ "$REVIEWER_SEVERITY" = "blocking" ] && [ "$i" -lt "$MAX_ITER" ]; then
+      echo "🛑 Reviewer reportó findings blocking. Intentando una iteración extra de /tdd para corregir…"
+      ralph_log_event "warn" "ralph.reviewer.retry" \
+        "{\"reason\":\"blocking-findings\",\"retry_iteration\":$((i+1))}"
+      # Loop back to the top of the for-loop body for one more iteration.
+      # The retry counts toward MAX_ITER because the for-loop increment is implicit.
+      continue
+    fi
+
+    if [ "$REVIEWER_SEVERITY" = "blocking" ]; then
+      # Out of budget for retries — apply ralph-blocked with reviewer context.
+      echo "🛑 Reviewer findings still blocking and budget exhausted. Blocking issue."
+      ralph_log_event "error" "ralph.reviewer.blocked_no_retry_budget" \
+        "{\"iterations_used\":${i},\"max_iterations\":${MAX_ITER}}"
+      REVIEWER_SECTION=$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")
+      ralph_block_issue "$ISSUE_NUM" \
+        "reviewer-blocking-after-retry-budget-exhausted" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "blocked" "reviewer-blocking-no-retry-budget"
+      exit 1
+    fi
+
+    echo "✅ Reviewer severity: ${REVIEWER_SEVERITY}. Creando PR…"
+
+    REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
+
+    PR_BODY=$(cat <<EOF
+Automated by Ralph. Closes #$ISSUE_NUM
+
+**Iterations consumed:** $i / $MAX_ITER
+**Scenarios satisfied:** $SCENARIOS
+**Session log:** \`$RALPH_SESSION_LOG\`
+
+---
+
+$REVIEWER_SECTION
+
+---
+
+> ⚠️ This PR is in draft state per §67. Merge requires human approval.
+EOF
+)
+
+    if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+      ralph_git_action "pr-create" "success" "gh pr create --draft"
+      ralph_log_event "info" "ralph.pr.opened" \
+        "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
+      ralph_end_session "completed"
+      exit 0
+    else
+      ralph_git_action "pr-create" "failed" "gh pr create --draft"
+      ralph_error_tool "gh" "gh pr create returned non-zero"
+      ralph_end_session "blocked" "gh-pr-create-failed"
+      exit 1
+    fi
+  fi
+
+  ralph_iteration_end "acceptance-failing"
+  echo "⚠️  Iteración $i no logró green. Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuando…"
+  ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
+done
+
+echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Marcando issue como ralph-blocked."
+
+# Use the reviewer section from the last attempt if any, otherwise a placeholder.
+if [ -n "$LAST_REVIEWER_OUTPUT" ]; then
+  REVIEWER_SECTION=$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")
+else
+  REVIEWER_SECTION="_Reviewer was not invoked because /run-acceptance never reached green._"
+fi
+
+ralph_block_issue "$ISSUE_NUM" \
+  "max-iterations-exhausted" \
+  "$BRANCH" \
+  "$RALPH_SESSION_LOG" \
+  "$SCENARIOS" \
+  "$REVIEWER_SECTION" \
+  "$BLOCKED_COMMENT_TEMPLATE"
+
+ralph_end_session "budget_exceeded" "max-iterations-reached"
+exit 1

@@ -274,15 +274,58 @@ One agent is shipped: `agents/reviewer.md` (implements §114). Two are specified
 - §43 All HTTP errors share a single response shape
 - §44 Drizzle schemas are not domain entities
 
+#### `capabilities/python/03-style.md` — Python language style
+
+*When to read: writing or reviewing any Python code. Activates when capability `python` is selected. Assumes a strict-mode type checker (`pyright --strict`, `mypy --strict`, or `pyrefly`).*
+
+- §5-py Do not use `Any`
+- §6-py Do not use `cast()` or `# type: ignore`
+- §7-py Do not use unsafe optional access (no `assert ... is not None` as narrowing)
+- §8-py Avoid unnecessary mutability (no mutable defaults; prefer frozen dataclasses)
+- §9-py Use sound operators (no `or` for None-defaulting)
+- §10-py Numbers and collections are not booleans
+- §33-py Use immutable / frozen types where practical (`frozen=True`, `Sequence`, `Mapping`)
+
+#### `capabilities/python/11-async.md` — Python async behavior & runtime
+
+*When to read: anything with `async`/`await`, long-running work, external I/O, streaming, or runtime-specific entrypoints. Activates when capability `python` is selected.*
+
+- §50-py Do not block the event loop (no sync I/O in async; use `asyncio.to_thread`)
+- §51-py No untracked `create_task` (no floating coroutines); use `TaskGroup`
+- §52-py External calls have timeout and cancellation (`asyncio.timeout(...)`)
+- §53-py Bound concurrency over user-controlled arrays (`asyncio.Semaphore`)
+- §54-py Use streaming for large or long responses (FastAPI `StreamingResponse`)
+- §55-py Runtime differences live in entrypoints and adapters (uvicorn, Lambda, hypercorn)
+
+#### `capabilities/python/12-package-management.md` — Package management & supply-chain hygiene
+
+*When to read: adding, upgrading, or removing a dependency; reviewing a PR that touches `pyproject.toml` or the lockfile; configuring CI install or release. Activates when capability `python` is selected.*
+
+- §117-py Use `uv` as the package manager; commit `uv.lock`
+- §118-py Build hooks are blocked by default; wheel-only installs with explicit allowlist
+- §119-py CI installs with `--frozen`; lockfile drift fails the build
+- §120-py Pin direct dependencies conservatively (`~=X.Y`); auto-merge only patch upgrades
+- §121-py Verify provenance before release (`pip-audit`, Sigstore attestations)
+
+#### `capabilities/python-fastapi/09-stack-conventions.md` — FastAPI / SQLAlchemy / Pydantic conventions
+
+*When to read: wiring composition root, adding FastAPI middleware or dependency, placing a Pydantic schema, mapping a `Result` to HTTP, defining an error response, writing a SQLAlchemy repository. Activates when capability `python-fastapi` is selected.*
+
+- §38-py Composition root owns dependencies; FastAPI `Depends` is for request-scoped only
+- §39-py Pydantic schemas live in the layer they belong to
+- §40-py Middleware ordering: security → identity → context → routes (register reverse-order)
+- §41-py Authentication is middleware; authorization is the use case
+- §42-py Map Result to HTTP at the adapter; exception handlers are for unexpected only
+- §43-py All HTTP errors share a single response shape
+- §44-py SQLAlchemy models are not domain entities
+
 ---
 
 ### Capabilities — planned (not yet shipped)
 
-These will follow the same template as the TypeScript capabilities above. Track progress in the README roadmap.
+These will follow the same template as the shipped capabilities above. Track progress in the README roadmap.
 
 - `capabilities/typescript-fastify/` — Fastify / TypeORM-or-Prisma / Zod-or-TypeBox
-- `capabilities/python/` — Python language baseline (twins of §5-§10, §50-§55)
-- `capabilities/python-fastapi/` — FastAPI / SQLAlchemy / Pydantic conventions
 - `capabilities/go/` — Go language baseline
 - `capabilities/go-echo/` — Go + Echo framework conventions
 
@@ -318,4 +361,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §122** in the shipped capabilities (`core` + `typescript` + `typescript-hono`). New capabilities extend the numbering without renumbering existing rules.
+**§1 – §122** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.

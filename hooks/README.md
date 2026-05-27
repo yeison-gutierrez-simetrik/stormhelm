@@ -13,6 +13,7 @@ Rules governing these hooks live in [`docs/engineering/core/19-hooks-and-runtime
 | `webfetch-cache-pre.js` | `PreToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
 | `webfetch-cache-post.js` | `PostToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
 | `context-monitor.js` | `PostToolUse` | `*` | §112 | Opt-in; silent without telemetry bridge file |
+| `git-guardrails.js` | `PreToolUse` | `Bash` | §68 | **Mandatory** whenever Ralph runs in this project |
 
 ---
 
@@ -131,6 +132,20 @@ After a real `WebFetch` returns:
 5. Atomically writes `.claude/webfetch-cache/<sha256-of-url>.json` with the body and validators.
 
 Always exits 0 — this hook never blocks.
+
+### `git-guardrails.js`
+
+On every `Bash` tool call:
+
+1. Reads the JSON envelope from stdin and extracts the `tool_input.command` string.
+2. If `GIT_GUARDRAILS_DISABLE=1` is set → exit 0 (explicit human bypass).
+3. Matches the command against the regex blocklist (see §68 for the canonical list): `git push --force*`, `git reset --hard*`, `git clean -fdx?`, `git branch -D`, `git push --delete`, `rm -rf .git`, `find … .git … -delete`.
+4. On match → write a structured explanation to stderr and exit **2** (Claude Code surfaces stderr as the tool result and the command is **not** executed).
+5. On no match or any internal error → exit 0 (fail-open; a hook bug must never block productive work).
+
+Latency budget per invocation: **< 50 ms** (NFR-1 in `docs/specs/ralph-hardening.md`). Pure regex, no I/O beyond reading stdin.
+
+**Mandatory for any project where Ralph runs.** The Day-Shift human bypass exists for explicit cleanup work (e.g., dropping a malformed local branch after a failed rebase). Ralph **never** sets `GIT_GUARDRAILS_DISABLE`.
 
 ### `context-monitor.js`
 
