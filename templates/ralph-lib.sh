@@ -337,6 +337,128 @@ ralph_has_label() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# parse_budget_label <budget_label_value>
+#
+# Convert a budget label like "50k", "120k", "200k", or a raw number
+# "50000" into an integer token count. Returns 0 on parse failure.
+# ──────────────────────────────────────────────────────────────────────
+ralph_parse_budget_label() {
+  local raw="${1:-}"
+  if [[ "$raw" =~ ^([0-9]+)[kK]$ ]]; then
+    echo $(( ${BASH_REMATCH[1]} * 1000 ))
+  elif [[ "$raw" =~ ^([0-9]+)[mM]$ ]]; then
+    echo $(( ${BASH_REMATCH[1]} * 1000000 ))
+  elif [[ "$raw" =~ ^[0-9]+$ ]]; then
+    echo "$raw"
+  else
+    echo 0
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# extract_tokens_from_output <output_text>
+#
+# Best-effort heuristic to extract a token count from the combined
+# stdout+stderr of a `claude -p` invocation. Returns 0 if no token
+# information can be parsed (caller treats 0 as "unknown — do not
+# update cumulative").
+#
+# Strategies tried in order:
+#   1. JSON with usage.input_tokens + usage.output_tokens (modern
+#      claude --output-format json)
+#   2. Plain-text patterns: "tokens used: NNNN", "Total tokens: NNNN",
+#      "NNNN input tokens, MMMM output tokens"
+#   3. User-supplied extractor via RALPH_TOKEN_EXTRACTOR_CMD env var
+#      (the env var is invoked with the output on stdin; expected to
+#      print a single integer to stdout)
+#
+# The function is intentionally tolerant: it never errors. If parsing
+# fails the caller gets 0 and Ralph continues without budget tracking
+# for that call (worse than nothing? no — silently breaking the loop
+# would be worse).
+# ──────────────────────────────────────────────────────────────────────
+ralph_extract_tokens_from_output() {
+  local output="${1:-}"
+
+  if [ -z "$output" ]; then
+    echo 0
+    return 0
+  fi
+
+  # User-supplied extractor takes precedence
+  if [ -n "${RALPH_TOKEN_EXTRACTOR_CMD:-}" ]; then
+    local custom
+    custom=$(echo "$output" | eval "$RALPH_TOKEN_EXTRACTOR_CMD" 2>/dev/null || echo "")
+    if [[ "$custom" =~ ^[0-9]+$ ]]; then
+      echo "$custom"
+      return 0
+    fi
+  fi
+
+  # Strategy 1: JSON usage block
+  local json_tokens
+  json_tokens=$(echo "$output" \
+    | jq -r 'try (.usage.input_tokens + .usage.output_tokens) catch empty' 2>/dev/null \
+    | head -1)
+  if [[ "$json_tokens" =~ ^[0-9]+$ ]]; then
+    echo "$json_tokens"
+    return 0
+  fi
+
+  # Strategy 2a: "tokens used: NNNN" / "Total tokens: NNNN"
+  local plain
+  plain=$(echo "$output" | grep -oE '(tokens used|Total tokens|token count)[: ]+[0-9]+' \
+    | grep -oE '[0-9]+' | head -1)
+  if [[ "$plain" =~ ^[0-9]+$ ]]; then
+    echo "$plain"
+    return 0
+  fi
+
+  # Strategy 2b: "NNNN input tokens, MMMM output tokens"
+  local in_tok out_tok
+  in_tok=$(echo "$output" | grep -oE '[0-9]+ input tokens?' | grep -oE '[0-9]+' | head -1)
+  out_tok=$(echo "$output" | grep -oE '[0-9]+ output tokens?' | grep -oE '[0-9]+' | head -1)
+  if [[ "$in_tok" =~ ^[0-9]+$ ]] && [[ "$out_tok" =~ ^[0-9]+$ ]]; then
+    echo $(( in_tok + out_tok ))
+    return 0
+  fi
+
+  # Nothing matched
+  echo 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# add_tokens <delta>
+#
+# Increment RALPH_TOKENS_CUMULATIVE by <delta>. No-op if delta is 0
+# or non-numeric.
+# ──────────────────────────────────────────────────────────────────────
+ralph_add_tokens() {
+  local delta="${1:-0}"
+  if [[ "$delta" =~ ^[0-9]+$ ]] && [ "$delta" -gt 0 ]; then
+    RALPH_TOKENS_CUMULATIVE=$(( RALPH_TOKENS_CUMULATIVE + delta ))
+  fi
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# check_budget <budget_tokens>
+#
+# Return 0 if cumulative <= budget, 1 if exceeded. Caller decides what
+# to do (typically: call ralph_block_issue with reason "budget-exceeded").
+# Budget 0 means "no budget configured" → always returns 0.
+# ──────────────────────────────────────────────────────────────────────
+ralph_check_budget() {
+  local budget="${1:-0}"
+  if [ "$budget" -le 0 ]; then
+    return 0
+  fi
+  if [ "$RALPH_TOKENS_CUMULATIVE" -gt "$budget" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # call_claude_with_retry <prompt>
 #
 # Wraps `claude -p <prompt>` with exponential backoff on HTTP 429.
@@ -382,7 +504,14 @@ ralph_call_claude_with_retry() {
     local output
     # Run claude, capture stdout, redirect stderr to the temp file
     if output=$(claude -p "$prompt" 2> "$stderr_file"); then
-      # Success — emit stdout to the caller and return 0
+      # Success — extract tokens (best-effort) and update cumulative
+      local combined tokens
+      combined="${output}
+$(cat "$stderr_file")"
+      tokens=$(ralph_extract_tokens_from_output "$combined")
+      if [ "$tokens" -gt 0 ]; then
+        ralph_add_tokens "$tokens"
+      fi
       printf '%s' "$output"
       return 0
     fi
@@ -592,3 +721,7 @@ summarize_scenarios() { ralph_summarize_scenarios "$@"; }
 render_blocked_comment() { ralph_render_blocked_comment "$@"; }
 block_issue() { ralph_block_issue "$@"; }
 call_claude_with_retry() { ralph_call_claude_with_retry "$@"; }
+parse_budget_label() { ralph_parse_budget_label "$@"; }
+extract_tokens_from_output() { ralph_extract_tokens_from_output "$@"; }
+add_tokens() { ralph_add_tokens "$@"; }
+check_budget() { ralph_check_budget "$@"; }
