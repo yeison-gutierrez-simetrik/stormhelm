@@ -171,7 +171,7 @@ cat > .claude/settings.json <<EOF
 EOF
 ```
 
-For a complete pre-built scaffold (with `.planning/`, templates, stubs, `.gitignore`, etc.), see [`examples/task_flow/`](examples/task_flow/) in this repo — copy it as a starting point instead of doing the steps above.
+For a complete pre-built scaffold (with `.planning/`, templates, stubs, `.gitignore`, etc.), see [`task_flow/`](task_flow/) in this repo — copy it as a starting point instead of doing the steps above.
 
 ### 2. Run inside Claude Code
 
