@@ -212,6 +212,8 @@ After `/tdd` Green + `/run-acceptance` pass on an issue, but **before** `gh pr c
 
 The reviewer's report is always attached to the PR description regardless of outcome, so the human Day-Shift review starts with the same information.
 
+Shipped implementation: `templates/ralph-local.sh` invokes the reviewer (`claude -p "/code-review …"`) immediately after `/run-acceptance` returns green. The lib's `ralph_reviewer_severity` classifies stdout into `blocking | should-fix | suggestion | clean`; `ralph_format_reviewer_section` produces a markdown section (with collapsible `<details>` wrapping for long reports) that is embedded in the PR body alongside iteration count and session log path. Log events `ralph.reviewer.invoked`, `ralph.reviewer.findings`, and (on retry) `ralph.reviewer.retry` are emitted.
+
 ### Required behavior on `max-iterations` exceeded
 
 1. Stop the loop for this issue (continue to the next in the queue).
@@ -220,6 +222,8 @@ The reviewer's report is always attached to the PR description regardless of out
 4. Post a structured comment on the issue with: iterations completed, last 5 actions taken, the failing scenario(s), the session log path.
 5. If a branch was created, leave it intact (do **not** delete) — the human reviews and decides.
 6. **Never** `git reset --hard`, `git push --force`, `git branch -D`, or `git clean -fdx` on the branch.
+
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_block_issue` which (1) calls `gh issue edit --add-label ralph-blocked --remove-label ralph-ready`, (2) renders `templates/ralph-blocked-comment.md.tmpl` with the reason, branch, session log, scenario pass/fail summary (`ralph_summarize_scenarios`), last 5 events from the log (`ralph_extract_last_actions`), and reviewer report if any, and (3) posts the rendered comment via `gh issue comment`. The function is idempotent and emits `ralph.issue.blocked` to the session log. Branch preservation is enforced by the git-guardrails hook (§68): the script cannot delete a branch even if it tried.
 
 ### Good comment template
 
@@ -298,7 +302,7 @@ gh pr merge 142 --squash   # human merges
 
 ## §68. Ralph respects `git-guardrails`: destructive Git operations are blocked at the tool level
 
-The `git-guardrails-claude-code` hook (from `mattpocock/skills`) installs a PreToolUse hook that blocks dangerous Git commands. **Installation is mandatory** for any environment where Ralph runs.
+Stormhelm ships its own `hooks/git-guardrails.js` (zero-dependency Node script) as a `PreToolUse(Bash)` hook that blocks dangerous Git commands. **Installation is mandatory** for any environment where Ralph runs. See `hooks/README.md` for the full behavior contract and installation snippet.
 
 ### Blocked operations
 
@@ -338,6 +342,8 @@ The disable flag is **never** set by the Ralph script.
 ## §69. Each Ralph session writes a structured JSON log
 
 Every AFK session produces a single, line-delimited JSON log file. This is the source of truth for postmortems, billing reconciliation, and the audit trail.
+
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_init_session`, `ralph_log_event`, `ralph_iteration_start`, `ralph_scenario_passed`, `ralph_git_action`, `ralph_budget_checkpoint`, `ralph_error_tool`, and `ralph_end_session`. The main `ralph-local.sh` invokes these at every significant operation. All events are NDJSON (one JSON object per line), validated by `jq -c '.'`.
 
 ### Log location
 
@@ -398,6 +404,8 @@ Why bad: unstructured, ungreppable, no cumulative token count, no link to scenar
 ## §70. On Anthropic API 429, retry with exponential backoff; do not parallelize harder
 
 Hitting rate limits is normal. The response is **slow down**, never **try more workers**.
+
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_call_claude_with_retry`, which wraps every `claude -p ...` invocation in the main script. The backoff schedule is `[1, 2, 4, 8, 16, 32, 60]` seconds (7 retries, ~123 s max wait). Detection covers `429`, `rate_limit_exceeded`, `rate limit`, and `Too Many Requests` in the CLI's stderr. Each retry emits `ralph.api.rate_limited`; exhaustion emits `ralph.api.rate_limit_exhausted`, returns exit code **124** to the caller, and the main script handles 124 by invoking `ralph_block_issue` with reason `rate-limit-exhausted-during-<call>` so the issue surfaces clearly in the morning review.
 
 ### Retry policy
 

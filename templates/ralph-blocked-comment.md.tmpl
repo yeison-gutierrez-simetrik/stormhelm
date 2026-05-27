@@ -1,0 +1,29 @@
+🛑 **Ralph blocked after {iterations} iterations**
+
+**Reason:** {reason}
+**Issue:** #{issue_number}
+**Branch:** `{branch}` (preserved — do not delete)
+**Session log:** `{session_log}`
+
+## Scenario results
+
+{scenario_results}
+
+## Last actions taken (from the session log)
+
+{last_actions}
+
+## Reviewer report (if any)
+
+{reviewer_section}
+
+## Recommended next steps
+
+- Open `{session_log}` and grep for `ralph.error.tool` to see what failed last.
+- If a single scenario keeps failing, consider splitting the issue into smaller slices.
+- If the reviewer agent flagged a §N rule violation that you disagree with, either fix the code or escalate via `docs/decisions/` (ADR).
+- Once unblocked, remove the `ralph-blocked` label, re-add `ralph-ready`, and re-run `./templates/ralph-local.sh {issue_number}`.
+
+---
+
+*This comment was generated automatically by `ralph-local.sh` per §66.*
