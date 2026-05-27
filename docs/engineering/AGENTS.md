@@ -33,15 +33,16 @@ This document is a **template index**. When you run `/setup`, a personalized `AG
 
 ### Core — language-agnostic patterns
 
-#### `core/01-philosophy.md` — Delivery philosophy
+#### `core/01-philosophy.md` — Delivery philosophy & external knowledge
 
-*When to read: planning a task, scoping a PR, deciding what to omit.*
+*When to read: planning a task, scoping a PR, deciding what to omit; writing code against any third-party library, framework, SDK, or CLI.*
 
 - §1 Build only validated business needs
 - §2 Prefer the simplest correct solution
 - §30 Vertical slices over horizontal completeness
 - §31 Omit before mocking
 - §35 Pull requests should be boring to review
+- §122 Verify external library APIs against current docs (Context7) before writing code against them
 
 #### `core/02-architecture.md` — Hexagonal architecture & layering
 
@@ -251,6 +252,16 @@ One agent is shipped: `agents/reviewer.md` (implements §114). Two are specified
 - §54 Use streaming for large or long responses
 - §55 Runtime differences live in entrypoints and adapters
 
+#### `capabilities/typescript/12-package-management.md` — Package management & supply-chain hygiene
+
+*When to read: adding, upgrading, or removing a dependency; reviewing a PR that touches `package.json` or the lockfile; configuring CI install or release. Activates when capability `typescript` is selected.*
+
+- §117 Use `pnpm` as the package manager; commit `pnpm-lock.yaml`
+- §118 Lifecycle scripts are blocked by default; opt-in via an explicit allowlist
+- §119 CI installs with `--frozen-lockfile`; lockfile drift fails the build
+- §120 Pin direct dependencies conservatively; auto-merge only patch upgrades
+- §121 Verify provenance before release; audit signatures of every dep
+
 #### `capabilities/typescript-hono/09-stack-conventions.md` — Hono / Drizzle / Zod conventions
 
 *When to read: wiring composition root, adding Hono middleware, placing a Zod schema, mapping a `Result` to HTTP, defining an error response, writing a Drizzle repository. Activates when capability `typescript-hono` is selected.*
@@ -307,4 +318,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §116** in the shipped capabilities (`core` + `typescript` + `typescript-hono`). New capabilities extend the numbering without renumbering existing rules.
+**§1 – §122** in the shipped capabilities (`core` + `typescript` + `typescript-hono`). New capabilities extend the numbering without renumbering existing rules.

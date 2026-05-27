@@ -280,12 +280,33 @@ Tailored to the stack. For TypeScript + Hono + Drizzle + Zod, the script include
 
 ```bash
 # Test commands chosen for the stack
-TEST_CMD="npm run test"
-ACCEPTANCE_CMD="npm run test:acceptance"
-LINT_CMD="npm run lint"
-TYPECHECK_CMD="npm run typecheck"
-COVERAGE_CMD="npm run test:coverage"
+TEST_CMD="pnpm test"
+ACCEPTANCE_CMD="pnpm test:acceptance"
+LINT_CMD="pnpm lint"
+TYPECHECK_CMD="pnpm typecheck"
+COVERAGE_CMD="pnpm test:coverage"
 ```
+
+> For any TypeScript stack the package manager is `pnpm` per §117. The setup wizard rejects projects that contain `package-lock.json` or `yarn.lock` and offers to convert them; lifecycle scripts are blocked by default per §118 — the wizard seeds an empty `pnpm.onlyBuiltDependencies` allowlist in `package.json`.
+
+### `.claude/settings.json` — MCP servers
+
+The setup wizard writes an `mcpServers` block enabling the Context7 MCP (§122) so agents can fetch current library documentation instead of relying on training-data memory:
+
+```jsonc
+{
+  "permissions": { /* ... */ },
+  "hooks": { /* ... */ },
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}
+```
+
+The wizard asks whether to enable Context7 (default: yes for any project that declares a third-party library in its stack). When declined, §122 falls back to `WebFetch` against official docs URLs, cached by the WebFetch hook (§108).
 
 ### `.gitleaks.toml`
 
@@ -315,11 +336,11 @@ After generation, the skill runs a self-check:
 ✅ Stormhelm configured for <ProjectName>
 
 Active capabilities:
-  - core (§1–§3, §11–§90 minus stack-specific)
-  - typescript (§5–§10, §33, §50–§55)
+  - core (§1–§3, §11–§90, §122 minus stack-specific)
+  - typescript (§5–§10, §33, §50–§55, §117–§121)
   - typescript-hono (§38–§44)
 
-Active rules: §1–§116
+Active rules: §1–§122
 Compliance mode: SOC2 + GDPR
 Ralph: enabled, 1 worker, 500k token budget/night
 
