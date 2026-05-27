@@ -353,7 +353,7 @@ The rule files include illustrative code examples. **These examples use a sample
 
 ## Provenance
 
-The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §90) with patterns required for AI-agent operation: BDD outside-in, Ralph/AFK discipline, brownfield protocols, observability, and supply-chain security.
+The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §122) with patterns required for AI-agent operation: BDD outside-in (§56–§62), Ralph/AFK discipline (§63–§70), brownfield protocols (§71–§76), observability (§77–§83), supply-chain security (§84–§90), bug handling (§91–§96), improvements (§97–§102), module contracts + Agent Teams (§103–§107), hooks & runtime guards (§108–§113), formal sub-agents (§114–§116), package management & supply-chain hygiene (§117–§121), and external-API verification via Context7 (§122).
 
 The structural pattern (hierarchical `AGENTS.md` + topical files loaded on demand) comes from **`mattpocock/skills`** (AI Hero).
 

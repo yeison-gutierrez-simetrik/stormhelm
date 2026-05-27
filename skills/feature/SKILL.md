@@ -22,7 +22,7 @@ description: |
 
 - The feature is greenfield (not brownfield — for that, see `core/14-brownfield.md`).
 - You want a single trigger that runs the pipeline.
-- You trust the rules (§1-§116) to enforce themselves throughout.
+- You trust the rules (§1-§122) to enforce themselves throughout.
 - You want one explicit human checkpoint (after `/to-scenarios`) rather than 12 mini-checkpoints.
 
 Internally, `/feature` invokes the same skills that are callable individually. It is **composition, not duplication**. The result is identical to running each skill in sequence by hand; the difference is operational ergonomics.
@@ -311,7 +311,7 @@ Each step transition emits an event (`feature.step.started`, `feature.step.compl
 |---|---|---|
 | Control | Maximum — human invokes each step | Lower — human watches and approves at 2 checkpoints |
 | Speed of invocation | Slower — 12 commands | Faster — 1 command |
-| Trust required | Less — each step verified before next | More — trust §1-§116 enforce themselves |
+| Trust required | Less — each step verified before next | More — trust §1-§122 enforce themselves |
 | Best for | Exploratory work, brownfield, high-risk changes | Routine greenfield features in a team that knows the rules |
 
 Both paths are first-class. Use whichever fits the day.
