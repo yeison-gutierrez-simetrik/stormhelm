@@ -448,4 +448,4 @@ The Q1 → Q4 rotation covers each surface at least once per year:
 
 The `AGENTS.md` index references all 16 files. Rule numbering is stable across the codebase: when this set evolves, new rules are added with the next available `§N`, and deprecated rules are kept with a `[deprecated]` marker but retain their number.
 
-**Total rules in the set**: §1 – §90.
+**Total rules in the set**: §1 – §122.

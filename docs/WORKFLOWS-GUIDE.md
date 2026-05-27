@@ -2,7 +2,7 @@
 
 > **Audiencia:** developers que adoptan Stormhelm en un proyecto y necesitan saber cómo se ejecuta cada flujo, qué produce cada paso, y dónde el humano debe intervenir.
 >
-> **Pre-requisitos de lectura:** `README.md` raíz (qué es Stormhelm), `docs/engineering/AGENTS.md` (índice de reglas). No necesitas haber leído las 116 reglas — esta guía las invoca cuando aplican.
+> **Pre-requisitos de lectura:** `README.md` raíz (qué es Stormhelm), `docs/engineering/AGENTS.md` (índice de reglas). No necesitas haber leído las 122 reglas — esta guía las invoca cuando aplican.
 >
 > **Esta guía usa un ejemplo conductor:** *"Customer deja una reseña (1-5 estrellas + comentario opcional) sobre un Provider después de completar un Quote."* Se referencia como **`provider-review`** a lo largo del documento.
 
@@ -1591,4 +1591,4 @@ Para feedback sobre esta guía o sugerencias de mejora basadas en uso real, come
 ---
 
 *Última actualización: 2026-06-01*
-*Versión del framework: Stormhelm v1.0 (116 reglas, 28 skills, 1 agente, 3 hooks, 13 steps en flujo principal)*
+*Versión del framework: Stormhelm v1.0 (122 reglas, 28 skills, 1 agente, 3 hooks, 13 steps en flujo principal)*
