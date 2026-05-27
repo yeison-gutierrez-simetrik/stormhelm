@@ -95,10 +95,41 @@ Each branch with uncertainty becomes a question.
 Rules of asking:
 
 - **One question per turn**, until you have a clear answer. Don't ask 5 things at once.
-- **Yes/no questions** when possible; otherwise **multiple choice** with 2-4 options.
+- **Every question is multiple choice** with 2-4 concrete options, never open-ended or yes/no. Yes/no hides the underlying decision — force the human to choose between *named alternatives*.
+- **Mark the recommended option** (`✅ recommended`) and explain in one line *why* it is recommended (constitution principle, §N rule, `CONTEXT.md` term, or the precedent in the codebase).
+- **Explain why each non-recommended option is viable** in one line each — never list strawman options. If an option has no defensible reason to exist, drop it from the list.
+- **Always include an `Other / correction` option** as the last choice. The human selects it when the listed alternatives miss the real decision; they then describe the actual option in prose, and you re-issue the question with the corrected option set.
 - **Quote back** the human's previous answer when asking the next question.
 - **Reference §N and constitution** when a default exists ("§11 stores money as integer cents — do you want to override that for this feature, or keep the default?").
 - **Stop asking** about things already settled by the constitution or by `CONTEXT.md`.
+
+#### Question format
+
+```markdown
+**Q<N>.** <one-sentence question, in PRD vocabulary>
+
+- **(a) <option A>** — ✅ recommended. <one-line rationale citing §N, constitution, or precedent>.
+- **(b) <option B>** — <one-line why this is also viable / what trade-off it makes>.
+- **(c) <option C>** — <one-line why this is also viable / what trade-off it makes>.
+- **(d) Other / correction** — the options above miss the real decision; describe it.
+```
+
+#### Example
+
+```markdown
+**Q12.** Should a Listing be visible to Customers before a Provider verifies the underlying Company?
+
+- **(a) Not visible until verified** — ✅ recommended. C.3 requires authenticated provenance; showing unverified Listings violates the trust contract.
+- **(b) Visible with a `pending verification` badge** — viable if Product wants discovery before verification; adds a status enum to the public API and a §48 versioning step.
+- **(c) Visible, no badge, soft-launched** — viable only as an experiment; requires a feature flag and a kill-switch documented as an ADR.
+- **(d) Other / correction** — the options above miss the real decision; describe it.
+```
+
+#### Why this format
+
+- Multiple-choice with named alternatives forces the agent to do design work *before* asking, instead of dumping the decision on the human.
+- The rejected options become free `Considered Options` for the next ADR — no extra writing.
+- The `Other / correction` escape valve prevents the agent from forcing the human into a false trichotomy when the real answer is none of the above.
 
 **Question count scales with feature complexity.** A single-actor single-behavior feature does not need 40 questions; a multi-context greenfield does not get away with 10. Use this table as a calibration:
 
@@ -160,11 +191,20 @@ Save `.planning/grilling/<slug>-<YYYYMMDD>.md` with:
 ## Resolved design tree
 
 ### Actor: Provider
-- Question 1: ... → Answer: ...
-- Question 2: ... → Answer: ...
+
+**Q1.** <question text>
+- (a) <option A> — ✅ recommended. <rationale>
+- (b) <option B> — <viable trade-off>
+- (c) Other / correction — _(not selected)_
+
+**Answer:** (a). _Rationale at decision time:_ <one-line summary>.
+_Rejected options preserved as future ADR `Considered Options`._
+
+**Q2.** ...
 
 ### Actor: Customer
-- Question 3: ...
+
+**Q3.** ...
 
 ## Confirmed assumptions
 - A1: ...
