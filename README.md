@@ -91,8 +91,10 @@ cat > .claude/settings.json <<'EOF'
       { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-pre.js" }] },
       { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js" }] }
     ],
-    "PostToolUse": [{ "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-post.js" }] }],
-    "PreCompact":  [{ "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/context-monitor.js" }] }]
+    "PostToolUse": [
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-post.js" }] },
+      { "matcher": "*",        "hooks": [{ "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/context-monitor.js" }] }
+    ]
   },
   "mcpServers": {
     "context7": { "command": "npx", "args": ["-y", "@upstash/context7-mcp"] }
@@ -332,7 +334,7 @@ stormhelm/
 │   ├── README.md
 │   ├── webfetch-cache-pre.js                      # PreToolUse(WebFetch) — §108
 │   ├── webfetch-cache-post.js                     # PostToolUse(WebFetch) — §108
-│   ├── context-monitor.js                         # PreCompact — §112
+│   ├── context-monitor.js                         # PostToolUse(*) — §112
 │   └── git-guardrails.js                          # PreToolUse(Bash) — §68 destructive-shell guard
 ├── agents/
 │   └── reviewer.md                                # Independent code review sub-agent — §114

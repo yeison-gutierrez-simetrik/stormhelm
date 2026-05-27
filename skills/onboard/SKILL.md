@@ -190,6 +190,8 @@ OPERATIONAL & UTILITY SKILLS
   /handoff              Compact a session for a fresh agent (used by context-monitor)
   /postmortem           Draft postmortem from incident artifacts (when incident:production)
   /improve-codebase-architecture   Surface refactor candidates with ICE rubric
+  /sad                  Derive a Solution Architecture Document from existing artifacts (scope ≥3 modules; on demand)
+  /check-consistency    Reconcile cross-artifact drift (spec/ADR/CONTEXT → downstream) before release
 
 NIGHT SHIFT
   ./ralph-local.sh                Run Ralph against ralph-ready issues
