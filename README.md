@@ -25,7 +25,7 @@ It has three layers:
 | Agent generates code that "works" but violates project architecture | Hierarchical `AGENTS.md` with stable rule numbering (`§N`) the agent reads on demand |
 | TDD alone doesn't guarantee the product is correct | BDD outside-in with Gherkin scenarios as the executable acceptance gate |
 | Context rot in long sessions | Domain language in `CONTEXT.md`, ADRs, structured handoffs |
-| AFK runs explode tokens without guardrails | Issue-level token budget, `max-iterations`, sandbox Docker, draft-only PRs |
+| AFK runs explode tokens without guardrails | Issue-level token budget, `max-iterations`, draft-only PRs, exponential backoff on rate-limits, structured `ralph-blocked` automation, NDJSON session logs, git-guardrails hook |
 | Brownfield gets broken by overconfident agents | Characterization tests + impact analysis + strangler pattern before touching legacy |
 | Bug fixes that patch symptoms and reappear later | `/debug` skill with 6 mandatory steps: reproduce → localize → reduce → root-cause fix → regression test (fails-first) → verify |
 | "Optimizations" without measurement that don't actually optimize | `/optimize` skill with 5 mandatory steps starting from a measured baseline; §97 forbids perf work without measurement |
@@ -53,6 +53,8 @@ Night Shift (Ralph, autonomous, local)
 Day Shift next morning
   Human reviews drafts → /traceability-matrix → merge
 ```
+
+> **Night Shift status:** production-ready. The shipped `templates/ralph-local.sh` + `templates/ralph-lib.sh` implement §63 (label gate), §65 (max-iterations), §66 (reviewer agent invocation pre-PR + `ralph-blocked` automation with structured comment), §67 (draft PR), §68 (git-guardrails `PreToolUse` hook blocks `git push --force`, `reset --hard`, `branch -D`, `rm -rf .git`), §69 (NDJSON session logs in `.planning/ralph-sessions/`), and §70 (exponential backoff on HTTP 429). See `docs/specs/ralph-hardening.md` for the full contract.
 
 ## Project structure
 
