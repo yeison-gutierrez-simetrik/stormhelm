@@ -39,7 +39,7 @@ and external-API verification via Context7 (§122).
 
 ### `skills/setup/SKILL.md` line 368 — "Active capabilities" summary
 
-Replaced the imprecise `core (§1–§3, §11–§90, §122 minus stack-specific)` with an exact description of every range that lives in `docs/engineering/core/*.md` and a current count of 84 rules.
+Replaced the imprecise `core (§1–§3, §11–§90, §122 minus stack-specific)` with an exact description of every range that lives in `docs/engineering/core/*.md` and a current count of 97 rules.
 
 ### `README.md` Capabilities Roadmap row "core"
 

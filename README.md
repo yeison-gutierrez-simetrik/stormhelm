@@ -206,7 +206,7 @@ That last command runs the full 13-step greenfield flow end-to-end, with three h
 
 | Capability | Status | Notes |
 |---|---|---|
-| `core` (stack-agnostic patterns) | ✅ Shipped | every §N living in `docs/engineering/core/*.md` — 84 rules; the rest is stack-specific |
+| `core` (stack-agnostic patterns) | ✅ Shipped | every §N living in `docs/engineering/core/*.md` — 97 rules; the rest is stack-specific |
 | `capabilities/typescript` | ✅ Shipped | §5-§10, §33, §50-§55, §117-§121 |
 | `capabilities/typescript-hono` | ✅ Shipped | §38-§44 (Hono / Drizzle / Zod) |
 | `capabilities/python` | ✅ Shipped | §5-py–§10-py, §33-py (style); §50-py–§55-py (async); §117-py–§121-py (uv + supply chain) |
