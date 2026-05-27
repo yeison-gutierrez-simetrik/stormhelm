@@ -63,7 +63,7 @@ stormhelm/
 │   ├── engineering/
 │   │   ├── AGENTS.md                            # rule index (generated/personalized by /setup)
 │   │   ├── core/
-│   │   │   ├── 01-philosophy.md                 # §1, §2, §30, §31, §35
+│   │   │   ├── 01-philosophy.md                 # §1, §2, §30, §31, §35, §122
 │   │   │   ├── 02-architecture.md               # §3, §37, §24, §14, §23
 │   │   │   ├── 04-input-boundaries.md           # §4, §34
 │   │   │   ├── 05-domain-modeling.md            # §11, §19, §20, §21, §22, §32, §36
@@ -83,7 +83,8 @@ stormhelm/
 │   │   └── capabilities/
 │   │       ├── typescript/
 │   │       │   ├── 03-style.md                  # §5, §6, §7, §8, §9, §10, §33
-│   │       │   └── 11-async.md                  # §50, §51, §52, §53, §54, §55
+│   │       │   ├── 11-async.md                  # §50, §51, §52, §53, §54, §55
+│   │       │   └── 12-package-management.md     # §117, §118, §119, §120, §121
 │   │       └── typescript-hono/
 │   │           └── 09-stack-conventions.md      # §38, §39, §40, §41, §42, §43, §44
 ├── docs/postmortems/TEMPLATE.md                # /debug postmortem template (used by §95)
@@ -155,11 +156,14 @@ cp /tmp/stormhelm/docs/WORKFLOWS-GUIDE.md docs/
 # Create minimal .claude/settings.json (hooks + permissions)
 cat > .claude/settings.json <<EOF
 {
-  "permissions": { "allow": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(git:*)", "Bash(gh:*)"] },
+  "permissions": { "allow": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(git:*)", "Bash(gh:*)", "Bash(pnpm:*)"] },
   "hooks": {
     "PreToolUse":  [{ "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "node \$CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-pre.js" }] }],
     "PostToolUse": [{ "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "node \$CLAUDE_PROJECT_DIR/.claude/hooks/webfetch-cache-post.js" }] }],
     "PreCompact":  [{ "hooks": [{ "type": "command", "command": "node \$CLAUDE_PROJECT_DIR/.claude/hooks/context-monitor.js" }] }]
+  },
+  "mcpServers": {
+    "context7": { "command": "npx", "args": ["-y", "@upstash/context7-mcp"] }
   }
 }
 EOF
@@ -201,7 +205,7 @@ That last command runs the full 13-step greenfield flow end-to-end, with three h
 | Capability | Status | Notes |
 |---|---|---|
 | `core` (stack-agnostic patterns) | ✅ Shipped | §1-§3, §11-§90 minus stack-specific |
-| `capabilities/typescript` | ✅ Shipped | §5-§10, §33, §50-§55 |
+| `capabilities/typescript` | ✅ Shipped | §5-§10, §33, §50-§55, §117-§121 |
 | `capabilities/typescript-hono` | ✅ Shipped | §38-§44 (Hono / Drizzle / Zod) |
 | `capabilities/typescript-fastify` | 🚧 Planned | Same shape as `typescript-hono`, different placement rules |
 | `capabilities/python` | 🚧 Planned | Python twins: `§5-py` no `Any`, `§52-py` `asyncio.timeout`, etc. |
