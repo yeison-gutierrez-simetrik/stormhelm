@@ -90,29 +90,45 @@ For each drift term, decide which name wins:
 
 ### Step 3 — Update `CONTEXT.md`
 
-The structure of `CONTEXT.md`:
+Every term entry uses a **Term / definition / `_Avoid_:` triple** so the rejected wordings are explicit, not implicit. Drift later happens because deprecated terms creep back in; an explicit `_Avoid_:` line gives the reviewer agent something to grep for.
 
 ```markdown
 # Ubiquitous Language
 
 ## Entities
-- **Provider** — A Company that publishes Listings and accepts Quotes.
-- **Listing** — A Provider's offer to perform a Service. Has states: sandbox, pending_verification, verified, published.
+
+**Provider** — A Company that publishes Listings and accepts Quotes.
+_Avoid_: "supplier", "vendor", "service_request" — these were earlier names rejected during `/grill-me`.
+
+**Listing** — A Provider's offer to perform a Service. Has states: sandbox, pending_verification, verified, published.
+_Avoid_: "service_offer", "draft listing" (use state `sandbox` instead).
 
 ## Value objects
-- **TenantId** — opaque identifier for the tenant scope (§45).
-- **PriceCents** — non-negative integer; never use floats (§11).
+
+**TenantId** — opaque identifier for the tenant scope (§45).
+_Avoid_: "companyId" when scoping data; reserve `companyId` for the `Company` entity reference.
+
+**PriceCents** — non-negative integer; never use floats (§11).
+_Avoid_: "price", "amount", "priceDollars".
 
 ## States
-- **ListingState** — string literal union: "sandbox" | "pending_verification" | "verified" | "published" (§36, defined in `src/domain/listings/listing-state.ts`).
+
+**ListingState** — string literal union: `"sandbox" | "pending_verification" | "verified" | "published"` (§36, defined in `src/domain/listings/listing-state.ts`).
+_Avoid_: numeric codes, boolean flags, `is_draft` / `is_active` mirror fields.
 
 ## Events
-- **listing.published.v1** — emitted when a Listing transitions to published. Schema in `events.md`.
 
-## Anti-vocabulary (do not use)
+**listing.published.v1** — emitted when a Listing transitions to published. Schema in `events.md`.
+_Avoid_: "listing_created", "listing.activated".
+
+## Anti-vocabulary (deprecated terms, do not use)
 - ~~service_request~~ — use **Quote**.
 - ~~order~~ — use **SOW**.
 ```
+
+The two locations interact:
+- **`_Avoid_:`** under a term records wordings rejected **for that specific term**. It is the local "considered options" record, equivalent to the ADR's Considered Options section.
+- **`## Anti-vocabulary`** at the bottom records terms that were once canonical and are now deprecated. Use it sparingly — preferring `_Avoid_:` on the replacement term keeps the rejection close to the live term.
 
 Updates are **atomic**: one commit, message `docs: update ubiquitous language for <slug>`. Never delete previously-defined terms in the same commit as adding new ones (that's a separate "deprecate" commit).
 

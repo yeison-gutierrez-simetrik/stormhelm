@@ -48,7 +48,7 @@ description: |
 - A draft PR (always `--draft` per §67) on branch `agent/fix-issue-<NNN>` or `agent/legacy/issue-<NNN>` (per §75 if brownfield).
 - A regression test (§92).
 - A PR description containing: Reproduction, Root cause, Introduction (with bisect if used), Fix scope.
-- For P0/user-facing P1: a postmortem stub in `docs/postmortems/` referencing `TEMPLATE.md`.
+- For P0/user-facing P1: a postmortem stub in `docs/postmortems/` based on `skills/postmortem/references/postmortem-template.md`.
 
 ## Workflow — six mandatory steps
 

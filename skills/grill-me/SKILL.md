@@ -181,6 +181,9 @@ Save `.planning/grilling/<slug>-<YYYYMMDD>.md` with:
 
 ## Output template
 
+> The full transcript format spec lives at `skills/grill-me/references/transcript-format.md`. The snippet below is the minimum.
+
+
 ```markdown
 # Grilling session — <slug>
 

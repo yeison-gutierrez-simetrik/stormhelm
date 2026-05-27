@@ -185,7 +185,7 @@ This document is a **template index**. When you run `/setup`, a personalized `AG
 - §95 Postmortem mandatory for P0 and user-facing P1 bugs
 - §96 When the introduction is unclear, bisect; do not guess
 
-The skill `/debug` operationalizes §91-§96 in a six-step flow. Postmortem template lives at `docs/postmortems/TEMPLATE.md`.
+The skill `/debug` operationalizes §91-§96 in a six-step flow. Postmortem template lives at `skills/postmortem/references/postmortem-template.md`.
 
 #### `core/18-improvements.md` — Improvements (refactor, perf, tech debt, hardening, deps)
 
@@ -361,4 +361,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §122** in the shipped capabilities (`core` + `typescript` + `typescript-hono`). New capabilities extend the numbering without renumbering existing rules.
+**§1 – §122** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.

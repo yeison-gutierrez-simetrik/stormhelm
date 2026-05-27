@@ -22,7 +22,8 @@ The output is **never merged**. The learning is what merges (as an ADR, a `/gril
 ## When to invoke
 
 - A `/grill-me` question is genuinely contested (the human says "I don't know, let's see").
-- Multiple plausible architectures with unclear tradeoffs at the design stage.
+- `/clarify` Step 2 surfaces an ambiguity whose resolution depends on **technical feasibility** rather than product intent (e.g., "p95 < 200ms with this external API — is that even possible?"). Run `/prototype` to produce evidence, then return to `/clarify` with the answer.
+- Multiple plausible architectures with unclear tradeoffs before `/sad` is generated.
 - UX choice with no clear winner — need to see the variants side by side.
 - Spike to de-risk an estimate before committing to a sprint.
 
@@ -140,9 +141,10 @@ The LEARNING.md stays. The code does not. This is non-negotiable: keeping the pr
 
 ## Integration with the framework
 
-- **Invoked by humans** when an open question in `/grill-me` warrants experimentation.
+- **Invoked by humans** when an open question in `/grill-me` or `/clarify` warrants experimentation.
 - **Invoked by `/grill-me` Step 5** when an open question is marked "blocking" and the human authorizes a spike.
-- **Output (LEARNING.md) feeds**: `/grill-me` answers, `/domain-model` ADRs, or `/specify` if the answer is large enough to be its own design.
+- **Invoked by `/clarify` Step 2** when an ambiguity resolution depends on technical feasibility evidence.
+- **Output (LEARNING.md) feeds**: `/grill-me` answers, `/domain-model` ADRs, `/specify` if the answer is large enough to be its own design, `/clarify` if the spike resolved an ambiguity, or `/sad` "Evidence" section if the spike contributed to an architecture decision.
 - **NOT integrated into Ralph** — prototyping is interactive, not autonomous.
 
 ## Attribution

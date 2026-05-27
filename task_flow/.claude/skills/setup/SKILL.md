@@ -210,8 +210,7 @@ PRD vocabulary is authoritative. Terms from the seed: <list from Step 6>.
 docs/specs/.keep                     # consumed by /specify, /clarify, /to-issues, /plan
 docs/adr/.keep                       # consumed by /domain-model, /strangler-plan, /constitution
 docs/audit/.keep                     # consumed by /traceability-matrix
-docs/postmortems/.keep               # consumed by /postmortem, /debug
-docs/postmortems/TEMPLATE.md         # copied from Stormhelm's template
+docs/postmortems/.keep               # consumed by /postmortem, /debug (template lives in .claude/skills/postmortem/references/)
 docs/threat-models/.keep             # consumed by /security-hardening
 docs/perf-baselines/.keep            # consumed by /optimize, /traceability-matrix
 features/.keep                       # consumed by /to-scenarios, /run-acceptance
@@ -250,8 +249,9 @@ for d in docs/specs docs/adr docs/audit docs/postmortems docs/threat-models docs
   touch "$d/.keep"
 done
 
-# Copy templates from Stormhelm
-cp "$STORMHELM_PATH/docs/postmortems/TEMPLATE.md" docs/postmortems/TEMPLATE.md
+# /setup no longer copies the postmortem template into the project tree.
+# It lives with the skill at .claude/skills/postmortem/references/postmortem-template.md
+# and is read in place by /postmortem and /debug.
 cp "$STORMHELM_PATH/docs/events.md"               docs/events.md
 cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 

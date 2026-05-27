@@ -292,7 +292,7 @@ The goal is to find and fix the gaps in the system that allowed any reasonable e
 - The action items become the audit trail of organizational learning.
 - Compliance regulators (SOC2, ISO 27001, EU AI Act) require this artifact for systems handling regulated data.
 
-The template lives at `docs/postmortems/TEMPLATE.md`. Copy it, fill it in, link from the issue.
+The template lives at `.claude/skills/postmortem/references/postmortem-template.md`. Copy it, fill it in, link from the issue.
 
 ---
 
