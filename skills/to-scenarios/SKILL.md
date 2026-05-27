@@ -39,7 +39,7 @@ After approval, the `.feature` file is **read-only for the agent** (§58). Subse
 
 ## Outputs
 
-- One or more draft files in `features/<bounded-context>/<feature-slug>.feature`.
+- One or more draft files in `features/<bounded-context>/<feature-slug>.feature`. The full `.feature` file format spec lives at `skills/to-scenarios/references/feature-file-format.md`.
 - Each scenario tagged with stable `@scn-NNN` and at least one runtime tag.
 - A summary of scenarios produced, returned to the workflow.
 

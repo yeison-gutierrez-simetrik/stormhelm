@@ -3,7 +3,7 @@ name: postmortem
 description: |
   Generates a postmortem document from incident artifacts: Ralph session logs,
   PR history, monitoring outputs, response timeline. Produces a draft following
-  docs/postmortems/TEMPLATE.md that the human reviewer finalizes. Required by
+  skills/postmortem/references/postmortem-template.md that the human reviewer finalizes. Required by
   §95 for P0 and user-facing P1 incidents within 5 / 10 business days.
   Use when: P0 incident resolved, P1 incident with user impact resolved, or a
   near-miss the team agreed to learn from.
@@ -44,7 +44,7 @@ The trigger is **production impact**, not severity nominal. Specifically:
 
 ## Outputs
 
-- A draft file at `docs/postmortems/<YYYY-MM-DD>-<incident-slug>.md` following `docs/postmortems/TEMPLATE.md` structure.
+- A draft file at `docs/postmortems/<YYYY-MM-DD>-<incident-slug>.md` following `skills/postmortem/references/postmortem-template.md` structure.
 - A signoff section explicitly marked as **incomplete** (humans fill it).
 - Optionally: a comment on the original incident issue with a link to the draft.
 
@@ -103,7 +103,7 @@ From artifacts:
 
 ### Step 6 — Write the draft using TEMPLATE.md
 
-Copy `docs/postmortems/TEMPLATE.md` to `docs/postmortems/<YYYY-MM-DD>-<slug>.md`. Fill every section the agent can fill from artifacts. Leave TODOs in sections requiring human judgment:
+Copy `skills/postmortem/references/postmortem-template.md` to `docs/postmortems/<YYYY-MM-DD>-<slug>.md`. Fill every section the agent can fill from artifacts. Leave TODOs in sections requiring human judgment:
 
 - **Lessons learned** (TODO: human).
 - **Action items** (TODO: human — agent suggests but does not commit).

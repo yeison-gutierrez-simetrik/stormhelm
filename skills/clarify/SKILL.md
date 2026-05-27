@@ -139,6 +139,8 @@ Each answer becomes a sub-bullet under the FR it clarifies:
 
 ### Step 4 — Add clarifications log
 
+> Format spec: `skills/clarify/references/clarifications-log-format.md`.
+
 At the end of the spec, append:
 
 ```markdown
@@ -157,6 +159,8 @@ Change `Status: Draft` → `Status: Clarified`. Commit. Return to workflow.
 - **Invoked by `/feature` Step 6**.
 - **Output consumed by `/to-scenarios`**: the Gherkin generator now has unambiguous source material.
 - **Read by `reviewer` agent**: if implementation contradicts a clarification, it is a §57/§22 finding.
+- **Off-ramp to `/prototype`**: if a clarification question's resolution depends on technical feasibility ("can we even hit this NFR?", "does this external API support this call?"), invoke `/prototype` to produce evidence, then return here with the answer.
+- **Off-ramp to `/sad`**: if `/clarify` reveals that the feature crosses ≥3 modules or introduces a new bounded context, consider running `/sad` after `/clarify` and before `/to-scenarios` to assemble the architecture snapshot.
 
 ## What this skill never does
 

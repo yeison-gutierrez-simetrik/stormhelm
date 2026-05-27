@@ -253,10 +253,11 @@ A postmortem is a structured document that captures:
 
 ```
 docs/postmortems/
-├── TEMPLATE.md                                # blank template
 ├── 2026-05-15-quote-expiry-bypass.md          # one file per incident
 └── 2026-06-02-payment-double-charge.md
 ```
+
+The blank template is bundled with the `/postmortem` skill at `skills/postmortem/references/postmortem-template.md`. Skills read it in place; nothing is copied into the project's `docs/postmortems/` directory at setup time.
 
 - Naming: `<YYYY-MM-DD>-<short-slug>.md`. Date is the **detection** date.
 - Retention: minimum 7 years for production incidents (compliance requirement).
@@ -292,7 +293,7 @@ The goal is to find and fix the gaps in the system that allowed any reasonable e
 - The action items become the audit trail of organizational learning.
 - Compliance regulators (SOC2, ISO 27001, EU AI Act) require this artifact for systems handling regulated data.
 
-The template lives at `docs/postmortems/TEMPLATE.md`. Copy it, fill it in, link from the issue.
+The template lives at `skills/postmortem/references/postmortem-template.md`. The `/postmortem` skill copies it into `docs/postmortems/<YYYY-MM-DD>-<slug>.md` and pre-fills the sections it can derive from incident artifacts.
 
 ---
 

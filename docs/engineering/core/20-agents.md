@@ -99,7 +99,7 @@ Plus the system prompt body (~3 pages of behavior rules). See `agents/reviewer.m
 
 ## §115 (specified, deferred). Postmortem-writer agent for production incidents
 
-When the team accumulates 3+ production incidents with structured Ralph session logs (§69) and TEMPLATE.md-based postmortems (§95), the cost of writing postmortems by hand is repeated and high-value. At that point, formalize a `postmortem-writer` agent.
+When the team accumulates 3+ production incidents with structured Ralph session logs (§69) and templated postmortems (§95), the cost of writing postmortems by hand is repeated and high-value. At that point, formalize a `postmortem-writer` agent.
 
 ### Specification
 
@@ -109,7 +109,7 @@ name: postmortem-writer
 description: Generates postmortem documents from incident artifacts. Reads Ralph
   session logs, git history, PR descriptions, and the active /run-acceptance
   output around the time of the incident; produces a draft following
-  docs/postmortems/TEMPLATE.md. The human reviewer always finalizes and signs
+  skills/postmortem/references/postmortem-template.md. The human reviewer always finalizes and signs
   off — this agent produces the draft, never the official document.
 tools: Read, Grep, Glob, Bash
 ---
@@ -123,7 +123,7 @@ tools: Read, Grep, Glob, Bash
 
 ### Trigger to implement
 
-- 3+ postmortems written by hand using `docs/postmortems/TEMPLATE.md` in the last quarter, **or**
+- 3+ postmortems written by hand using `skills/postmortem/references/postmortem-template.md` in the last quarter, **or**
 - The team explicitly requests it during a retrospective.
 
 ### Anti-trigger (do not implement before)
