@@ -44,6 +44,19 @@ A single skipped reconciliation can compound into days of wrong work. `/check-co
 - For "the code does not satisfy the scenario" — that's `/run-acceptance`, not consistency.
 - For a brand-new feature with no prior artifacts — there is nothing to reconcile.
 
+## Relationship with the `reviewer` agent
+
+This skill does **not** replace the `reviewer` agent (§114). They are orthogonal and both run pre-merge:
+
+| Concern | Tool |
+|---|---|
+| Code violates rule §N (e.g., §27 authorization, §45 tenant isolation) | `reviewer` agent |
+| Spec ↔ `.feature` ↔ issue ↔ plan drift | `/check-consistency` |
+| Code vs `CONTEXT.md` vocabulary drift | `/domain-model` Step 2 |
+| Ambiguity inside a single artifact | `/clarify` |
+
+**Rule of thumb:** the `reviewer` audits **code vs rules**; this skill audits **artifact vs artifact**. Both are required for a release-ready slice; neither replaces the other.
+
 ## Inputs
 
 - The **changed artifact** named by the user (if any). If none is named, infer from `git status`, `git diff --name-only main`, and recent issue updates.

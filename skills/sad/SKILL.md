@@ -30,6 +30,16 @@ The information that belongs in a SAD already lives in Stormhelm: NFRs in the sp
 - Quarterly governance review.
 - Step 7.5 of `/feature` (optional, between `/clarify` and `/to-scenarios`).
 
+## Auto-invocation triggers in `/feature`
+
+`/sad` runs automatically as Step 7.5 of `/feature` (between `/clarify` and `/to-scenarios`) when **any** of:
+
+- **Multi-module:** spec spans 3+ modules or 2+ bounded contexts (same trigger as Agent Teams §107 — keeps the architectural envelope explicit before parallel work begins).
+- **Sensitive paths:** spec touches `auth/`, `payments/`, `crypto/`, or other §64 paths — the threat model already exists and `/sad` just assembles it; cheap insurance against architectural drift in regulated areas.
+- **External integration:** spec introduces a new external service (matches the `introduces-capability:*` label trigger from `/to-issues`).
+
+For mono-module, non-sensitive features `/sad` is **optional** and only invoked manually if the team wants a snapshot for stakeholders or onboarding. This keeps the cost of `/sad` proportional to architectural risk and avoids forcing assembly when there is little to assemble.
+
 ## When NOT to invoke
 
 - For trivial features (single endpoint, one module) — the spec is enough.
