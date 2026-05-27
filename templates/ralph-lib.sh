@@ -336,6 +336,157 @@ ralph_has_label() {
   echo "$labels" | grep -qE "^${name}$"
 }
 
+# ──────────────────────────────────────────────────────────────────────
+# extract_last_actions <log_file> [count]
+#
+# Read the session log and pretty-print the last N `details.action` /
+# `event` / `outcome` lines from iteration events. Used to build the
+# "Last actions taken" section of the ralph-blocked comment.
+# Default count: 5.
+# ──────────────────────────────────────────────────────────────────────
+ralph_extract_last_actions() {
+  local log="${1:?ralph_extract_last_actions requires <log_file>}"
+  local count="${2:-5}"
+
+  if [ ! -f "$log" ]; then
+    echo "_(no session log found at ${log})_"
+    return 0
+  fi
+
+  # Take the last N events that have a meaningful 'event' field
+  # excluding session boundary events (session.started / session.ended).
+  jq -c 'select(.event | test("ralph\\.(iteration|scenario|reviewer|git|error|api|budget)\\."))' "$log" 2>/dev/null \
+    | tail -n "$count" \
+    | jq -r '"- **\(.timestamp | sub("T"; " ") | sub("\\..*Z$"; "Z"))** — `\(.event)` — \(.details | tostring)"' 2>/dev/null \
+    || echo "_(log parse failed; see file directly)_"
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# summarize_scenarios <log_file> <expected_scenarios>
+#
+# Build a markdown bullet list reporting which scenarios passed,
+# which failed, and which were never attempted.
+# `expected_scenarios` is a comma-separated list (matches the
+# scenarios:scn-* label value).
+# ──────────────────────────────────────────────────────────────────────
+ralph_summarize_scenarios() {
+  local log="${1:?ralph_summarize_scenarios requires <log_file>}"
+  local expected="${2:-}"
+
+  if [ ! -f "$log" ]; then
+    echo "_(no session log)_"
+    return 0
+  fi
+
+  local passed failed
+  passed=$(jq -r 'select(.event == "ralph.scenario.passed") | .details.scenario' "$log" 2>/dev/null | sort -u)
+  failed=$(jq -r 'select(.event == "ralph.scenario.failed") | .details.scenario' "$log" 2>/dev/null | sort -u)
+
+  for scn in $(echo "$expected" | tr ',' ' '); do
+    if echo "$passed" | grep -qx "$scn"; then
+      echo "- ✅ \`${scn}\` — passed"
+    elif echo "$failed" | grep -qx "$scn"; then
+      echo "- 🛑 \`${scn}\` — failed"
+    else
+      echo "- ⚪ \`${scn}\` — not attempted"
+    fi
+  done
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# render_blocked_comment <template_file> <substitution_vars...>
+#
+# Substitute {placeholder} tokens in the template with provided values.
+# Usage:
+#   ralph_render_blocked_comment template.md \
+#     issue_number 42 \
+#     iterations 15 \
+#     reason "max-iterations exhausted" \
+#     branch "agent/feature-foo-42" \
+#     session_log ".planning/ralph-sessions/42-xxx.log" \
+#     scenario_results "..." \
+#     last_actions "..." \
+#     reviewer_section "..."
+# ──────────────────────────────────────────────────────────────────────
+ralph_render_blocked_comment() {
+  local template="${1:?ralph_render_blocked_comment requires <template>}"
+  shift
+
+  if [ ! -f "$template" ]; then
+    echo "ralph_render_blocked_comment: template not found: $template" >&2
+    return 1
+  fi
+
+  local content
+  content=$(cat "$template")
+
+  # Process key/value pairs from remaining args
+  while [ "$#" -gt 1 ]; do
+    local key="$1"
+    local value="$2"
+    shift 2
+    # Use awk for safe literal replacement (no regex interpretation in value)
+    content=$(printf '%s' "$content" | awk -v k="{${key}}" -v v="$value" '
+      BEGIN { RS="\0"; ORS="" }
+      {
+        s = $0
+        n = index(s, k)
+        while (n > 0) {
+          before = substr(s, 1, n - 1)
+          after = substr(s, n + length(k))
+          s = before v after
+          n = index(s, k)
+        }
+        print s
+      }
+    ')
+  done
+
+  printf '%s\n' "$content"
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# block_issue <issue_number> <reason> <branch> <log> <scenarios> <reviewer_section> <template_path>
+#
+# Apply `ralph-blocked`, remove `ralph-ready`, post a structured
+# comment, log the event. The branch is preserved (caller must not
+# delete it). Idempotent: if `ralph-blocked` is already present, only
+# the comment is posted.
+# ──────────────────────────────────────────────────────────────────────
+ralph_block_issue() {
+  local issue="${1:?ralph_block_issue requires <issue>}"
+  local reason="${2:?ralph_block_issue requires <reason>}"
+  local branch="${3:?ralph_block_issue requires <branch>}"
+  local log="${4:?ralph_block_issue requires <log>}"
+  local scenarios="${5:-}"
+  local reviewer_section="${6:-_No reviewer report._}"
+  local template="${7:?ralph_block_issue requires <template_path>}"
+
+  local scenario_results last_actions comment
+
+  scenario_results=$(ralph_summarize_scenarios "$log" "$scenarios")
+  last_actions=$(ralph_extract_last_actions "$log" 5)
+
+  comment=$(ralph_render_blocked_comment "$template" \
+    issue_number "$issue" \
+    iterations "$RALPH_ITERATION" \
+    reason "$reason" \
+    branch "$branch" \
+    session_log "$log" \
+    scenario_results "$scenario_results" \
+    last_actions "$last_actions" \
+    reviewer_section "$reviewer_section")
+
+  # Apply / remove labels (idempotent: gh edit ignores already-present / already-absent)
+  gh issue edit "$issue" --add-label "ralph-blocked" --remove-label "ralph-ready" 2>/dev/null || true
+
+  # Post the structured comment
+  gh issue comment "$issue" --body "$comment"
+
+  ralph_log_event "warn" "ralph.issue.blocked" \
+    "{\"reason\":$(ralph_json_string "$reason"),\"branch\":$(ralph_json_string "$branch")}"
+}
+
 # Public function aliases without prefix for ergonomic use inside the
 # main script (caller can choose). Sourcing scripts can prefer the
 # prefixed forms to avoid collisions with their own helpers.
@@ -354,3 +505,7 @@ read_label_value() { ralph_read_label_value "$@"; }
 has_label() { ralph_has_label "$@"; }
 reviewer_severity() { ralph_reviewer_severity "$@"; }
 format_reviewer_section() { ralph_format_reviewer_section "$@"; }
+extract_last_actions() { ralph_extract_last_actions "$@"; }
+summarize_scenarios() { ralph_summarize_scenarios "$@"; }
+render_blocked_comment() { ralph_render_blocked_comment "$@"; }
+block_issue() { ralph_block_issue "$@"; }

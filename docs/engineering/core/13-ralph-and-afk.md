@@ -223,6 +223,8 @@ Shipped implementation: `templates/ralph-local.sh` invokes the reviewer (`claude
 5. If a branch was created, leave it intact (do **not** delete) — the human reviews and decides.
 6. **Never** `git reset --hard`, `git push --force`, `git branch -D`, or `git clean -fdx` on the branch.
 
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_block_issue` which (1) calls `gh issue edit --add-label ralph-blocked --remove-label ralph-ready`, (2) renders `templates/ralph-blocked-comment.md.tmpl` with the reason, branch, session log, scenario pass/fail summary (`ralph_summarize_scenarios`), last 5 events from the log (`ralph_extract_last_actions`), and reviewer report if any, and (3) posts the rendered comment via `gh issue comment`. The function is idempotent and emits `ralph.issue.blocked` to the session log. Branch preservation is enforced by the git-guardrails hook (§68): the script cannot delete a branch even if it tried.
+
 ### Good comment template
 
 ```markdown

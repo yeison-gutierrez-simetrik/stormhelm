@@ -10,9 +10,10 @@
 #
 # Implementa: §63 (label gate), §65 (max-iterations), §66 (reviewer
 #             pre-PR + retry on blocking), §67 (draft PR),
+#             §66 (ralph-blocked label + structured comment via
+#                  block_issue + comment template),
 #             §69 (NDJSON session log via ralph-lib.sh).
-# Pendiente para slices futuros: ralph-blocked label automation
-# (slice 4), §70 backoff 429 (slice 5).
+# Pendiente para slice futuro: §70 backoff 429 (slice 5).
 
 set -euo pipefail
 
@@ -21,6 +22,7 @@ set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RALPH_LIB="${SCRIPT_DIR}/ralph-lib.sh"
+BLOCKED_COMMENT_TEMPLATE="${SCRIPT_DIR}/ralph-blocked-comment.md.tmpl"
 
 if [ ! -f "$RALPH_LIB" ]; then
   echo "❌ ralph-lib.sh no encontrado en ${SCRIPT_DIR}" >&2
@@ -28,8 +30,18 @@ if [ ! -f "$RALPH_LIB" ]; then
   exit 1
 fi
 
+if [ ! -f "$BLOCKED_COMMENT_TEMPLATE" ]; then
+  echo "❌ ralph-blocked-comment.md.tmpl no encontrado en ${SCRIPT_DIR}" >&2
+  exit 1
+fi
+
 # shellcheck disable=SC1090
 source "$RALPH_LIB"
+
+# Reviewer output captured for the "current attempt" — used to enrich
+# the ralph-blocked comment when reviewer findings drive the block.
+LAST_REVIEWER_OUTPUT=""
+LAST_REVIEWER_SEVERITY=""
 
 # ──────────────────────────────────────────────────────────────────────
 # Argument parsing
@@ -130,6 +142,8 @@ for i in $(seq 1 "$MAX_ITER"); do
 
     REVIEWER_OUTPUT=$(claude -p "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
+    LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
+    LAST_REVIEWER_SEVERITY="$REVIEWER_SEVERITY"
 
     ralph_log_event "info" "ralph.reviewer.findings" \
       "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
@@ -144,13 +158,20 @@ for i in $(seq 1 "$MAX_ITER"); do
     fi
 
     if [ "$REVIEWER_SEVERITY" = "blocking" ]; then
-      # Out of budget for retries — fall through to the "max-iterations exhausted"
-      # exit path below. Slice 4 will replace this with proper ralph-blocked
-      # automation including the reviewer report in the comment.
-      echo "🛑 Reviewer findings still blocking and budget exhausted. Falling through to escalation."
+      # Out of budget for retries — apply ralph-blocked with reviewer context.
+      echo "🛑 Reviewer findings still blocking and budget exhausted. Blocking issue."
       ralph_log_event "error" "ralph.reviewer.blocked_no_retry_budget" \
         "{\"iterations_used\":${i},\"max_iterations\":${MAX_ITER}}"
-      break
+      REVIEWER_SECTION=$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")
+      ralph_block_issue "$ISSUE_NUM" \
+        "reviewer-blocking-after-retry-budget-exhausted" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "blocked" "reviewer-blocking-no-retry-budget"
+      exit 1
     fi
 
     echo "✅ Reviewer severity: ${REVIEWER_SEVERITY}. Creando PR…"
@@ -192,11 +213,22 @@ EOF
   echo "⚠️  Iteración $i no logró green. Continuando…"
 done
 
-echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Escalando a humano."
+echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Marcando issue como ralph-blocked."
 
-# Comentario al issue (la automación de labels llega en slice 4)
-gh issue comment "$ISSUE_NUM" \
-  --body "Ralph ejecutó $MAX_ITER iteraciones sin lograr green. Session log: \`${RALPH_SESSION_LOG}\`. Requiere intervención humana."
+# Use the reviewer section from the last attempt if any, otherwise a placeholder.
+if [ -n "$LAST_REVIEWER_OUTPUT" ]; then
+  REVIEWER_SECTION=$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")
+else
+  REVIEWER_SECTION="_Reviewer was not invoked because /run-acceptance never reached green._"
+fi
+
+ralph_block_issue "$ISSUE_NUM" \
+  "max-iterations-exhausted" \
+  "$BRANCH" \
+  "$RALPH_SESSION_LOG" \
+  "$SCENARIOS" \
+  "$REVIEWER_SECTION" \
+  "$BLOCKED_COMMENT_TEMPLATE"
 
 ralph_end_session "budget_exceeded" "max-iterations-reached"
 exit 1
