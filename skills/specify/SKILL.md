@@ -41,7 +41,7 @@ The spec answers two questions in business language: **what** must change in the
 
 ## Outputs
 
-- `docs/specs/<feature-slug>.md` with the canonical structure (see template).
+- `docs/specs/<feature-slug>.md` with the canonical structure documented at `skills/specify/references/spec-format.md`.
 - Functional requirements numbered `FR-1`, `FR-2`, ...
 - Non-functional requirements numbered `NFR-1`, `NFR-2`, ...
 - A canonical user story for each actor.

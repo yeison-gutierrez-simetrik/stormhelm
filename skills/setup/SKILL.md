@@ -195,18 +195,24 @@ PRD vocabulary is authoritative. Terms from the seed: <list from Step 6>.
 ```markdown
 # Ubiquitous Language
 
-> Single source of truth for domain vocabulary. Used by humans and agents.
+> Single source of truth for domain vocabulary. Used by humans and agents (§22).
+> Every term carries an `_Avoid_:` line listing rejected alternatives, so drift is detectable.
 
 ## Terms
-- **Customer** — _Define here_
-- **Order** — _Define here_
-[... seed terms from Step 6 ...]
+
+**Customer** — _Define here_
+_Avoid_: _list rejected wordings here, e.g., "user", "client", "account"_.
+
+**Order** — _Define here_
+_Avoid_: _e.g., "purchase", "transaction"_.
+
+[... seed terms from Step 6, each with its own `_Avoid_:` line ...]
 
 ## Bounded contexts
 - _List the bounded contexts of the project_
 
-## Anti-vocabulary (do not use)
-- _Add deprecated or ambiguous terms here_
+## Anti-vocabulary (deprecated terms, do not use)
+- _Add terms that were once canonical and are now retired here. Prefer adding `_Avoid_:` to the replacing term._
 ```
 
 ### `docs/slos.md` (template)
@@ -235,8 +241,9 @@ PRD vocabulary is authoritative. Terms from the seed: <list from Step 6>.
 docs/specs/.keep                     # consumed by /specify, /clarify, /to-issues, /plan
 docs/adr/.keep                       # consumed by /domain-model, /strangler-plan, /constitution
 docs/audit/.keep                     # consumed by /traceability-matrix
-docs/postmortems/.keep               # consumed by /postmortem, /debug
-docs/postmortems/TEMPLATE.md         # copied from Stormhelm's template
+docs/postmortems/.keep               # consumed by /postmortem, /debug (template lives in skills/postmortem/references/)
+docs/architecture/.keep              # consumed by /sad (derived snapshots, regenerated)
+docs/architecture/INDEX.md           # one-line entry per generated SAD
 docs/threat-models/.keep             # consumed by /security-hardening
 docs/perf-baselines/.keep            # consumed by /optimize, /traceability-matrix
 features/.keep                       # consumed by /to-scenarios, /run-acceptance
@@ -271,12 +278,13 @@ mkdir -p \
 for d in docs/specs docs/adr docs/audit docs/postmortems docs/threat-models docs/perf-baselines features issues \
          .planning/ralph-sessions .planning/grilling .planning/grilling-docs .planning/acceptance \
          .planning/reviews .planning/security-audits .planning/diagnoses .planning/characterizations \
-         .planning/impact .planning/architecture-reviews .planning/prototypes; do
+         .planning/impact .planning/architecture-reviews .planning/prototypes \
+         .planning/consistency docs/architecture; do
   touch "$d/.keep"
 done
 
-# Copy templates from Stormhelm
-cp "$STORMHELM_PATH/docs/postmortems/TEMPLATE.md" docs/postmortems/TEMPLATE.md
+# Templates now live inside each skill (skills/<skill>/references/). Skills read them in place;
+# /setup no longer copies the postmortem template into the project tree.
 cp "$STORMHELM_PATH/docs/events.md"               docs/events.md
 cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 
