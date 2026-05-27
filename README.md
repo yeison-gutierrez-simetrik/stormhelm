@@ -15,7 +15,7 @@ Stormhelm is a **stack-agnostic framework** that codifies the discipline a senio
 It has three layers:
 
 1. **Core engineering rules** (`docs/engineering/core/`) — language-agnostic patterns for architecture, domain modeling, testability, observability, security, BDD, and autonomous operation.
-2. **Capabilities** (`docs/engineering/capabilities/<stack>/`) — stack-specific rules that activate only when your project uses that stack. The first capability ships TypeScript baseline and TypeScript + Hono/Drizzle/Zod. Others (Python/FastAPI, Go/Echo, etc.) follow the same template.
+2. **Capabilities** (`docs/engineering/capabilities/<stack>/`) — stack-specific rules that activate only when your project uses that stack. Shipped today: `typescript` + `typescript-hono` (Hono/Drizzle/Zod) and `python` + `python-fastapi` (FastAPI/SQLAlchemy 2.x async/Pydantic v2). Others (Fastify, Go/Echo) follow the same template.
 3. **Skills** (`skills/`) — invokable commands for Claude Code that drive the workflow: `/setup`, `/onboard`, `/grill-me`, `/to-scenarios`, `/to-issues`, `/tdd`, `/run-acceptance`, `/code-review`, `/traceability-matrix`, and the Ralph local AFK loop.
 
 ## What it solves
@@ -207,9 +207,9 @@ That last command runs the full 13-step greenfield flow end-to-end, with three h
 | `core` (stack-agnostic patterns) | ✅ Shipped | §1-§3, §11-§90 minus stack-specific |
 | `capabilities/typescript` | ✅ Shipped | §5-§10, §33, §50-§55, §117-§121 |
 | `capabilities/typescript-hono` | ✅ Shipped | §38-§44 (Hono / Drizzle / Zod) |
+| `capabilities/python` | ✅ Shipped | §5-py–§10-py, §33-py (style); §50-py–§55-py (async); §117-py–§121-py (uv + supply chain) |
+| `capabilities/python-fastapi` | ✅ Shipped | §38-py–§44-py (FastAPI / SQLAlchemy 2.x async / Pydantic v2) |
 | `capabilities/typescript-fastify` | 🚧 Planned | Same shape as `typescript-hono`, different placement rules |
-| `capabilities/python` | 🚧 Planned | Python twins: `§5-py` no `Any`, `§52-py` `asyncio.timeout`, etc. |
-| `capabilities/python-fastapi` | 🚧 Planned | FastAPI / SQLAlchemy / Pydantic conventions |
 | `capabilities/go` | 📋 Backlog | Go baseline (error handling, contexts) |
 | `capabilities/go-echo` | 📋 Backlog | Go + Echo framework |
 
