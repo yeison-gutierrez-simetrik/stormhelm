@@ -157,7 +157,7 @@ Stormhelm Cheat Sheet
 FRAMEWORK SKILLS (entry points)
   /setup                Configure Stormhelm for your project (run once)
   /onboard              This orientation (run when joining or returning)
-  /feature              End-to-end feature workflow (12 steps, 2 human checkpoints)
+  /feature              End-to-end feature workflow (13 steps, 2 human checkpoints)
   /debug                Disciplined bug fix workflow (6 steps)
   /optimize             Performance optimization with mandatory baseline (5 steps)
 
@@ -190,6 +190,8 @@ OPERATIONAL & UTILITY SKILLS
   /handoff              Compact a session for a fresh agent (used by context-monitor)
   /postmortem           Draft postmortem from incident artifacts (when incident:production)
   /improve-codebase-architecture   Surface refactor candidates with ICE rubric
+  /sad                  Derive a Solution Architecture Document from existing artifacts (scope ≥3 modules; on demand)
+  /check-consistency    Reconcile cross-artifact drift (spec/ADR/CONTEXT → downstream) before release
 
 NIGHT SHIFT
   ./ralph-local.sh                Run Ralph against ralph-ready issues

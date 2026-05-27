@@ -105,7 +105,7 @@ project-root/
 ├── docs/
 │   ├── engineering/
 │   │   ├── AGENTS.md                  # personalizado a la stack elegida
-│   │   ├── core/                       # 13 archivos de reglas neutrales
+│   │   ├── core/                       # 17 archivos de reglas neutrales
 │   │   └── capabilities/<stack>/        # reglas stack-specific
 │   ├── constitution.md                  # TEMPLATE vacío
 │   ├── CONTEXT.md                       # con seed vocabulary
@@ -1591,4 +1591,4 @@ Para feedback sobre esta guía o sugerencias de mejora basadas en uso real, come
 ---
 
 *Última actualización: 2026-06-01*
-*Versión del framework: Stormhelm v1.0 (122 reglas, 28 skills, 1 agente, 3 hooks, 13 steps en flujo principal)*
+*Versión del framework: Stormhelm v1.0 (122 reglas, 30 skills, 1 agente, 4 hooks, 13 steps en flujo principal)*

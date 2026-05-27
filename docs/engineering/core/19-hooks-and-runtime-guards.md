@@ -104,7 +104,7 @@ Origins decide when their content changes. A TTL of "1 day" silently serves stal
 
 ## §109. SessionStart meta-skill injection — adopt only when skill count grows beyond ~15
 
-A `SessionStart` hook that injects a meta-skill router (so the agent auto-loads relevant SKILL.md files based on the user's request) is a known pattern (addyosmani `session-start.sh`, superpowers `session-start`). It is **not implemented in Stormhelm yet** because the current skill count (≤10) does not justify the routing overhead.
+A `SessionStart` hook that injects a meta-skill router (so the agent auto-loads relevant SKILL.md files based on the user's request) is a known pattern (addyosmani `session-start.sh`, superpowers `session-start`). It is **not implemented in Stormhelm yet**, but the skill count has now grown to 28 — past the ~15 threshold above — so adopting it is an open decision rather than a premature optimization.
 
 This rule reserves the slot so the framework's evolution is predictable: when the skill catalog exceeds ~15 entries, implement `hooks/session-start.js` that injects a router meta-skill into the initial context.
 
@@ -274,6 +274,7 @@ After editing `.claude/settings.json`, restart Claude Code. The first session-st
 | `webfetch-cache-pre.js` | PreToolUse(WebFetch) | ✅ Shipped | Serve cache on `304 Not Modified` |
 | `webfetch-cache-post.js` | PostToolUse(WebFetch) | ✅ Shipped | Store validated cache entries |
 | `context-monitor.js` | PostToolUse(*) | ✅ Shipped (opt-in telemetry) | Notify agent on low context |
+| `git-guardrails.js` | PreToolUse(Bash) | ✅ Shipped (mandatory for Ralph, §68) | Block destructive Git commands |
 | `prompt-injection-guard.js` | PreToolUse(Write\|Edit\|MultiEdit) | 📋 Specified §110, not implemented | Defend writes |
 | `read-injection-scanner.js` | PostToolUse(Read) | 📋 Specified §111, not implemented | Defend reads |
 | `session-start.js` | SessionStart | 📋 Specified §109, deferred | Meta-skill routing |

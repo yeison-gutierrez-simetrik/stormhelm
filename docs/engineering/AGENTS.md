@@ -211,7 +211,7 @@ The skill `/optimize` operationalizes §97 (performance) in a five-step flow. Re
 - §112 Agent-aware context monitor — notify the agent, not just the user
 - §113 Hooks are opt-in per project, declared in `.claude/settings.json`
 
-Two hooks are shipped: `hooks/webfetch-cache-pre.js` + `hooks/webfetch-cache-post.js` (implement §108) and `hooks/context-monitor.js` (implements §112). All hooks are Node.js with zero external dependencies.
+Four hooks are shipped: `hooks/webfetch-cache-pre.js` + `hooks/webfetch-cache-post.js` (implement §108), `hooks/context-monitor.js` (implements §112), and `hooks/git-guardrails.js` (implements §68, mandatory wherever Ralph runs). All hooks are Node.js with zero external dependencies.
 
 #### `core/20-agents.md` — Formal Claude Code sub-agents
 
