@@ -54,7 +54,7 @@ Branching by primary language. Each branch activates one capability folder.
 ```
 ? Primary language:
   ○ TypeScript                          → capabilities/typescript activated
-  ○ Python (capability pending)         → falls back to core only + warning
+  ○ Python                              → capabilities/python activated
   ○ Go (capability pending)             → falls back to core only + warning
   ○ Multi-language (monorepo)           → multi-select below
 
@@ -65,7 +65,10 @@ Branching by primary language. Each branch activates one capability folder.
     ○ Express (capability pending)
     ○ None / library-only
   IF Python:
-    (placeholder — capability not yet shipped)
+    ○ FastAPI                           → capabilities/python-fastapi activated
+    ○ Litestar (capability pending)
+    ○ Django (capability pending)
+    ○ None / library-only
 
 ? Persistence layer:
   IF TypeScript:
@@ -73,23 +76,45 @@ Branching by primary language. Each branch activates one capability folder.
     ○ Prisma (capability pending)
     ○ Raw SQL
     ○ None
+  IF Python:
+    ○ SQLAlchemy 2.x (async)            → enables §44-py SQLAlchemy rules
+    ○ SQLModel (capability pending)
+    ○ Raw SQL (asyncpg / psycopg)
+    ○ None
 
 ? Validation library:
   IF TypeScript:
     ○ Zod                               → enables §39, §4 examples
     ○ Yup / Valibot (capability pending)
     ○ Custom
+  IF Python:
+    ○ Pydantic v2                       → enables §39-py, §4 examples
+    ○ msgspec (capability pending)
+    ○ attrs + cattrs (capability pending)
+    ○ Custom
+
+? Type checker (Python only):
+  IF Python:
+    ○ pyright --strict                  → enables §5-py..§7-py enforcement
+    ○ mypy --strict
+    ○ pyrefly
 ```
 
 ### Step 3 — Runtime and deployment
 
 ```
 ? Deployment target (multi-select):
-  □ Node.js                             → §55 Node-specific notes activated
-  □ Bun
-  □ Deno
-  □ Cloudflare Workers                  → §55 + §51 waitUntil patterns activated
-  □ AWS Lambda
+  IF TypeScript:
+    □ Node.js                             → §55 Node-specific notes activated
+    □ Bun
+    □ Deno
+    □ Cloudflare Workers                  → §55 + §51 waitUntil patterns activated
+    □ AWS Lambda
+  IF Python:
+    □ uvicorn (dev / single worker)       → §55-py dev entrypoint
+    □ gunicorn + uvicorn workers (prod)   → §55-py multi-worker, lifespan per worker
+    □ hypercorn (HTTP/2, HTTP/3, WS)
+    □ AWS Lambda via Mangum / LWA         → §55-py cold-start entrypoint
 ```
 
 ### Step 4 — Operational mode
@@ -279,7 +304,19 @@ TYPECHECK_CMD="pnpm typecheck"
 COVERAGE_CMD="pnpm test:coverage"
 ```
 
+For Python + FastAPI + SQLAlchemy + Pydantic:
+
+```bash
+TEST_CMD="uv run pytest"
+ACCEPTANCE_CMD="uv run behave"
+LINT_CMD="uv run ruff check"
+TYPECHECK_CMD="uv run pyright --strict"
+COVERAGE_CMD="uv run pytest --cov"
+```
+
 > For any TypeScript stack the package manager is `pnpm` per §117. The setup wizard rejects projects that contain `package-lock.json` or `yarn.lock` and offers to convert them; lifecycle scripts are blocked by default per §118 — the wizard seeds an empty `pnpm.onlyBuiltDependencies` allowlist in `package.json`.
+>
+> For any Python stack the package manager is `uv` per §117-py. The wizard rejects projects that contain `Pipfile`, `poetry.lock`, or `requirements.txt` (as source) and offers to convert them; build hooks are blocked by default per §118-py — the wizard adds `[tool.uv] no-build-package = ["*"]` to `pyproject.toml` and seeds an empty `build-package` allowlist.
 
 ### `.claude/settings.json` — MCP servers
 
@@ -329,10 +366,13 @@ After generation, the skill runs a self-check:
 
 Active capabilities:
   - core (§1–§3, §11–§90, §122 minus stack-specific)
-  - typescript (§5–§10, §33, §50–§55, §117–§121)
-  - typescript-hono (§38–§44)
+  - typescript (§5–§10, §33, §50–§55, §117–§121)        ← if TS selected
+  - typescript-hono (§38–§44)                            ← if Hono selected
+  - python (§5-py–§10-py, §33-py, §50-py–§55-py,
+           §117-py–§121-py)                              ← if Python selected
+  - python-fastapi (§38-py–§44-py)                       ← if FastAPI selected
 
-Active rules: §1–§122
+Active rules: §1–§122 (plus -py twins where Python is active)
 Compliance mode: SOC2 + GDPR
 Ralph: enabled, 1 worker, 500k token budget/night
 
@@ -368,6 +408,6 @@ Choose:
 
 ## Future extensions
 
-Capabilities will be addable as plugins. The roadmap (see README) defines the order: `typescript-fastify` → `python` → `python-fastapi` → `go` → `go-echo`. Each new capability registers itself by adding a folder under `capabilities/<stack>/` and an entry in `/setup`'s decision tree.
+Capabilities will be addable as plugins. The roadmap (see README) defines the order: `typescript-fastify` → `go` → `go-echo`. Each new capability registers itself by adding a folder under `capabilities/<stack>/` and an entry in `/setup`'s decision tree.
 
 Adding a new capability does **not** require modifying `core/` rules or existing capabilities.
