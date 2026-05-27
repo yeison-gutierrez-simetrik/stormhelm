@@ -407,6 +407,18 @@ Hitting rate limits is normal. The response is **slow down**, never **try more w
 
 Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_call_claude_with_retry`, which wraps every `claude -p ...` invocation in the main script. The backoff schedule is `[1, 2, 4, 8, 16, 32, 60]` seconds (7 retries, ~123 s max wait). Detection covers `429`, `rate_limit_exceeded`, `rate limit`, and `Too Many Requests` in the CLI's stderr. Each retry emits `ralph.api.rate_limited`; exhaustion emits `ralph.api.rate_limit_exhausted`, returns exit code **124** to the caller, and the main script handles 124 by invoking `ralph_block_issue` with reason `rate-limit-exhausted-during-<call>` so the issue surfaces clearly in the morning review.
 
+### Budget enforcement companion (§63 budget label)
+
+The `budget:NNk` label on each issue declares a token ceiling for the Ralph session. Enforcement lives in `ralph-lib.sh` via three helpers:
+
+- `ralph_parse_budget_label` converts `50k` / `120k` / `2m` / `50000` to an integer token count.
+- `ralph_extract_tokens_from_output` is a best-effort extractor that recognizes JSON `usage.input_tokens + usage.output_tokens` (modern `claude --output-format json`), text patterns like `Total tokens: N` and `N input tokens, M output tokens`, plus a user-supplied extractor via the `RALPH_TOKEN_EXTRACTOR_CMD` env var.
+- `ralph_check_budget` returns non-zero when `RALPH_TOKENS_CUMULATIVE > budget`.
+
+After every successful `claude` invocation (`/tdd`, `/run-acceptance`, `/code-review`), the main script calls `check_budget_or_block "<call_name>"`. If exceeded, it invokes `ralph_block_issue` with reason `budget-exceeded-during-<call>` and exits cleanly so the morning review immediately sees the cost cap was the cause. A `ralph.budget.checkpoint` event is logged at the end of every iteration with the current cumulative vs declared budget.
+
+If the `claude` CLI version in use does not expose token counts, the extractor returns 0 and the cumulative simply does not grow — enforcement degrades gracefully (no false positives), but the team should set `RALPH_TOKEN_EXTRACTOR_CMD` to a parser appropriate for its CLI version.
+
 ### Retry policy
 
 ```ts

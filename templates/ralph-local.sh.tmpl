@@ -81,6 +81,7 @@ fi
 # Extract labeled metadata
 SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
 BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
+BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 
 # ──────────────────────────────────────────────────────────────────────
 # Initialize session log (§69) — from here on, every action is recorded
@@ -88,7 +89,31 @@ BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
 ralph_init_session "$ISSUE_NUM"
 
 ralph_log_event "info" "ralph.contract.validated" \
-  "{\"scenarios\":$(ralph_json_string "$SCENARIOS"),\"budget\":$(ralph_json_string "$BUDGET"),\"max_iterations\":${MAX_ITER}}"
+  "{\"scenarios\":$(ralph_json_string "$SCENARIOS"),\"budget\":$(ralph_json_string "$BUDGET"),\"budget_tokens\":${BUDGET_TOKENS},\"max_iterations\":${MAX_ITER}}"
+
+# ──────────────────────────────────────────────────────────────────────
+# Helper: after each successful claude call, check if we've exceeded
+# the issue's budget. If yes, block the issue and exit cleanly.
+# ──────────────────────────────────────────────────────────────────────
+check_budget_or_block() {
+  local context_label="${1:-unknown}"
+  if ! ralph_check_budget "$BUDGET_TOKENS"; then
+    echo "💸 Budget exceeded after ${context_label}: ${RALPH_TOKENS_CUMULATIVE} > ${BUDGET_TOKENS} tokens."
+    ralph_log_event "error" "ralph.budget.exceeded" \
+      "{\"cumulative\":${RALPH_TOKENS_CUMULATIVE},\"budget\":${BUDGET_TOKENS},\"at_call\":$(ralph_json_string "$context_label")}"
+    REVIEWER_SECTION="${LAST_REVIEWER_OUTPUT:+$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "$LAST_REVIEWER_SEVERITY")}"
+    REVIEWER_SECTION="${REVIEWER_SECTION:-_Reviewer not invoked before budget exhaustion._}"
+    ralph_block_issue "$ISSUE_NUM" \
+      "budget-exceeded-during-${context_label}" \
+      "$BRANCH" \
+      "$RALPH_SESSION_LOG" \
+      "$SCENARIOS" \
+      "$REVIEWER_SECTION" \
+      "$BLOCKED_COMMENT_TEMPLATE"
+    ralph_end_session "budget_exceeded" "${context_label}"
+    exit 1
+  fi
+}
 
 # ──────────────────────────────────────────────────────────────────────
 # Branch setup
@@ -140,6 +165,8 @@ for i in $(seq 1 "$MAX_ITER"); do
     continue
   fi
 
+  check_budget_or_block "tdd"
+
   ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." 2>&1)
   ACCEPTANCE_RC=$?
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
@@ -156,6 +183,8 @@ for i in $(seq 1 "$MAX_ITER"); do
     ralph_end_session "rate_limit_exhausted" "run-acceptance-call"
     exit 1
   fi
+
+  check_budget_or_block "run-acceptance"
 
   if echo "$ACCEPTANCE_OUT" | grep -q "exit code: 0"; then
     ralph_iteration_end "green"
@@ -177,6 +206,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
     REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
+    check_budget_or_block "code-review"
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
     LAST_REVIEWER_SEVERITY="$REVIEWER_SEVERITY"
@@ -246,7 +276,8 @@ EOF
   fi
 
   ralph_iteration_end "acceptance-failing"
-  echo "⚠️  Iteración $i no logró green. Continuando…"
+  echo "⚠️  Iteración $i no logró green. Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuando…"
+  ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
 done
 
 echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Marcando issue como ralph-blocked."
