@@ -12,8 +12,10 @@
 #             pre-PR + retry on blocking), §67 (draft PR),
 #             §66 (ralph-blocked label + structured comment via
 #                  block_issue + comment template),
-#             §69 (NDJSON session log via ralph-lib.sh).
-# Pendiente para slice futuro: §70 backoff 429 (slice 5).
+#             §69 (NDJSON session log via ralph-lib.sh),
+#             §70 (exponential backoff on HTTP 429 via
+#                  call_claude_with_retry).
+# Status: production-ready (per docs/specs/ralph-hardening.md).
 
 set -euo pipefail
 
@@ -115,13 +117,47 @@ for i in $(seq 1 "$MAX_ITER"); do
 
   ralph_iteration_start "tdd"
 
-  if ! claude -p "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice."; then
-    ralph_error_tool "claude" "/tdd returned non-zero in iteration $i"
+  TDD_OUT=$(ralph_call_claude_with_retry "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice." 2>&1)
+  TDD_RC=$?
+  if [ "$TDD_RC" -ne 0 ]; then
+    if [ "$TDD_RC" -eq 124 ]; then
+      # Rate-limit exhausted — block the issue and bail out.
+      ralph_error_tool "claude" "/tdd hit rate-limit exhaustion"
+      ralph_iteration_end "rate-limit-exhausted"
+      REVIEWER_SECTION="_Not invoked: API rate-limit exhausted during /tdd._"
+      ralph_block_issue "$ISSUE_NUM" \
+        "rate-limit-exhausted-during-tdd" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "rate_limit_exhausted" "tdd-call"
+      exit 1
+    fi
+    ralph_error_tool "claude" "/tdd returned non-zero (code $TDD_RC) in iteration $i"
     ralph_iteration_end "tdd-failed"
     continue
   fi
 
-  if claude -p "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." | grep -q "exit code: 0"; then
+  ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." 2>&1)
+  ACCEPTANCE_RC=$?
+  if [ "$ACCEPTANCE_RC" -eq 124 ]; then
+    ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
+    ralph_iteration_end "rate-limit-exhausted"
+    REVIEWER_SECTION="_Not invoked: API rate-limit exhausted during /run-acceptance._"
+    ralph_block_issue "$ISSUE_NUM" \
+      "rate-limit-exhausted-during-acceptance" \
+      "$BRANCH" \
+      "$RALPH_SESSION_LOG" \
+      "$SCENARIOS" \
+      "$REVIEWER_SECTION" \
+      "$BLOCKED_COMMENT_TEMPLATE"
+    ralph_end_session "rate_limit_exhausted" "run-acceptance-call"
+    exit 1
+  fi
+
+  if echo "$ACCEPTANCE_OUT" | grep -q "exit code: 0"; then
     ralph_iteration_end "green"
 
     # All scenarios reported as passing — emit one event per
@@ -140,7 +176,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "🧐 Invocando reviewer agent sobre el diff..."
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
-    REVIEWER_OUTPUT=$(claude -p "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
+    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
     LAST_REVIEWER_SEVERITY="$REVIEWER_SEVERITY"

@@ -405,6 +405,8 @@ Why bad: unstructured, ungreppable, no cumulative token count, no link to scenar
 
 Hitting rate limits is normal. The response is **slow down**, never **try more workers**.
 
+Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_call_claude_with_retry`, which wraps every `claude -p ...` invocation in the main script. The backoff schedule is `[1, 2, 4, 8, 16, 32, 60]` seconds (7 retries, ~123 s max wait). Detection covers `429`, `rate_limit_exceeded`, `rate limit`, and `Too Many Requests` in the CLI's stderr. Each retry emits `ralph.api.rate_limited`; exhaustion emits `ralph.api.rate_limit_exhausted`, returns exit code **124** to the caller, and the main script handles 124 by invoking `ralph_block_issue` with reason `rate-limit-exhausted-during-<call>` so the issue surfaces clearly in the morning review.
+
 ### Retry policy
 
 ```ts

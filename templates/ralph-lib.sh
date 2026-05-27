@@ -337,6 +337,88 @@ ralph_has_label() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# call_claude_with_retry <prompt>
+#
+# Wraps `claude -p <prompt>` with exponential backoff on HTTP 429.
+# Schedule: 1s, 2s, 4s, 8s, 16s, 32s, 60s (7 retries, ~123s total max).
+# After exhausting all retries, returns exit code 124 so the caller can
+# distinguish rate-limit exhaustion from a regular tool failure.
+#
+# Detection heuristics for 429 — any of these in stderr signals a rate
+# limit:
+#   - "429"
+#   - "rate_limit_exceeded"
+#   - "rate limit"
+#   - "Too Many Requests"
+#
+# Captures stdout via process substitution so it can be returned to the
+# caller while stderr is inspected for the 429 signal.
+#
+# Usage:
+#   if OUTPUT=$(ralph_call_claude_with_retry "/tdd for issue 42"); then
+#     echo "succeeded: $OUTPUT"
+#   else
+#     local rc=$?
+#     if [ "$rc" -eq 124 ]; then
+#       echo "rate-limit exhausted"
+#     else
+#       echo "claude failed with code $rc"
+#     fi
+#   fi
+# ──────────────────────────────────────────────────────────────────────
+ralph_call_claude_with_retry() {
+  local prompt="${1:?ralph_call_claude_with_retry requires <prompt>}"
+  local backoff_schedule=(1 2 4 8 16 32 60)
+  local attempt=0
+  local max_attempts=${#backoff_schedule[@]}
+  local stderr_file
+  stderr_file=$(mktemp)
+
+  # Ensure stderr file is removed even on early return
+  # shellcheck disable=SC2064
+  trap "rm -f '$stderr_file'" RETURN
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    local output
+    # Run claude, capture stdout, redirect stderr to the temp file
+    if output=$(claude -p "$prompt" 2> "$stderr_file"); then
+      # Success — emit stdout to the caller and return 0
+      printf '%s' "$output"
+      return 0
+    fi
+
+    local exit_code=$?
+    local stderr_content
+    stderr_content=$(cat "$stderr_file")
+
+    # Inspect stderr for 429 signals
+    if echo "$stderr_content" | grep -qiE "429|rate.?limit|too.?many.?requests"; then
+      if [ "$attempt" -ge "$max_attempts" ]; then
+        # All retries exhausted — log and return distinct exit code
+        ralph_log_event "error" "ralph.api.rate_limit_exhausted" \
+          "{\"attempts\":${attempt},\"backoff_total_seconds\":$(IFS=+; echo "$((${backoff_schedule[*]}))")}"
+        printf '%s' "$stderr_content" >&2
+        return 124
+      fi
+
+      local sleep_for="${backoff_schedule[$attempt]}"
+      ralph_log_event "warn" "ralph.api.rate_limited" \
+        "{\"attempt\":${attempt},\"backoff_seconds\":${sleep_for}}"
+      sleep "$sleep_for"
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    # Non-429 error — propagate immediately
+    printf '%s' "$stderr_content" >&2
+    return "$exit_code"
+  done
+
+  # Defensive: unreachable, but explicit
+  return 124
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # extract_last_actions <log_file> [count]
 #
 # Read the session log and pretty-print the last N `details.action` /
@@ -509,3 +591,4 @@ extract_last_actions() { ralph_extract_last_actions "$@"; }
 summarize_scenarios() { ralph_summarize_scenarios "$@"; }
 render_blocked_comment() { ralph_render_blocked_comment "$@"; }
 block_issue() { ralph_block_issue "$@"; }
+call_claude_with_retry() { ralph_call_claude_with_retry "$@"; }
