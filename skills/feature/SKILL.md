@@ -72,6 +72,8 @@ This orchestrator owns two `.feature` status flips:
 
 ## Workflow — 13 steps with 2 human checkpoints
 
+> The 2 human checkpoints map to the `WORKFLOWS-GUIDE` HITL inventory (synonyms): **HUMAN CHECKPOINT 1 = HITL #1** (scenarios, Step 7); **HUMAN CHECKPOINT 2 = HITL #3** (merge, Step 12). A conditional **HITL #2** (threat-model approval) applies in Step 12 when `require-human-review` is set.
+
 The agent **cannot skip steps**. Each step calls the corresponding individual skill or rule.
 
 ### Step 1 — Pre-flight checks
@@ -214,6 +216,7 @@ For each completed slice:
 - Invokes `/security-hardening` if `require-human-review` label is set (sensitive domain per §64).
 - Updates the traceability matrix per §62.
 - Opens a draft PR per §67 (always `--draft`).
+- Applies the `ralph-done` label when the draft PR opens (slice implemented + gated, awaiting human merge). Step 13 then transitions `ralph-done` → `released`. (Ralph's `ralph-local.sh` does the same after its draft PR.)
 
 **Note on reviewer agent:** the `reviewer` sub-agent (§114) was **already invoked** by `/run-acceptance` Step 8 in the previous step. Its report is included in `.planning/acceptance/<slug>-*.md` and is attached to the PR description automatically. Step 12 does **not** re-invoke the reviewer — that would be redundant and double the token spend.
 
