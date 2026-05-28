@@ -1,0 +1,29 @@
+name: verify-framework-metadata
+
+# Blocks merge if the framework's prose (counts, rule/skill references) drifts
+# from the filesystem. See scripts/check-framework-metadata.mjs.
+# This is the gate that prevents pure count-sync PRs (cf. #7, #8).
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'skills/**'
+      - 'agents/**'
+      - 'hooks/**'
+      - 'README.md'
+      - 'scripts/check-framework-metadata.mjs'
+      - '.github/workflows/verify-framework-metadata.yml'
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Verify framework metadata is consistent with the filesystem
+        run: node scripts/check-framework-metadata.mjs
