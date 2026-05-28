@@ -62,6 +62,16 @@ node scripts/preflight.mjs gh-auth
 
 If any check exits non-zero, stop and report it — do not start the workflow.
 
+## Invariant gate (§107 / §87 / §63 / §59)
+
+The matrix is only meaningful if the chain it audits is sound. Before generating it, run the executable invariants and **block on any failure** — a failed invariant means a "mandatory" rule was skipped:
+
+```bash
+node scripts/check-invariants.mjs
+```
+
+Checks: multi-module ⇒ SAD exists (§107); `require-human-review` ⇒ threat model exists (§87); `ralph-ready` scns live in **approved** `.feature` files (§63/§58); Accepted ADRs carry a Date; every `@release` scenario maps to an issue (§59). Override one check only with an auditable `skip-invariant: INV-X — <reason>` line. The report is included as matrix evidence and read by the `reviewer` agent.
+
 ## Workflow
 
 ### Step 1 — Determine target version
