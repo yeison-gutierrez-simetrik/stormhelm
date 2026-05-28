@@ -40,6 +40,9 @@ You receive on invocation:
 
 ## Required workflow
 
+**Invariant gate.** Before auditing, run `node scripts/check-invariants.mjs`. Treat every ❌ it reports as a 🛑 **blocking** finding, citing the rule it names (e.g. §87 missing threat model; §63/§58 `ralph-ready` scenarios not in an approved `.feature`). These are skipped mandatory rules, not style nits. A `skip-invariant:` override counts only if its stated reason is sound.
+
+
 ### Step 1 — Establish scope
 
 Use `git diff` or `gh pr diff` to get the exact diff under review. Count files touched and lines changed.
