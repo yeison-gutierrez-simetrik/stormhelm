@@ -41,6 +41,10 @@ description: |
 - Inline additions to FRs/NFRs marking each clarification.
 - A clarifications log appended to the spec.
 
+## Status transition (§58)
+
+If this run targets an existing `.feature`, flip its header `# status: draft → clarifying` at Step 1 (it may also reopen `approved → clarifying` when re-litigating). The agent may edit the file while it is `draft`/`clarifying`; it becomes read-only again only after re-approval at HUMAN CHECKPOINT 1.
+
 ## Workflow
 
 ### Step 1 — Read with adversarial eye

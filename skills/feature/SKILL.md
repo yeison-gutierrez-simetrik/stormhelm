@@ -63,6 +63,13 @@ Internally, `/feature` invokes the same skills that are callable individually. I
   - `issues/*.md` (from `/to-issues`)
   - One traceability matrix snapshot.
 
+## Status transitions (§58)
+
+This orchestrator owns two `.feature` status flips:
+
+- **Step 7 — HUMAN CHECKPOINT 1:** after the human confirms in chat, flip `# status: clarifying → approved` and write `approved_at`, `approved_by`, `approved_in_commit` (the checkpoint commit SHA). From here the file is read-only to the agent.
+- **Step 13 — post-merge close-out:** flip `approved → implemented` once all `@release` scenarios are green on the default branch.
+
 ## Workflow — 13 steps with 2 human checkpoints
 
 The agent **cannot skip steps**. Each step calls the corresponding individual skill or rule.

@@ -50,6 +50,18 @@ For regulators (SOC2, EU AI Act), this is non-negotiable evidence. For the team,
 - `docs/audit/incidents.md` updated with any incidents covered by this release.
 - A diff vs. previous version's matrix (to show what changed).
 
+## Pre-flight checks
+
+Run before Step 1; each fails fast with an actionable message instead of failing deep in the workflow (§58, ADR-0001):
+
+```bash
+node scripts/preflight.mjs git-repo
+node scripts/preflight.mjs gh-auth
+# The matrix is release-grade: features it audits should be at `# status: implemented` (§58).
+```
+
+If any check exits non-zero, stop and report it — do not start the workflow.
+
 ## Workflow
 
 ### Step 1 — Determine target version

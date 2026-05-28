@@ -109,10 +109,49 @@ Feature files are the **contract** between product and engineering. The agent tr
 - The audit trail (§62) depends on stable scenarios.
 - Trust in AFK execution depends on humans owning the gate.
 
+### Approval status (observable)
+
+"Approved" must be **machine-observable**, otherwise §58 is honor-system: nothing
+can tell a draft from an approved contract, and downstream skills cannot gate on
+it. Each `.feature` carries its state in a Gherkin **comment header** (Gherkin
+has **no** YAML frontmatter — a `---` block breaks the parser, so the state lives
+in `#` comments alongside `# language:` and `# Spec source:`):
+
+```gherkin
+# language: es
+# status: approved
+# approved_at: 2026-05-28
+# approved_by: yeison.gutierrez@simetrik.com
+# approved_in_commit: a1b2c3d   # the HUMAN CHECKPOINT 1 commit (auditable)
+# Spec source: docs/specs/<feature>.md FR-…
+```
+
+State machine:
+
+```
+draft → clarifying → approved → implemented → retired
+            ↑___________|   (may reopen to clarifying if /clarify re-runs)
+```
+
+| Transition | Owner | Action |
+|---|---|---|
+| (new) → `draft` | `/to-scenarios` | Writes the draft with `# status: draft`. |
+| `draft → clarifying` | `/clarify` | Flips status; the agent may still edit while clarifying. |
+| `clarifying → approved` | `/feature` Step 7 — HUMAN CHECKPOINT 1 | **Only after** the human confirms in chat. The skill writes `approved_at/by/in_commit`. From here the file is read-only to the agent. |
+| `approved → implemented` | `/feature` Step 13 (post-merge close-out) | When all `@release` scenarios are green on the default branch. |
+| `implemented → retired` | `/check-consistency` Step 7 | When a scenario is intentionally retired. |
+
+`approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
+timestamp (which can be edited). The status is **never hand-edited**; the owning
+skill flips it. `scripts/preflight.mjs feature-approved <slug>` reads it, so
+`/run-acceptance`, `/tdd`, `/to-issues`, and Ralph fail fast on a non-approved
+feature instead of deep inside the pipeline.
+
 ### Enforcement
 
 - CI rule: PRs from `agent/*` branches that modify `features/**/*.feature` are blocked unless they also include label `human-approved`.
 - The `git-guardrails` hook blocks `git commit` on `*.feature` files from non-human commits.
+- Pre-flight: skills that consume approved scenarios call `scripts/preflight.mjs feature-approved <slug>` and refuse to run on `draft`/`clarifying` features.
 
 ---
 

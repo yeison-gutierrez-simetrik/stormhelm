@@ -1,3 +1,7 @@
+# status: approved
+# approved_in_commit: see PR #6 (Ralph hardening merge)
+# Note: shipped framework reference feature; status convention per §58.
+
 Feature: Ralph hardening — operational discipline
 
   As a developer running the Night Shift,

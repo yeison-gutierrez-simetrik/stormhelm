@@ -46,6 +46,19 @@ The gate is **multi-layered**. Any layer that fails blocks merge.
 - A summary returned to the workflow.
 - Reviewer agent invocation at the end (always — passing or failing).
 
+## Pre-flight checks
+
+Run before Step 1; each fails fast with an actionable message instead of failing deep in the workflow (§58, ADR-0001):
+
+```bash
+node scripts/preflight.mjs git-repo
+node scripts/preflight.mjs feature-approved <feature-slug>   # §58: refuse draft/clarifying features
+node scripts/preflight.mjs slice-implemented <slug>          # nothing to gate if /tdd has not run
+node scripts/preflight.mjs gh-auth
+```
+
+If any check exits non-zero, stop and report it — do not start the workflow.
+
 ## Workflow
 
 ### Step 1 — Pre-flight
