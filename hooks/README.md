@@ -14,6 +14,7 @@ Rules governing these hooks live in [`docs/engineering/core/19-hooks-and-runtime
 | `webfetch-cache-post.js` | `PostToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
 | `context-monitor.js` | `PostToolUse` | `*` | §112 | Opt-in; silent without telemetry bridge file |
 | `git-guardrails.js` | `PreToolUse` | `Bash` | §68 | **Mandatory** whenever Ralph runs in this project |
+| `closed-set-check.js` | `PostToolUse` | `Write\|Edit\|MultiEdit` | §36 | Opt-in; warns when a doc's closed-set list drifts from code |
 
 ---
 
