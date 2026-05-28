@@ -53,6 +53,8 @@ Cada flujo se puede ejecutar de dos formas:
 
 Un HITL es un punto donde **el flujo se detiene y espera explícitamente al humano** antes de continuar. Stormhelm tiene HITLs deliberadamente escasos — uno por cada decisión que **solo un humano puede tomar** sin pérdida de valor.
 
+> **Nomenclatura (única fuente de verdad).** *HITL* (Human-In-The-Loop) y *HUMAN CHECKPOINT* son **sinónimos**. El flujo por-feature tiene **3 HITLs**: `#1` scenarios (Step 7), `#2` threat-model (condicional — solo sensitive), `#3` merge (Step 12 final). `/feature` los presenta como sus **2 HUMAN CHECKPOINTS mandatorios**: **CHECKPOINT 1 = HITL #1** (scenarios), **CHECKPOINT 2 = HITL #3** (merge); HITL #2 es el gate condicional. `#0a`/`#0b` son gates de **bootstrap** (una vez por proyecto), no por-feature. Inventario completo (**9** HITLs, todos los flujos) en la sección 8.
+
 ### Tipos de HITL
 
 | Tipo | Comportamiento | Bloquea workflow |
@@ -1440,6 +1442,8 @@ Después de B5 (in-place), el flujo continúa al `/specify` regular del flujo pr
 
 ## 8. Inventario de HITLs y responsabilidades
 
+> *HITL ≡ HUMAN CHECKPOINT* (sinónimos). En `/feature`: **HUMAN CHECKPOINT 1 = HITL #1** (scenarios), **HUMAN CHECKPOINT 2 = HITL #3** (merge); **HITL #2** (threat model) es condicional. Total: **9 HITLs** across all flows (tabla abajo).
+
 ### Mapa visual de los HITLs del flujo principal
 
 ```
@@ -1478,7 +1482,7 @@ Después de B5 (in-place), el flujo continúa al `/specify` regular del flujo pr
 |---|---|---|
 | Aprobar sin leer | El HITL pierde su valor; bugs/contratos malos pasan | Time-box: cada HITL tiene un tiempo mínimo de revisión esperado |
 | "Yo después reviso" — aprobar y revisar luego | Compromete el flujo; post-merge problems caen en producción | Política: si no tienes tiempo ahora, devuelve el HITL al day siguiente |
-| Convertir todo en checkpoint duro | Workflow se vuelve burocrático | Solo las 8-9 decisiones críticas son HITL; el resto fluye |
+| Convertir todo en checkpoint duro | Workflow se vuelve burocrático | Solo las 9 decisiones críticas del inventario (sección 8) son HITL; el resto fluye |
 | Hacer al reviewer agent el "responsable final" | El agente no toma decisiones políticas; siempre es un humano | El reviewer agent informa; el humano decide |
 | Compartir HITLs entre roles | Confusión sobre quién aprobó qué | Cada HITL tiene un dueño claro (tabla arriba) |
 
@@ -1582,7 +1586,7 @@ gh pr create --draft                       # ⛔ HITL #3 antes de merge
 
 Este documento es la guía operacional. Las reglas detalladas viven en `docs/engineering/core/`. El framework está diseñado para ser **escaneable**: lees solo lo que necesitas en cada momento.
 
-**Si tu primer instinto es saltarte un HITL — léelo dos veces.** Los 8 HITLs son los puntos donde el framework refuerza que **el humano dirige**. Saltárselos convierte Stormhelm en automatización ciega, que es exactamente lo que el framework existe para prevenir.
+**Si tu primer instinto es saltarte un HITL — léelo dos veces.** Los 9 HITLs (inventario en la sección 8) son los puntos donde el framework refuerza que **el humano dirige**. Saltárselos convierte Stormhelm en automatización ciega, que es exactamente lo que el framework existe para prevenir.
 
 **Si tu primer instinto es duplicar un HITL — léelo una vez.** El framework no quiere supervisión teatral; quiere decisiones humanas en los puntos exactos donde aportan valor único.
 

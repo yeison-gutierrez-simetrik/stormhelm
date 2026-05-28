@@ -263,6 +263,7 @@ EOF
 
     if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
+      gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \
         "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
       ralph_end_session "completed"
