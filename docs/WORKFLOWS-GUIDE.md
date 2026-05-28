@@ -1,104 +1,104 @@
-# Stormhelm — Guía de Flujos de Desarrollo
+# Stormhelm — Development Workflows Guide
 
-> **Audiencia:** developers que adoptan Stormhelm en un proyecto y necesitan saber cómo se ejecuta cada flujo, qué produce cada paso, y dónde el humano debe intervenir.
+> **Audience:** developers adopting Stormhelm on a project who need to know how each flow runs, what each step produces, and where the human must step in.
 >
-> **Pre-requisitos de lectura:** `README.md` raíz (qué es Stormhelm), `docs/engineering/AGENTS.md` (índice de reglas). No necesitas haber leído las 122 reglas — esta guía las invoca cuando aplican.
+> **Reading prerequisites:** root `README.md` (what Stormhelm is), `docs/engineering/AGENTS.md` (rule index). You don't need to have read all 122 rules — this guide invokes them when they apply.
 >
-> **Esta guía usa un ejemplo conductor:** *"Customer deja una reseña (1-5 estrellas + comentario opcional) sobre un Provider después de completar un Quote."* Se referencia como **`provider-review`** a lo largo del documento.
+> **This guide uses a running example:** *"A Customer leaves a review (1-5 stars + optional comment) about a Provider after completing a Quote."* It is referenced as **`provider-review`** throughout the document.
 
 ---
 
-## Tabla de contenidos
+## Table of contents
 
-1. [Filosofía de los flujos](#1-filosofía-de-los-flujos)
-2. [Anatomía de un HITL (Human-In-The-Loop)](#2-anatomía-de-un-hitl-human-in-the-loop)
-3. [Setup inicial del proyecto](#3-setup-inicial-del-proyecto)
-4. [Flujo principal: feature greenfield (`/feature` o manual)](#4-flujo-principal-feature-greenfield-feature-o-manual)
-5. [Flujo de bug fix (`/debug`)](#5-flujo-de-bug-fix-debug)
-6. [Flujo de improvement (`/optimize` y otros)](#6-flujo-de-improvement-optimize-y-otros)
-7. [Flujo brownfield (sub-flow B1-B5)](#7-flujo-brownfield-sub-flow-b1-b5)
-8. [Inventario de HITLs y responsabilidades](#8-inventario-de-hitls-y-responsabilidades)
-9. [Referencia rápida — skills, inputs, outputs](#9-referencia-rápida--skills-inputs-outputs)
+1. [Workflow philosophy](#1-workflow-philosophy)
+2. [Anatomy of a HITL (Human-In-The-Loop)](#2-anatomy-of-a-hitl-human-in-the-loop)
+3. [Initial project setup](#3-initial-project-setup)
+4. [Main flow: greenfield feature (`/feature` or manual)](#4-main-flow-greenfield-feature-feature-or-manual)
+5. [Bug fix flow (`/debug`)](#5-bug-fix-flow-debug)
+6. [Improvement flow (`/optimize` and others)](#6-improvement-flow-optimize-and-others)
+7. [Brownfield flow (sub-flow B1-B5)](#7-brownfield-flow-sub-flow-b1-b5)
+8. [Inventory of HITLs and responsibilities](#8-inventory-of-hitls-and-responsibilities)
+9. [Quick reference — skills, inputs, outputs](#9-quick-reference--skills-inputs-outputs)
 
 ---
 
-## 1. Filosofía de los flujos
+## 1. Workflow philosophy
 
-Stormhelm no automatiza el desarrollo. **Lo disciplina.** El framework está diseñado bajo dos principios operacionales:
+Stormhelm does not automate development. **It disciplines it.** The framework is designed around two operational principles:
 
-1. **El humano dirige, los agentes ejecutan.** Las decisiones de negocio, arquitectura, y aceptación viven con el humano. La ejecución mecánica (escribir tests, implementar, validar gates) es delegable.
-2. **Cada artefacto del flujo es revisable, versionable, y auditable.** No hay "magia" — cada decisión produce un archivo, cada gate produce un reporte, cada PR produce evidencia.
+1. **The human directs, the agents execute.** Business, architecture, and acceptance decisions live with the human. Mechanical execution (writing tests, implementing, validating gates) is delegable.
+2. **Every workflow artifact is reviewable, versionable, and auditable.** There is no "magic" — every decision produces a file, every gate produces a report, every PR produces evidence.
 
-### Los 4 flujos principales
+### The 4 main flows
 
-| Flujo | Trigger | Skill principal | Duración típica |
+| Flow | Trigger | Main skill | Typical duration |
 |---|---|---|---|
-| **Feature greenfield** | Nueva capacidad de negocio | `/feature` (orquestador) o invocación manual de skills | 1-3 días |
-| **Bug fix** | Defecto reportado | `/debug` | 2-8 horas |
-| **Improvement** | Optimización, refactor, tech debt, dep upgrade, hardening proactivo | `/optimize`, `/improve-codebase-architecture`, etc. | Variable |
-| **Brownfield** | Modificación de código legacy sin cobertura | Sub-flow B1-B5 (precede a `/feature`) | +30-50% sobre greenfield |
+| **Greenfield feature** | New business capability | `/feature` (orchestrator) or manual skill invocation | 1-3 days |
+| **Bug fix** | Reported defect | `/debug` | 2-8 hours |
+| **Improvement** | Optimization, refactor, tech debt, dep upgrade, proactive hardening | `/optimize`, `/improve-codebase-architecture`, etc. | Variable |
+| **Brownfield** | Modifying legacy code without coverage | Sub-flow B1-B5 (precedes `/feature`) | +30-50% over greenfield |
 
-### Modo manual vs orquestado
+### Manual vs orchestrated mode
 
-Cada flujo se puede ejecutar de dos formas:
+Each flow can be run two ways:
 
-- **Orquestado** (`/feature`, `/debug`): un único comando ejecuta todos los pasos.
-- **Manual** (invocando skills individuales): el developer pasa por cada paso con control granular.
+- **Orchestrated** (`/feature`, `/debug`): a single command runs all steps.
+- **Manual** (invoking individual skills): the developer goes through each step with granular control.
 
-**Recomendación inicial:** correr manual las primeras 2-3 features para sentir cada skill, luego pasar a orquestado.
-
----
-
-## 2. Anatomía de un HITL (Human-In-The-Loop)
-
-Un HITL es un punto donde **el flujo se detiene y espera explícitamente al humano** antes de continuar. Stormhelm tiene HITLs deliberadamente escasos — uno por cada decisión que **solo un humano puede tomar** sin pérdida de valor.
-
-> **Nomenclatura (única fuente de verdad).** *HITL* (Human-In-The-Loop) y *HUMAN CHECKPOINT* son **sinónimos**. El flujo por-feature tiene **3 HITLs**: `#1` scenarios (Step 7), `#2` threat-model (condicional — solo sensitive), `#3` merge (Step 12 final). `/feature` los presenta como sus **2 HUMAN CHECKPOINTS mandatorios**: **CHECKPOINT 1 = HITL #1** (scenarios), **CHECKPOINT 2 = HITL #3** (merge); HITL #2 es el gate condicional. `#0a`/`#0b` son gates de **bootstrap** (una vez por proyecto), no por-feature. Inventario completo (**9** HITLs, todos los flujos) en la sección 8.
-
-### Tipos de HITL
-
-| Tipo | Comportamiento | Bloquea workflow |
-|---|---|---|
-| **Checkpoint duro** | El skill emite un prompt y espera respuesta explícita (`yes`, `approve`, `edit:<notes>`, `block`). El workflow no continúa hasta recibir la respuesta. | **Sí** |
-| **Checkpoint blando** | El skill emite una notificación o sugerencia; el humano puede actuar pero el workflow continúa si no hay objeción dentro de un margen. | No |
-| **Aprobación retroactiva** | El skill ejecuta automáticamente, pero el output requiere firma humana antes de ser autoritativo (ejemplo: threat model draft). | Parcial |
-
-Stormhelm usa **principalmente checkpoints duros** porque los blandos tienden a ser ignorados. La filosofía: si una decisión requiere humano, **detente y pregunta**.
-
-### Responsabilidad humana en cada HITL
-
-Cada HITL tiene una **única responsabilidad humana clara**. El humano no está "supervisando todo" — está tomando **esta decisión específica**:
-
-| Responsabilidad | Habilidad humana requerida | Tiempo típico |
-|---|---|---|
-| Aprobar la spec/scenarios como contrato | Conocimiento del producto/dominio | 5-15 min |
-| Aprobar threat model como contrato de seguridad | Conocimiento de security + business risk | 10-30 min |
-| Aprobar/rechazar PR draft | Conocimiento técnico + judgment | 15-45 min |
-| Firmar postmortem como blameless | Senior engineer / tech lead | 30-90 min |
-| Decidir descope vs implementar | Product owner / tech lead | 5-15 min |
-
-**Anti-patrón:** el humano "revisa todo a vuelo de pájaro" antes de continuar. Eso es ruido, no valor. El HITL existe para forzar una decisión, no para teatro de supervisión.
+**Initial recommendation:** run the first 2-3 features manually to get a feel for each skill, then switch to orchestrated.
 
 ---
 
-## 3. Setup inicial del proyecto
+## 2. Anatomy of a HITL (Human-In-The-Loop)
 
-Antes de cualquier flujo, el proyecto necesita:
+A HITL is a point where **the flow stops and explicitly waits for the human** before continuing. Stormhelm has deliberately sparse HITLs — one for each decision that **only a human can make** without loss of value.
 
-### Paso A: `/setup` (wizard interactivo, una vez)
+> **Nomenclature (single source of truth).** *HITL* (Human-In-The-Loop) and *HUMAN CHECKPOINT* are **synonyms**. The per-feature flow has **3 HITLs**: `#1` scenarios (Step 7), `#2` threat-model (conditional — sensitive only), `#3` merge (Step 12 final). `/feature` presents them as its **2 mandatory HUMAN CHECKPOINTS**: **CHECKPOINT 1 = HITL #1** (scenarios), **CHECKPOINT 2 = HITL #3** (merge); HITL #2 is the conditional gate. `#0a`/`#0b` are **bootstrap** gates (once per project), not per-feature. Full inventory (**9** HITLs, all flows) in section 8.
+
+### Types of HITL
+
+| Type | Behavior | Blocks workflow |
+|---|---|---|
+| **Hard checkpoint** | The skill emits a prompt and waits for an explicit response (`yes`, `approve`, `edit:<notes>`, `block`). The workflow does not continue until it receives the response. | **Yes** |
+| **Soft checkpoint** | The skill emits a notification or suggestion; the human may act but the workflow continues if there is no objection within a margin. | No |
+| **Retroactive approval** | The skill runs automatically, but the output requires a human signature before becoming authoritative (example: threat model draft). | Partial |
+
+Stormhelm uses **mainly hard checkpoints** because soft ones tend to be ignored. The philosophy: if a decision requires a human, **stop and ask**.
+
+### Human responsibility at each HITL
+
+Each HITL has a **single clear human responsibility**. The human is not "supervising everything" — they are making **this specific decision**:
+
+| Responsibility | Required human skill | Typical time |
+|---|---|---|
+| Approve the spec/scenarios as a contract | Product/domain knowledge | 5-15 min |
+| Approve the threat model as a security contract | Security + business risk knowledge | 10-30 min |
+| Approve/reject draft PR | Technical knowledge + judgment | 15-45 min |
+| Sign off the postmortem as blameless | Senior engineer / tech lead | 30-90 min |
+| Decide descope vs implement | Product owner / tech lead | 5-15 min |
+
+**Anti-pattern:** the human "skims everything" before continuing. That is noise, not value. The HITL exists to force a decision, not to stage supervision theater.
+
+---
+
+## 3. Initial project setup
+
+Before any flow, the project needs:
+
+### Step A: `/setup` (interactive wizard, once)
 
 ```
 /setup
 ```
 
-**HITL involucrado:** sí, el wizard tiene 6-8 preguntas. El humano responde:
+**HITL involved:** yes, the wizard has 6-8 questions. The human answers:
 1. Project type (greenfield / brownfield)
-2. Primary language y framework
+2. Primary language and framework
 3. Persistence layer
 4. Validation library
 5. Deployment target
 6. Compliance requirements (SOC2, GDPR, etc.)
-7. Vocabulary seed (5-15 términos del dominio)
+7. Vocabulary seed (5-15 domain terms)
 
 **Output:**
 
@@ -106,86 +106,86 @@ Antes de cualquier flujo, el proyecto necesita:
 project-root/
 ├── docs/
 │   ├── engineering/
-│   │   ├── AGENTS.md                  # personalizado a la stack elegida
-│   │   ├── core/                       # 17 archivos de reglas neutrales
-│   │   └── capabilities/<stack>/        # reglas stack-specific
-│   ├── constitution.md                  # TEMPLATE vacío
-│   ├── CONTEXT.md                       # con seed vocabulary
-│   ├── slos.md                          # vacío
-│   ├── events.md                        # template para registry
+│   │   ├── AGENTS.md                  # personalized to the chosen stack
+│   │   ├── core/                       # 17 neutral rule files
+│   │   └── capabilities/<stack>/        # stack-specific rules
+│   ├── constitution.md                  # empty TEMPLATE
+│   ├── CONTEXT.md                       # with seed vocabulary
+│   ├── slos.md                          # empty
+│   ├── events.md                        # template for registry
 │   ├── adr/.keep
 │   ├── audit/incidents.md               # template
-│   ├── postmortems/TEMPLATE.md          # plantilla de postmortem
+│   ├── postmortems/TEMPLATE.md          # postmortem template
 │   ├── threat-models/.keep
 │   └── perf-baselines/.keep
-├── features/.keep                       # .feature files irán aquí
+├── features/.keep                       # .feature files will go here
 ├── issues/.keep
 ├── .planning/                            # gitignored
 │   ├── budget.txt
-│   └── (subdirs para grilling/, acceptance/, reviews/, etc.)
+│   └── (subdirs for grilling/, acceptance/, reviews/, etc.)
 ├── .claude/
-│   ├── settings.json                    # hooks + MCP + permisos
-│   ├── agents/reviewer.md               # symlink al reviewer agent
+│   ├── settings.json                    # hooks + MCP + permissions
+│   ├── agents/reviewer.md               # symlink to the reviewer agent
 │   ├── hooks.config.json
 │   └── webfetch-cache/                  # gitignored
-├── hooks/                                # scripts ejecutables
-├── ralph-local.sh                       # template tailored al stack
+├── hooks/                                # executable scripts
+├── ralph-local.sh                       # template tailored to the stack
 └── .gitleaks.toml, .pre-commit-config.yaml
 ```
 
-**Responsabilidad humana:** responder con honestidad. Si dudas entre opciones, elige la más restrictiva — siempre puedes relajar después con un ADR.
+**Human responsibility:** answer honestly. If you're torn between options, choose the most restrictive — you can always relax it later with an ADR.
 
-### Paso B: `/constitution` (entrevista de 6 preguntas, una vez)
+### Step B: `/constitution` (6-question interview, once)
 
 ```
 /constitution
 ```
 
-**HITL involucrado:** sí, entrevista de 6 preguntas con discusión.
+**HITL involved:** yes, a 6-question interview with discussion.
 
-**Output:** `docs/constitution.md` con principios `C.1`, `C.2`, ... Cada uno con título, rationale, relación con §N, ejemplo. Toma 30-60 min la primera vez.
+**Output:** `docs/constitution.md` with principles `C.1`, `C.2`, ... Each with a title, rationale, relation to §N, and example. Takes 30-60 min the first time.
 
-**Responsabilidad humana:** declarar los tenets no-negociables del proyecto. Mínimo 2 humanos co-firman. (Ver detalle de `/constitution` en `skills/constitution/SKILL.md`.)
+**Human responsibility:** declare the project's non-negotiable tenets. At least 2 humans co-sign. (See the `/constitution` detail in `skills/constitution/SKILL.md`.)
 
-### Paso C: `/onboard` (cuando se incorpora nuevo developer)
+### Step C: `/onboard` (when a new developer joins)
 
 ```
 /onboard
 ```
 
-**HITL involucrado:** no — es informativo.
+**HITL involved:** no — it's informational.
 
-**Output:** orientación al developer sobre dónde está cada cosa y cómo se invoca cada skill.
+**Output:** orientation for the developer on where each thing lives and how each skill is invoked.
 
 ---
 
-## 4. Flujo principal: feature greenfield (`/feature` o manual)
+## 4. Main flow: greenfield feature (`/feature` or manual)
 
-### Ejemplo conductor
+### Running example
 
-> **`provider-review`** — Un Customer que ha completado un Quote con un Provider puede dejar una reseña: rating obligatorio (1-5 estrellas) + comentario opcional (max 1000 chars). Al publicarse, el Provider recibe una notificación por email. Las reseñas son visibles públicamente en el perfil del Provider.
+> **`provider-review`** — A Customer who has completed a Quote with a Provider can leave a review: mandatory rating (1-5 stars) + optional comment (max 1000 chars). On publication, the Provider receives an email notification. Reviews are publicly visible on the Provider's profile.
 
-### Características de la feature de ejemplo
+### Characteristics of the example feature
 
-- **Greenfield** — módulo Reviews no existe aún.
-- **Single bounded context** — todo vive en `src/domain/reviews/`.
-- **UI involved** — formulario de calificación + display público.
-- **Public API** — endpoints `/v1/reviews` y `/v1/providers/:id/reviews`.
-- **Sensitive (PII)** — el comentario puede contener nombres, emails (PII de usuario, no del Provider).
-- **Multi-actor** — Customer crea, Provider lee, público lee.
-- **Introduces capability** — primer email adapter del proyecto.
+- **Greenfield** — the Reviews module does not exist yet.
+- **Single bounded context** — everything lives in `src/domain/reviews/`.
+- **UI involved** — rating form + public display.
+- **Public API** — endpoints `/v1/reviews` and `/v1/providers/:id/reviews`.
+- **Sensitive (PII)** — the comment may contain names, emails (user PII, not the Provider's).
+- **Multi-actor** — Customer creates, Provider reads, public reads.
+- **Introduces capability** — the project's first email adapter.
 
-Esta feature ejercita los 3 HITLs principales del flujo + el HITL del capability promotion.
+This feature exercises the 3 main HITLs of the flow + the capability-promotion HITL.
 
 ---
 
 ### Step 1 — Pre-flight check
 
-**Skill invocado:** ninguno (verificación interna del orquestador o del developer manualmente).
+**Skill invoked:** none (internal verification by the orchestrator or by the developer manually).
 
-**Input:** la estructura del proyecto.
+**Input:** the project structure.
 
-**Procesamiento:**
+**Processing:**
 
 ```bash
 # Verifications:
@@ -194,30 +194,30 @@ git status                          # working tree clean
 ls .planning/budget.txt             # exists, > 0
 ```
 
-**Output:** OK o stop con diagnóstico claro.
+**Output:** OK or stop with a clear diagnosis.
 
 **HITL:** no.
 
-**Validación de reglas:** §setup pre-conditions.
+**Rule validation:** §setup pre-conditions.
 
 ---
 
 ### Step 2 — Read constitution
 
-**Skill invocado:** ninguno (intern del orquestador, lectura).
+**Skill invoked:** none (orchestrator-internal, reading).
 
 **Input:**
-- `docs/engineering/AGENTS.md` (capabilities activas).
+- `docs/engineering/AGENTS.md` (active capabilities).
 - `docs/constitution.md` (tenets).
-- Descripción de la feature.
+- The feature description.
 
-**Procesamiento:**
+**Processing:**
 
-El orquestador (o el developer mental) detecta:
+The orchestrator (or the developer mentally) detects:
 
 ```
 Active capabilities: typescript, typescript-hono, drizzle, zod
-Feature touches sensitive paths? → YES (PII en comentarios) → §64 require-human-review
+Feature touches sensitive paths? → YES (PII in comments) → §64 require-human-review
 Multi-module? → NO (single context: reviews)
 UI involved? → YES → §104 visual gate
 Public API endpoints? → YES → §105 Schemathesis
@@ -225,7 +225,7 @@ Introduces new capability? → YES (first email adapter) → §63 introduces-cap
 SLO declared for this endpoint? → Will be checked at /specify with §3b SLO source rule
 ```
 
-**Output:** una "ficha de modo" mental o explícita en `.planning/feature-sessions/provider-review.modes.md`:
+**Output:** a mental or explicit "mode sheet" in `.planning/feature-sessions/provider-review.modes.md`:
 
 ```markdown
 # Feature mode detection — provider-review
@@ -242,50 +242,50 @@ SLO declared for this endpoint? → Will be checked at /specify with §3b SLO so
 
 **HITL:** no.
 
-**Validación de reglas:** §107 mode detection, §64 sensitive detection, §63 capability detection.
+**Rule validation:** §107 mode detection, §64 sensitive detection, §63 capability detection.
 
 ---
 
 ### Step 3 — `/grill-me`
 
-**Skill invocado:** `/grill-me`.
+**Skill invoked:** `/grill-me`.
 
 **Input:**
 - Feature description.
 - `docs/CONTEXT.md` (vocabulary).
 - `docs/constitution.md`.
 
-**Carga progresiva de reglas:**
+**Progressive rule loading:**
 - `core/01-philosophy.md` (§1, §2, §30, §31, §35).
 - `core/05-domain-modeling.md` (§22 vocabulary).
-- `core/02-architecture.md` (§3 — feature toca dominio + adapter + repo + email).
+- `core/02-architecture.md` (§3 — feature touches domain + adapter + repo + email).
 - `core/16-security-supply-chain.md` (§87 — sensitive).
 
-**Procesamiento:**
+**Processing:**
 
-El skill detecta complejidad: multi-actor + 4 failure cases potenciales + 1 new capability → bucket **"Multiple actors OR cross-context flow"** → target **20-40 preguntas**.
+The skill detects complexity: multi-actor + 4 potential failure cases + 1 new capability → bucket **"Multiple actors OR cross-context flow"** → target **20-40 questions**.
 
-Ejecuta 28 preguntas representativas:
+It runs 28 representative questions:
 
 ```
-Q1: ¿El rating es obligatorio? → SÍ
-Q2: ¿El comentario es obligatorio? → NO, opcional
-Q3: Rango del rating → 1-5 enteros (no 0, no decimales)
-Q4: Length max del comentario → 1000 chars
-Q5: ¿Puede un Customer revisar múltiples veces al mismo Provider? → NO, una review por (Customer, Quote completed)
-Q6: ¿Editable después de publicada? → SÍ, dentro de 7 días; luego frozen
-Q7: ¿Eliminable por el Customer? → soft delete dentro de 30 días; luego frozen
-Q8: ¿Visible para todos antes del email al Provider? → NO, email primero, luego pública
-Q9: ¿Notificación al Provider — sincronía? → asíncrona via outbox (§17)
-Q10: ¿El Provider puede responder? → fuera de scope v1 (§31)
-Q11: ¿Moderación de comentarios (profanidad/abuse)? → fuera de scope v1; flag system es feature futura
-Q12: ¿Filtrado público de reviews? → ordenar por fecha desc; sin filtros v1
-Q13: ¿Sistema de "helpful" votes? → fuera de scope
-Q14: ¿Una vez frozen, se puede editar como admin? → SÍ, via panel admin (separado de este feature)
-Q15: ¿Multi-tenant? → YES, reviews scoped por tenant
-Q16: ¿GDPR delete request del Customer borra la review? → SÍ, hard delete del comment, mantener anonymized rating
-Q17: ¿Edad mínima del Customer para revisar? → no aplica para v1
-Q18-Q28: variantes sobre email format, errores, retry, etc.
+Q1: Is the rating mandatory? → YES
+Q2: Is the comment mandatory? → NO, optional
+Q3: Rating range → integers 1-5 (no 0, no decimals)
+Q4: Max comment length → 1000 chars
+Q5: Can a Customer review the same Provider multiple times? → NO, one review per (Customer, Quote completed)
+Q6: Editable after publication? → YES, within 7 days; then frozen
+Q7: Deletable by the Customer? → soft delete within 30 days; then frozen
+Q8: Visible to everyone before the email to the Provider? → NO, email first, then public
+Q9: Notification to the Provider — synchronous? → asynchronous via outbox (§17)
+Q10: Can the Provider reply? → out of scope for v1 (§31)
+Q11: Comment moderation (profanity/abuse)? → out of scope for v1; flag system is a future feature
+Q12: Public review filtering? → sort by date desc; no filters in v1
+Q13: "Helpful" vote system? → out of scope
+Q14: Once frozen, can it be edited as admin? → YES, via admin panel (separate from this feature)
+Q15: Multi-tenant? → YES, reviews scoped per tenant
+Q16: Does a GDPR delete request from the Customer remove the review? → YES, hard delete of the comment, keep the anonymized rating
+Q17: Minimum Customer age to review? → not applicable for v1
+Q18-Q28: variants on email format, errors, retry, etc.
 ```
 
 **Output:**
@@ -301,14 +301,14 @@ Q18-Q28: variantes sobre email format, errores, retry, etc.
 ## Resolved design tree
 
 ### Actor: Customer
-- Q1-Q7: rating obligatorio (1-5), comentario opcional (max 1000), editable 7d, soft-delete 30d
+- Q1-Q7: mandatory rating (1-5), optional comment (max 1000), editable 7d, soft-delete 30d
 - Q15-Q16: tenant scope, GDPR delete
 
 ### Actor: Provider (asynchronous reader)
 - Q9: receives email notification after review publishes
 - Q10: cannot reply in v1 (§31)
 
-### Actor: Público (read-only)
+### Actor: Public (read-only)
 - Q8: reviews visible publicly after publication
 - Q12: sorted by date desc, no filters v1
 
@@ -318,47 +318,47 @@ Q18-Q28: variantes sobre email format, errores, retry, etc.
 - A3: Email notification is fire-and-forget via outbox; failures don't roll back the review
 
 ## Open questions
-- OQ-1 (non-blocking): ¿Spam protection necesario? → default: rate limit middleware (§46) basta para v1
+- OQ-1 (non-blocking): Is spam protection necessary? → default: rate limit middleware (§46) is enough for v1
 
 ## Shared mental model
-[3 párrafos resumen]
+[3-paragraph summary]
 ```
 
-**HITL:** no formal (es un diálogo developer-agent).
+**HITL:** no formal one (it's a developer-agent dialogue).
 
-**Responsabilidad humana:** responder con honestidad y confirmar el modelo mental compartido al final.
+**Human responsibility:** answer honestly and confirm the shared mental model at the end.
 
-**Validación de reglas:** §1 build only validated needs (Q10, Q11, Q13 marcados out-of-scope), §22 vocabulary (Customer, Quote, Provider, Review).
+**Rule validation:** §1 build only validated needs (Q10, Q11, Q13 marked out-of-scope), §22 vocabulary (Customer, Quote, Provider, Review).
 
 ---
 
 ### Step 4 — `/domain-model`
 
-**Skill invocado:** `/domain-model`.
+**Skill invoked:** `/domain-model`.
 
 **Input:**
 - `.planning/grilling/provider-review-20260601.md`.
 - `docs/CONTEXT.md`.
 - `docs/adr/`.
 
-**Carga progresiva de reglas:**
+**Progressive rule loading:**
 - `core/02-architecture.md` (§3, §37 — class vs type).
 - `core/05-domain-modeling.md` (full read).
 - `capabilities/typescript/03-style.md` (§5-§10, §33).
 
-**Procesamiento:**
+**Processing:**
 
-Decisiones tomadas:
+Decisions taken:
 
-1. **Nuevo término:** `Review` añadido a CONTEXT.md (entity, no value object — tiene identidad y comportamiento `edit()`, `softDelete()`, `freeze()`).
-2. **Rating:** value object `Rating` con factory `Rating.from(n: number): Result<Rating, "INVALID_RATING">` (§19).
-3. **ReviewState:** closed set `"published" | "editable_window" | "frozen" | "soft_deleted"` (§36) en `src/domain/reviews/review-state.ts`.
-4. **ReviewComment:** value object opcional, `readonly value: string | null`.
-5. **ADR emitido:** `0003-review-as-entity-with-lifecycle.md` justificando que Review es entity (no value object) por tener lifecycle propio.
+1. **New term:** `Review` added to CONTEXT.md (entity, not value object — it has identity and behavior `edit()`, `softDelete()`, `freeze()`).
+2. **Rating:** value object `Rating` with factory `Rating.from(n: number): Result<Rating, "INVALID_RATING">` (§19).
+3. **ReviewState:** closed set `"published" | "editable_window" | "frozen" | "soft_deleted"` (§36) in `src/domain/reviews/review-state.ts`.
+4. **ReviewComment:** optional value object, `readonly value: string | null`.
+5. **ADR emitted:** `0003-review-as-entity-with-lifecycle.md` justifying that Review is an entity (not a value object) because it has its own lifecycle.
 
 **Output:**
 
-`docs/CONTEXT.md` actualizado:
+`docs/CONTEXT.md` updated:
 
 ```markdown
 ## Entities (added)
@@ -395,17 +395,17 @@ Decisiones tomadas:
   (Review has lifecycle independent of Quote post-completion).
 ```
 
-**HITL:** no formal.
+**HITL:** no formal one.
 
-**Responsabilidad humana:** revisar el delta de CONTEXT.md y el ADR. Si discrepa, pedir revisión.
+**Human responsibility:** review the CONTEXT.md delta and the ADR. If you disagree, request a revision.
 
-**Validación:** §22, §36 (closed set), §37 (entity vs value object).
+**Validation:** §22, §36 (closed set), §37 (entity vs value object).
 
 ---
 
 ### Step 5 — `/specify`
 
-**Skill invocado:** `/specify`.
+**Skill invoked:** `/specify`.
 
 **Input:**
 - `.planning/grilling/provider-review-20260601.md`.
@@ -413,19 +413,19 @@ Decisiones tomadas:
 - `docs/constitution.md`.
 - `docs/adr/0003-review-as-entity-with-lifecycle.md`.
 
-**Carga progresiva de reglas:**
+**Progressive rule loading:**
 - `core/01-philosophy.md` (§1, §35).
 - `core/05-domain-modeling.md` (§22).
 - `core/10-cross-cutting.md` (§45 tenant — reviews scoped).
 - `core/16-security-supply-chain.md` (§87 — sensitive).
 
-**Aplicación de mejora #3 (SLO source obligatorio):**
+**Applying improvement #3 (mandatory SLO source):**
 
-Al redactar NFR de latencia, el skill se detiene:
+When drafting the latency NFR, the skill stops:
 
 > *"NFR-N mentions p95 latency target. No baseline exists (greenfield). Grilling doesn't mention latency. Constitution C.7 declares default 'public API p95 ≤ 500 ms'. Apply this default? (y/n)"*
 
-Developer responde: **y**.
+The developer answers: **y**.
 
 **Output:**
 
@@ -501,67 +501,67 @@ this primitive.
 - Introduces capability: `email` (first email adapter — see §63).
 ```
 
-**HITL:** no formal (Status: Draft).
+**HITL:** no formal one (Status: Draft).
 
-**Responsabilidad humana:** ninguna en este step; viene en Step 7.
+**Human responsibility:** none in this step; it comes in Step 7.
 
-**Validación:** §1 validated business needs, §22 vocabulary, §3b SLO source, §31 out-of-scope explícito.
+**Validation:** §1 validated business needs, §22 vocabulary, §3b SLO source, §31 explicit out-of-scope.
 
 ---
 
 ### Step 6 — `/clarify`
 
-**Skill invocado:** `/clarify`.
+**Skill invoked:** `/clarify`.
 
 **Input:** `docs/specs/provider-review.md` (Status: Draft).
 
-**Aplicación de mejora #2 (checklist sistemático de 7 categorías):**
+**Applying improvement #2 (systematic 7-category checklist):**
 
-El skill ejecuta explícitamente cada categoría. Encuentra 8 ambigüedades:
+The skill explicitly runs each category. It finds 8 ambiguities:
 
 ```
 [x] Units & precision
-  - "max 1000 chars after trim" — ¿cuenta whitespace en medio? → SÍ.
-  - "7 days editable" — desde creation? → desde createdAt UTC.
-  - "30 days soft-delete" — desde creation o desde delete request? → desde delete request.
+  - "max 1000 chars after trim" — does it count whitespace in the middle? → YES.
+  - "7 days editable" — from creation? → from createdAt UTC.
+  - "30 days soft-delete" — from creation or from the delete request? → from the delete request.
 
 [x] Boundaries (inclusive/exclusive)
-  - "max 1000 chars" — inclusive de 1000 o hasta 999? → inclusive de 1000.
+  - "max 1000 chars" — inclusive of 1000 or up to 999? → inclusive of 1000.
 
 [x] State machine
-  - ¿published puede saltar directo a soft_deleted antes de 7 días? → SÍ (editable_window incluye delete option).
+  - Can published jump straight to soft_deleted before 7 days? → YES (editable_window includes the delete option).
 
 [x] Defaults vs required
-  - ReviewComment ausente vs string vacío → ausente y empty string equivalentes; ambos persisten como NULL.
+  - ReviewComment absent vs empty string → absent and empty string are equivalent; both persist as NULL.
 
 [x] Error semantics
-  - Códigos explícitos: REVIEW_ALREADY_EXISTS, QUOTE_NOT_COMPLETED, COMMENT_TOO_LONG, FORBIDDEN, UNAUTHORIZED, REVIEW_FROZEN, REVIEW_NOT_FOUND.
+  - Explicit codes: REVIEW_ALREADY_EXISTS, QUOTE_NOT_COMPLETED, COMMENT_TOO_LONG, FORBIDDEN, UNAUTHORIZED, REVIEW_FROZEN, REVIEW_NOT_FOUND.
 
 [x] Concurrency
-  - ¿Dos requests simultáneos del mismo Customer al mismo Quote? → first-write-wins via DB unique constraint + 409 CONFLICT.
+  - Two simultaneous requests from the same Customer for the same Quote? → first-write-wins via DB unique constraint + 409 CONFLICT.
 
 [x] Tenancy (§45)
   - Cross-tenant attempts? → 404 (no leak FORBIDDEN vs NOT_FOUND signal).
 
 [x] Compliance & retention
-  - "Anonymized rating remains after hard-delete" — ¿qué significa? → rating se preserva con customerId=null, comment=null, only rating numeric value persisted.
+  - "Anonymized rating remains after hard-delete" — what does it mean? → the rating is preserved with customerId=null, comment=null, only the rating numeric value persisted.
 ```
 
-**Output:** `docs/specs/provider-review.md` actualizado a Status: Clarified con clarifications log.
+**Output:** `docs/specs/provider-review.md` updated to Status: Clarified with a clarifications log.
 
-**HITL:** no formal.
+**HITL:** no formal one.
 
-**Validación:** §57 (vocabulary), checklist sistemático mejora #2.
+**Validation:** §57 (vocabulary), systematic checklist improvement #2.
 
 ---
 
 ### Step 7 — `/to-scenarios` (⛔ HITL #1)
 
-**Skill invocado:** `/to-scenarios`.
+**Skill invoked:** `/to-scenarios`.
 
 **Input:** `docs/specs/provider-review.md` (Status: Clarified).
 
-**Procesamiento:** genera draft de `.feature` con escenarios cubriendo cada FR + variantes de failure.
+**Processing:** generates a `.feature` draft with scenarios covering each FR + failure variants.
 
 **Output (draft):**
 
@@ -654,9 +654,9 @@ Feature: Provider review by Customer after Quote completion
     And the Customer receives 201 with reviewId
 ```
 
-**Total: 12 escenarios.**
+**Total: 12 scenarios.**
 
-### ⛔ HITL #1 — Aprobación de escenarios
+### ⛔ HITL #1 — Scenario approval
 
 > *"I've drafted 12 scenarios covering: happy paths (scn-200, scn-201), uniqueness (scn-202), validation failures (scn-203, scn-204), lifecycle (scn-205, scn-206, scn-207, scn-208), public access (scn-209), tenant isolation (scn-210), partial failure (scn-211).*
 >
@@ -667,37 +667,37 @@ Feature: Provider review by Customer after Quote completion
 > - `edit:<feedback>` *to revise specific scenarios.*
 > - `block` *if the scenarios miss something critical."*
 
-**Responsabilidad humana en este HITL:**
+**Human responsibility at this HITL:**
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Leer cada scenario y verificar que captura el comportamiento de negocio | Aprobar sin leer ("se ve bien") |
-| Confirmar que el lenguaje usa vocabulario de CONTEXT.md | Discutir implementación técnica (esa es la spec, no scenarios) |
-| Verificar que casos edge importantes están cubiertos | Pedir scenarios para casos out-of-scope (§31) |
-| Validar que el comportamiento descrito ES el que el negocio quiere | Pedir scenarios fuera del alcance del slice |
-| Aprobar el contrato Provider/Customer | Reescribir el lenguaje del scenario |
-| Pedir nuevos scenarios si detecta gaps | Aprobar y luego pedir cambios después |
+| Read each scenario and verify it captures the business behavior | Approve without reading ("looks good") |
+| Confirm the language uses CONTEXT.md vocabulary | Discuss technical implementation (that's the spec, not the scenarios) |
+| Verify that important edge cases are covered | Request scenarios for out-of-scope cases (§31) |
+| Validate that the described behavior IS what the business wants | Request scenarios outside the slice's scope |
+| Approve the Provider/Customer contract | Rewrite the scenario language |
+| Request new scenarios if gaps are detected | Approve and then ask for changes later |
 
-**Tiempo típico:** 10-20 min.
+**Typical time:** 10-20 min.
 
-**Aprobación simulada:** `yes`.
+**Simulated approval:** `yes`.
 
-**Validación de reglas tras aprobación:** §58 (.feature read-only para el agente desde este momento), §59 (scn-NNN IDs estables), §60 (tags @release/@smoke aplicados).
+**Rule validation after approval:** §58 (.feature read-only for the agent from this moment on), §59 (scn-NNN IDs stable), §60 (tags @release/@smoke applied).
 
 ---
 
 ### Step 8 — `/to-issues`
 
-**Skill invocado:** `/to-issues`.
+**Skill invoked:** `/to-issues`.
 
-**Input:** spec Clarified + `.feature` aprobado.
+**Input:** Clarified spec + approved `.feature`.
 
-**Aplicación de mejora #1 (fricción aplicada): detección de nueva capability**
+**Applying improvement #1 (applied friction): new capability detection**
 
-El skill detecta:
-- Nuevo adapter: `src/infrastructure/adapters/output/email/` no existe previamente → **introduces-capability:email**.
-- Sensitive (PII en comentario) → **require-human-review**.
-- NO `ralph-ready` por ser primera capability email.
+The skill detects:
+- New adapter: `src/infrastructure/adapters/output/email/` did not exist previously → **introduces-capability:email**.
+- Sensitive (PII in the comment) → **require-human-review**.
+- NO `ralph-ready` because it's the first email capability.
 
 **Output:**
 
@@ -707,7 +707,7 @@ El skill detecta:
 # Issue 003 — Provider review slice
 
 ## Scenarios covered
-scn-200 a scn-211 (12 escenarios, ver features/reviews/provider-review.feature)
+scn-200 to scn-211 (12 scenarios, see features/reviews/provider-review.feature)
 
 ## Vertical slice
 Customer submits Review → validation → uniqueness check → persist → outbox email → 201.
@@ -726,7 +726,7 @@ Email adapter introduced (first time).
 - New cron-like job for hard-delete cleanup at day 30.
 ```
 
-### Labels (vía `gh issue create`):
+### Labels (via `gh issue create`):
 
 ```
 severity:p2
@@ -737,30 +737,30 @@ require-human-review              # §64 sensitive (PII)
 introduces-capability:email        # §63 first email adapter
 ```
 
-**No `ralph-ready`** (forbidden por `introduces-capability:*` en primera iteración).
+**No `ralph-ready`** (forbidden by `introduces-capability:*` on the first iteration).
 
-**HITL:** no formal (el humano puede revisar el issue antes de proceder, pero no se detiene el workflow).
+**HITL:** no formal one (the human may review the issue before proceeding, but the workflow does not stop).
 
-**Responsabilidad humana:** revisar que el budget de 150k es razonable; si no, pedir descope.
+**Human responsibility:** review that the 150k budget is reasonable; if not, request a descope.
 
-**Validación:** §63 introduces-capability, §64 require-human-review, §107 multi-module mode (NO en este caso).
+**Validation:** §63 introduces-capability, §64 require-human-review, §107 multi-module mode (NOT in this case).
 
 ---
 
 ### Step 9 — `/plan`
 
-**Skill invocado:** `/plan`.
+**Skill invoked:** `/plan`.
 
 **Input:** issue + scenarios + AGENTS.md + CONTEXT.md + constitution.
 
-**Carga progresiva de reglas (9 archivos):**
+**Progressive rule loading (9 files):**
 - `core/02-architecture.md`, `core/05-domain-modeling.md`, `core/08-testability.md` (always)
 - `core/06-commands-and-security.md` (use cases + auth)
 - `core/07-infrastructure.md` + `core/10-cross-cutting.md` (DB + tenancy + outbox + pagination)
 - `core/04-input-boundaries.md` (POST endpoints)
 - `capabilities/typescript/03-style.md`, `capabilities/typescript/11-async.md`, `capabilities/typescript-hono/09-stack-conventions.md`.
 
-**Output (resumido):**
+**Output (abridged):**
 
 ```
 Layers affected:
@@ -807,28 +807,28 @@ Dependency graph: ~16 ordered tasks.
 Estimated tokens: ~140k (within 150k budget).
 ```
 
-**HITL:** no formal.
+**HITL:** no formal one.
 
-**Responsabilidad humana:** verificar que el plan respeta el budget y que el dependency graph es razonable.
+**Human responsibility:** verify that the plan respects the budget and that the dependency graph is reasonable.
 
-**Validación:** §3 hexagonal direction explícita, §47 pagination, §17 outbox para email, §52 timeout.
+**Validation:** §3 explicit hexagonal direction, §47 pagination, §17 outbox for email, §52 timeout.
 
 ---
 
 ### Step 10 — `/tdd` (Red-Green-Refactor)
 
-**Skill invocado:** `/tdd`.
+**Skill invoked:** `/tdd`.
 
-**Carga progresiva de reglas (12 archivos):** los del plan + `core/15-observability.md` (§77 estructurado, §78 dot.notation, §80 event on close).
+**Progressive rule loading (12 files):** those of the plan + `core/15-observability.md` (§77 structured, §78 dot.notation, §80 event on close).
 
-**Procesamiento:**
+**Processing:**
 
-#### Red phase (todos los tests fallando):
+#### Red phase (all tests failing):
 
-12 tests para el use case + 10 para el domain + 8 para adapters + step definitions = ~30 tests escritos primero.
+12 tests for the use case + 10 for the domain + 8 for adapters + step definitions = ~30 tests written first.
 
 ```ts
-// tests/reviews/submit-review.use-case.test.ts (representativo)
+// tests/reviews/submit-review.use-case.test.ts (representative)
 test("scn-200: Customer submits 5-star review with comment", async () => {
   const result = await useCase.execute(
     {
@@ -865,9 +865,9 @@ Run all tests → **30 failing.** Commit:
 test: red — provider-review slice (30 tests for scn-200..scn-211 + lifecycle) issue #003
 ```
 
-#### Green phase (implementación mínima):
+#### Green phase (minimal implementation):
 
-Sigue el dependency graph del plan. Implementa cada archivo en orden. Después de cada commit incremental, corre el test correspondiente.
+Follows the dependency graph from the plan. Implements each file in order. After each incremental commit, runs the corresponding test.
 
 ```ts
 // src/application/use-cases/reviews/submit-review.use-case.ts (fragment)
@@ -944,19 +944,19 @@ Run all 30 tests → **30 passing.** Commit:
 feat: green — submit-review use case implementation (scn-200, 201, 202, 203, 204, 210, 211) issue #003
 ```
 
-(Y otros commits para edit, soft-delete, hard-delete, public list.)
+(And other commits for edit, soft-delete, hard-delete, public list.)
 
 #### Refactor phase:
 
-- Extract helper `validateQuoteOwnership(quote, ctx): Result` reusado en 3 use cases.
-- Named constant `EDITABLE_WINDOW_DAYS = 7`, `SOFT_DELETE_RETENTION_DAYS = 30` para evitar magic numbers (§10).
-- Rename `findByQuoteAndCustomer` → `findByCompositeKey` (mejor naming §22).
+- Extract helper `validateQuoteOwnership(quote, ctx): Result` reused in 3 use cases.
+- Named constant `EDITABLE_WINDOW_DAYS = 7`, `SOFT_DELETE_RETENTION_DAYS = 30` to avoid magic numbers (§10).
+- Rename `findByQuoteAndCustomer` → `findByCompositeKey` (better naming §22).
 
-Tests siguen pasando.
+Tests still pass.
 
 #### §92 verification (fails-first cycle):
 
-Para 2 tests representativos, ciclo Write→Pass→Revert→Fail→Restore→Pass ejecutado. ✓
+For 2 representative tests, the Write→Pass→Revert→Fail→Restore→Pass cycle is run. ✓
 
 **Output:**
 
@@ -965,20 +965,20 @@ Tests:           30 passed
 Coverage:        domain 94%, application 88%, infrastructure 72% (matches C.2)
 Lint:            clean
 Typecheck:       clean
-Commits:         8 (1 red + 6 green incrementales + 1 refactor)
+Commits:         8 (1 red + 6 incremental green + 1 refactor)
 ```
 
-**HITL:** no formal.
+**HITL:** no formal one.
 
-**Validación:** §3 hexagonal, §19 Result types, §27 authz, §45 tenant, §17 outbox, §25/§26 inject clock/ids, §92 fails-first verified.
+**Validation:** §3 hexagonal, §19 Result types, §27 authz, §45 tenant, §17 outbox, §25/§26 inject clock/ids, §92 fails-first verified.
 
 ---
 
 ### Step 11 — `/run-acceptance` (gate)
 
-**Skill invocado:** `/run-acceptance`.
+**Skill invoked:** `/run-acceptance`.
 
-**Procesamiento:**
+**Processing:**
 
 ```
 Step 1 Pre-flight: ✓ branch + .feature unchanged from approved
@@ -1062,23 +1062,23 @@ return IDs/status, not full entities.
 **Recommendation:** merge after author addresses the 1 Should-fix.
 ```
 
-**Aplicación de mejora #4 (retry policy explícita):**
+**Applying improvement #4 (explicit retry policy):**
 
 | Outcome | Action |
 |---|---|
 | 0 🛑 blocking + 1 ⚠️ should-fix | Continue to Step 12; reviewer report goes in PR body |
 
-El developer arregla el should-fix (5 min, 1 commit) y re-corre `/run-acceptance` para verificar. **Pass.**
+The developer fixes the should-fix (5 min, 1 commit) and re-runs `/run-acceptance` to verify. **Pass.**
 
-**HITL:** no formal en el gate, pero el should-fix lleva al developer a una mini-iteración.
+**HITL:** no formal one at the gate, but the should-fix leads the developer into a mini-iteration.
 
-**Validación:** todas las §N listadas en el reviewer report.
+**Validation:** all the §N listed in the reviewer report.
 
 ---
 
 ### Step 12 — `/security-hardening` + `/traceability-matrix` + ⛔ HITL #3
 
-#### `/security-hardening` (con HITL #2 nuevo — threat model approval)
+#### `/security-hardening` (with the new HITL #2 — threat model approval)
 
 ```
 Step 1 Sensitive scope: ✓ touches PII (comments)
@@ -1088,7 +1088,7 @@ Step 2 §87 threat model:
   - Draft saved to docs/threat-models/provider-review.draft.md
 ```
 
-### ⛔ HITL #2 — Aprobación del threat model
+### ⛔ HITL #2 — Threat model approval
 
 > *"A new threat model has been drafted at `docs/threat-models/provider-review.draft.md`. §87 requires explicit human approval before the security audit can proceed.*
 >
@@ -1097,7 +1097,7 @@ Step 2 §87 threat model:
 > - *`edit:<notes>`: revise specific rows, then re-run /security-hardening.*
 > - *`block`: the slice cannot proceed; reject the spec or reduce scope to avoid the trust boundary."*
 
-**Contenido del draft** (que el humano debe revisar):
+**Draft content** (which the human must review):
 
 ```markdown
 # Threat model — Provider review (DRAFT)
@@ -1135,23 +1135,23 @@ Step 2 §87 threat model:
 - **Residual risk:** None known.
 ```
 
-**Responsabilidad humana en HITL #2:**
+**Human responsibility at HITL #2:**
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Leer cada row STRIDE | Aprobar sin leer |
-| Evaluar si los residual risks son aceptables para el negocio | Inventar amenazas hipotéticas no realistas |
-| Decidir entre mitigate / accept / transfer cada amenaza | Pedir mitigaciones imposibles |
-| Confirmar que cubre el surface real del slice | Aprobar y pedir cambios después |
-| Si hay duda → `edit:<notes>` con cambios concretos | Aprobar mecánicamente |
+| Read each STRIDE row | Approve without reading |
+| Evaluate whether the residual risks are acceptable for the business | Invent unrealistic hypothetical threats |
+| Decide between mitigate / accept / transfer for each threat | Demand impossible mitigations |
+| Confirm it covers the real surface of the slice | Approve and ask for changes later |
+| If in doubt → `edit:<notes>` with concrete changes | Approve mechanically |
 
-**Tiempo típico:** 15-30 min para slice sensitive.
+**Typical time:** 15-30 min for a sensitive slice.
 
-**Aprobación simulada:** `approve`.
+**Simulated approval:** `approve`.
 
-→ `docs/threat-models/provider-review.draft.md` renombrado a `.md`. Auditable a partir de este momento.
+→ `docs/threat-models/provider-review.draft.md` renamed to `.md`. Auditable from this moment on.
 
-#### Continuación de `/security-hardening`:
+#### Continuation of `/security-hardening`:
 
 ```
 Step 3 gitleaks: ✓ no secrets in diff
@@ -1182,9 +1182,9 @@ Events registered (added to docs/events.md):
 - review.hard_deleted.v1
 ```
 
-### ⛔ HITL #3 — Aprobación del PR draft (merge gate)
+### ⛔ HITL #3 — Draft PR approval (merge gate)
 
-`gh pr create --draft` ejecutado. Notificación al developer:
+`gh pr create --draft` executed. Notification to the developer:
 
 > *"Feature complete. Draft PR #PR-200 ready for review:*
 > - `agent/feature-provider-review-003` — 12 scenarios passed*
@@ -1197,28 +1197,28 @@ Events registered (added to docs/events.md):
 >
 > *No PRs auto-merge. Review, mark ready when satisfied, merge."*
 
-**Responsabilidad humana en HITL #3:**
+**Human responsibility at HITL #3:**
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Leer el diff completo (líneas por línea para sensitive paths) | Aprobar por ojeada superficial |
-| Verificar que el reviewer report no escondió hallazgos críticos | Confiar 100% en el reviewer sin verificar |
-| Probar manualmente el endpoint (al menos happy path) | Solo correr CI |
-| Verificar que la UI se ve como se esperaba | Ignorar el visual gate |
-| Comentar dudas / pedir cambios concretos | Aprobar y reportar problemas después del merge |
-| Mark ready → merge cuando esté satisfecho | Mergear sin marcar ready (rompe §67) |
+| Read the full diff (line by line for sensitive paths) | Approve based on a superficial glance |
+| Verify the reviewer report did not hide critical findings | Trust the reviewer 100% without verifying |
+| Manually test the endpoint (at least the happy path) | Only run CI |
+| Verify that the UI looks as expected | Ignore the visual gate |
+| Comment doubts / request concrete changes | Approve and report problems after the merge |
+| Mark ready → merge when satisfied | Merge without marking ready (breaks §67) |
 
-**Tiempo típico:** 30-60 min para slice greenfield + new capability.
+**Typical time:** 30-60 min for a greenfield slice + new capability.
 
-**Aprobación simulada:** humano revisa, agrega 1 comentario sobre la UI label de rating, developer arregla en 1 commit, humano mark ready → merge.
+**Simulated approval:** the human reviews, adds 1 comment about the rating UI label, the developer fixes it in 1 commit, the human marks ready → merge.
 
 ---
 
 ### Step 13 — Post-merge close-out
 
-Triggered automáticamente por el merge (vía webhook GitHub o invocación manual).
+Triggered automatically by the merge (via GitHub webhook or manual invocation).
 
-**Acciones (todas idempotentes):**
+**Actions (all idempotent):**
 
 ```
 ✓ Step 13 — Post-merge close-out for #003
@@ -1243,9 +1243,9 @@ Triggered automáticamente por el merge (vía webhook GitHub o invocación manua
 Lifecycle closed.
 ```
 
-### Sub-HITL post-Step 13 — Promoción de capability `email`
+### Sub-HITL post-Step 13 — Promotion of the `email` capability
 
-Después del merge exitoso de la primera feature con `introduces-capability:email`, el framework sugiere (no obliga):
+After the successful merge of the first feature with `introduces-capability:email`, the framework suggests (does not require):
 
 > *"Capability `email` was introduced for the first time in this slice. The patterns used (SendGrid adapter, outbox event, retry policy) may become the standard for future email features. Consider:*
 >
@@ -1253,41 +1253,41 @@ Después del merge exitoso de la primera feature con `introduces-capability:emai
 > *Option B: Wait until 2-3 features use email to extract patterns from real usage.*
 > *Option C: Defer indefinitely."*
 
-**Responsabilidad humana en este sub-HITL:**
+**Human responsibility at this sub-HITL:**
 
-| Decisión | Cuándo |
+| Decision | When |
 |---|---|
-| Opción A — promover ahora | El equipo está seguro del patrón; quiere desbloquear futuras features email |
-| Opción B — esperar | Patrón aún ajustándose; promover prematuro causaría retrabajo |
-| Opción C — no documentar | Email es uso único; no se va a repetir |
+| Option A — promote now | The team is confident in the pattern; wants to unblock future email features |
+| Option B — wait | The pattern is still settling; promoting prematurely would cause rework |
+| Option C — don't document | Email is a one-off use; it won't recur |
 
-**Tiempo típico:** decisión rápida (5 min) si el equipo ya lo discutió en el PR review.
+**Typical time:** a quick decision (5 min) if the team already discussed it during the PR review.
 
 ---
 
-## 5. Flujo de bug fix (`/debug`)
+## 5. Bug fix flow (`/debug`)
 
 ### Trigger
 
-Un bug es reportado en la issue tracker. El humano (o automation) corre `/triage` para clasificarlo:
+A bug is reported in the issue tracker. The human (or automation) runs `/triage` to classify it:
 
 ```
 /triage --issue 042
 ```
 
-`/triage` aplica:
+`/triage` applies:
 - `severity:p0/p1/p2`
-- `incident:production` si el bug llegó a producción con impacto real
+- `incident:production` if the bug reached production with real impact
 - `type:bug`
-- `shift:hitl` (los P0/P1 production siempre hitl)
+- `shift:hitl` (P0/P1 production are always hitl)
 
-### Flujo manual paso a paso
+### Step-by-step manual flow
 
-**Step 1 — `/debug` arranca:** lee el issue + cualquier stack trace, logs, screenshots.
+**Step 1 — `/debug` starts:** reads the issue + any stack trace, logs, screenshots.
 
-**Step 2-3 — `/debug` invoca `/diagnose` internamente:** reproduce → minimise → hypothesise → instrument → identifica root cause.
+**Step 2-3 — `/debug` invokes `/diagnose` internally:** reproduce → minimise → hypothesise → instrument → identify root cause.
 
-**Output de `/diagnose`:**
+**`/diagnose` output:**
 
 `.planning/diagnoses/quote-expiry-bypass-20260601.md`:
 
@@ -1309,204 +1309,204 @@ Inject ClockPort (§25); replace new Date() with clock.now().
 tests/quotes/accept-quote.use-case.test.ts — new test exercises the timezone case.
 ```
 
-**HITL:** no formal en `/diagnose` (puramente analítico).
+**HITL:** no formal one in `/diagnose` (purely analytical).
 
-**Step 4 — `/tdd` para el fix:**
+**Step 4 — `/tdd` for the fix:**
 
-- Red: regression test que captura el bug (failing).
-- Green: aplicar fix mínimo (1 línea: cambiar `new Date()` por `this.clock.now()`).
+- Red: regression test that captures the bug (failing).
+- Green: apply the minimal fix (1 line: change `new Date()` to `this.clock.now()`).
 - §92 fails-first verified.
 
-**Step 5 — `/run-acceptance`:** verifica que el fix no rompe otros scenarios + el regression test pasa.
+**Step 5 — `/run-acceptance`:** verifies that the fix does not break other scenarios + the regression test passes.
 
-**Step 6 — `/code-review` (reviewer agent) + opcional `/security-hardening` si bug era de seguridad.**
+**Step 6 — `/code-review` (reviewer agent) + optional `/security-hardening` if the bug was a security one.**
 
-### ⛔ HITL — Aprobación del PR de fix (HITL #3 reutilizado)
+### ⛔ HITL — Fix PR approval (HITL #3 reused)
 
-Mismo HITL que en feature flow. Responsabilidad humana:
+Same HITL as in the feature flow. Human responsibility:
 
-- Verificar que el fix es root cause, no symptom patch (§93).
-- Verificar que el regression test realmente captura el bug.
-- Decidir si requiere postmortem (§95 + nueva regla: solo si `incident:production` label).
+- Verify the fix is the root cause, not a symptom patch (§93).
+- Verify the regression test actually captures the bug.
+- Decide whether it requires a postmortem (§95 + new rule: only if `incident:production` label).
 
-### Post-merge — `/postmortem` (si aplica)
+### Post-merge — `/postmortem` (if applicable)
 
-**Solo si el issue tiene `incident:production` label.**
+**Only if the issue has the `incident:production` label.**
 
-`/postmortem --issue 042` genera draft → humano lo refina → publica en `docs/postmortems/2026-06-01-quote-expiry-bypass.md`.
+`/postmortem --issue 042` generates a draft → the human refines it → publishes it at `docs/postmortems/2026-06-01-quote-expiry-bypass.md`.
 
-### Sub-HITL — Aprobación del postmortem
+### Sub-HITL — Postmortem approval
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Verificar que el postmortem es **blameless** (sistemas, no personas) | Asignar culpa a individuos |
-| Confirmar timeline contra logs reales | Confiar en el draft sin verificar |
-| Refinar "Lessons learned" con perspectiva humana | Aceptar lessons genéricas del agente |
-| Asignar action items concretos a owners | Dejar action items sin owner |
-| Firmar como reviewer externo al response team | Auto-aprobar siendo del response team |
+| Verify the postmortem is **blameless** (systems, not people) | Assign blame to individuals |
+| Confirm the timeline against real logs | Trust the draft without verifying |
+| Refine "Lessons learned" with human perspective | Accept the agent's generic lessons |
+| Assign concrete action items to owners | Leave action items without an owner |
+| Sign off as a reviewer external to the response team | Self-approve while being part of the response team |
 
-**Tiempo típico:** 1-2 horas para un P0 production.
+**Typical time:** 1-2 hours for a P0 production.
 
 ---
 
-## 6. Flujo de improvement (`/optimize` y otros)
+## 6. Improvement flow (`/optimize` and others)
 
-Los improvements tienen sub-skills específicos por categoría:
+Improvements have category-specific sub-skills:
 
-| Categoría | Skill |
+| Category | Skill |
 |---|---|
 | Performance optimization | `/optimize` |
-| Refactor sin behavior change | usar `/tdd` con plan refactor (§102) |
-| Tech debt reduction | `/improve-codebase-architecture` → genera issues → `/feature` flow normal |
-| Security hardening proactivo | `/security-hardening` invocado manualmente |
-| Dependency upgrade | Runbook embebido en §100 (Renovate/Dependabot) |
+| Refactor without behavior change | use `/tdd` with a refactor plan (§102) |
+| Tech debt reduction | `/improve-codebase-architecture` → generates issues → normal `/feature` flow |
+| Proactive security hardening | `/security-hardening` invoked manually |
+| Dependency upgrade | Runbook embedded in §100 (Renovate/Dependabot) |
 
-### Ejemplo: `/optimize`
+### Example: `/optimize`
 
-**Trigger:** un endpoint excede el SLO declarado en `docs/slos.md`.
+**Trigger:** an endpoint exceeds the SLO declared in `docs/slos.md`.
 
-**Flujo:**
+**Flow:**
 
-1. `/optimize --endpoint POST /v1/reviews` — el skill lee el SLO target.
-2. **Step 1: MEASURE** — baseline con k6/wrk, guarda en `docs/perf-baselines/reviews-post.md`.
-3. **Step 2: IDENTIFY** — profile (flamegraph, query plan), identifica bottleneck mecánicamente.
-4. **Step 3: FIX** — `/tdd` para el cambio.
-5. **Step 4: VERIFY** — re-measure, debe vencer el target.
-6. **Step 5: GUARD** — perf budget en CI o benchmark test.
+1. `/optimize --endpoint POST /v1/reviews` — the skill reads the SLO target.
+2. **Step 1: MEASURE** — baseline with k6/wrk, saved in `docs/perf-baselines/reviews-post.md`.
+3. **Step 2: IDENTIFY** — profile (flamegraph, query plan), identify the bottleneck mechanically.
+4. **Step 3: FIX** — `/tdd` for the change.
+5. **Step 4: VERIFY** — re-measure, must beat the target.
+6. **Step 5: GUARD** — perf budget in CI or benchmark test.
 
-**HITL:** sub-HITL si el fix requiere descope o cambio de SLO.
+**HITL:** sub-HITL if the fix requires a descope or SLO change.
 
-**Responsabilidad humana:**
+**Human responsibility:**
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Aprobar el baseline antes de optimizar | Optimizar sin baseline (§97 violación) |
-| Decidir si el target SLO necesita ajuste (raise/lower) | Bajar SLO porque "no se puede alcanzar" sin justificación |
-| Verificar que el guard (perf budget) catchea regresiones futuras | Mergear sin guard |
+| Approve the baseline before optimizing | Optimize without a baseline (§97 violation) |
+| Decide whether the target SLO needs adjustment (raise/lower) | Lower the SLO because "it can't be reached" without justification |
+| Verify the guard (perf budget) catches future regressions | Merge without a guard |
 
 ---
 
-## 7. Flujo brownfield (sub-flow B1-B5)
+## 7. Brownfield flow (sub-flow B1-B5)
 
-**Trigger:** el feature toca código legacy con cobertura <50% O cruza bounded contexts O modifica APIs públicas con consumers externos.
+**Trigger:** the feature touches legacy code with <50% coverage OR crosses bounded contexts OR modifies public APIs with external consumers.
 
-Los Steps B1-B5 **preceden** a `/specify` en el flujo principal:
+Steps B1-B5 **precede** `/specify` in the main flow:
 
 ### Step B1 — `/grill-with-docs`
 
-Interroga el código existente, no al humano. Captura la **realidad del código actual** antes de proponer cambios.
+Interrogates the existing code, not the human. Captures the **reality of the current code** before proposing changes.
 
-**Output:** `.planning/grilling-docs/<module>-<date>.md` con public surface, implicit invariants, git history signals, drift vs CONTEXT.md.
+**Output:** `.planning/grilling-docs/<module>-<date>.md` with public surface, implicit invariants, git history signals, drift vs CONTEXT.md.
 
 ### Step B2 — `/characterization-tests`
 
-Si cobertura <50%, **mandatorio** escribir tests que documenten el comportamiento actual (incluyendo bugs).
+If coverage is <50%, it is **mandatory** to write tests that document the current behavior (including bugs).
 
-**Output:** suite de tests `char-001`, `char-002`, ... committed en su propio PR antes de cualquier modificación.
+**Output:** test suite `char-001`, `char-002`, ... committed in its own PR before any modification.
 
-**HITL:** sub-HITL — revisar que los characterization tests capturan el comportamiento real, no el ideal.
+**HITL:** sub-HITL — review that the characterization tests capture the real behavior, not the ideal one.
 
-### Step B3 — `/domain-model` (re-aplica)
+### Step B3 — `/domain-model` (re-applies)
 
-Con la información de B1, refina CONTEXT.md para que refleje la realidad del código (no la aspiracional).
+With the information from B1, refines CONTEXT.md so it reflects the reality of the code (not the aspirational one).
 
 ### Step B4 — `/impact-analysis`
 
-Mapea el blast radius del cambio propuesto.
+Maps the blast radius of the proposed change.
 
-**Output:** `.planning/impact/<change>-<date>.md` con consumers directos, transitivos, tests at risk, external consumers.
+**Output:** `.planning/impact/<change>-<date>.md` with direct and transitive consumers, tests at risk, external consumers.
 
-**Responsabilidad humana:** evaluar si el blast radius es manejable. Si no, ir a B5.
+**Human responsibility:** evaluate whether the blast radius is manageable. If not, go to B5.
 
-### Step B5 — Decisión: in-place vs strangler
+### Step B5 — Decision: in-place vs strangler
 
-**HITL crítico** — el humano decide:
+**Critical HITL** — the human decides:
 
-| Opción | Cuándo |
+| Option | When |
 |---|---|
-| **In-place** — modificación directa con safety net | Cambio acotado, blast radius manejable |
-| **Strangler** — invocar `/strangler-plan` | Cambio grande, blast radius alto, riesgo de rollback complejo |
+| **In-place** — direct modification with a safety net | Bounded change, manageable blast radius |
+| **Strangler** — invoke `/strangler-plan` | Large change, high blast radius, risk of complex rollback |
 
-**Responsabilidad humana en B5:**
+**Human responsibility at B5:**
 
-| Lo que el humano DEBE hacer | Lo que el humano NO debe hacer |
+| What the human MUST do | What the human must NOT do |
 |---|---|
-| Leer el impact analysis completo | Decidir sin leer el análisis |
-| Evaluar tolerancia al riesgo del cambio | Elegir lo más fácil sin evaluar |
-| Considerar timing (mid-sprint vs nueva release) | Forzar strangler innecesariamente (overkill) |
-| Comprometer al equipo a la decisión | Elegir y luego cambiar mid-flujo |
+| Read the full impact analysis | Decide without reading the analysis |
+| Evaluate risk tolerance for the change | Pick the easiest option without evaluating |
+| Consider timing (mid-sprint vs new release) | Force strangler unnecessarily (overkill) |
+| Commit the team to the decision | Choose and then change mid-flow |
 
-Después de B5 (in-place), el flujo continúa al `/specify` regular del flujo principal con el contexto brownfield baked-in.
+After B5 (in-place), the flow continues to the regular `/specify` of the main flow with the brownfield context baked-in.
 
 ---
 
-## 8. Inventario de HITLs y responsabilidades
+## 8. Inventory of HITLs and responsibilities
 
-> *HITL ≡ HUMAN CHECKPOINT* (sinónimos). En `/feature`: **HUMAN CHECKPOINT 1 = HITL #1** (scenarios), **HUMAN CHECKPOINT 2 = HITL #3** (merge); **HITL #2** (threat model) es condicional. Total: **9 HITLs** across all flows (tabla abajo).
+> *HITL ≡ HUMAN CHECKPOINT* (synonyms). In `/feature`: **HUMAN CHECKPOINT 1 = HITL #1** (scenarios), **HUMAN CHECKPOINT 2 = HITL #3** (merge); **HITL #2** (threat model) is conditional. Total: **9 HITLs** across all flows (table below).
 
-### Mapa visual de los HITLs del flujo principal
+### Visual map of the main flow's HITLs
 
 ```
 /feature flow:
-├─ Step 1-6: skills sin HITL formal (developer puede revisar outputs)
+├─ Step 1-6: skills with no formal HITL (developer may review outputs)
 ├─ Step 7 ⛔ HITL #1: APPROVE SCENARIOS (Gherkin)
-│   └─ Responsabilidad: confirmar contrato de comportamiento
-├─ Step 8-10: skills sin HITL formal
-├─ Step 11 (Schemathesis 🛑 blocking → retry policy automático, no HITL)
-├─ Step 12.1 ⛔ HITL #2: APPROVE THREAT MODEL (si sensitive)
-│   └─ Responsabilidad: aceptar/mitigate/transfer residual risks
-├─ Step 12.2-3: skills sin HITL
+│   └─ Responsibility: confirm the behavior contract
+├─ Step 8-10: skills with no formal HITL
+├─ Step 11 (Schemathesis 🛑 blocking → automatic retry policy, no HITL)
+├─ Step 12.1 ⛔ HITL #2: APPROVE THREAT MODEL (if sensitive)
+│   └─ Responsibility: accept/mitigate/transfer residual risks
+├─ Step 12.2-3: skills with no HITL
 ├─ ⛔ HITL #3: APPROVE DRAFT PR (merge gate)
-│   └─ Responsabilidad: verificar diff + UI + mergeable
-└─ Step 13 (post-merge): sub-HITL CAPABILITY PROMOTION si new capability
-    └─ Responsabilidad: decidir si documentar como capability
+│   └─ Responsibility: verify diff + UI + mergeable
+└─ Step 13 (post-merge): sub-HITL CAPABILITY PROMOTION if new capability
+    └─ Responsibility: decide whether to document as a capability
 ```
 
-### Tabla completa de HITLs
+### Complete table of HITLs
 
-| HITL | Cuándo | Quién | Decisión | Tiempo |
+| HITL | When | Who | Decision | Time |
 |---|---|---|---|---|
-| **HITL #0a** Setup answers | Una vez por proyecto | Tech lead | Stack + compliance + vocabulary | 15-30 min |
-| **HITL #0b** Constitution | Una vez (re-revisar anual) | Tech lead + 1+ senior | Tenets no-negociables | 30-60 min |
-| **HITL #1** Scenarios approval | Step 7 de cada feature | Product owner / QA lead | Aprobar contrato de comportamiento | 10-20 min |
-| **HITL #2** Threat model approval | Step 12 si sensitive | Security lead / senior engineer | Aceptar residual risks | 15-30 min |
-| **HITL #3** PR draft approval | Step 12 final de cada feature | Reviewer engineer (no autor) | Verificar diff + ready to merge | 30-60 min |
-| **HITL B5** In-place vs strangler | Brownfield sub-flow | Tech lead + product | Decisión arquitectónica de risk | 15-30 min |
-| **HITL postmortem** | Después de bug `incident:production` | Tech lead + senior fuera del response team | Firmar blameless | 1-2 horas |
-| **HITL capability promote** | Post-merge si new capability | Tech lead | Documentar como capability o esperar | 5-15 min |
-| **HITL improvement scope** | Antes de improvement work | Tech lead | Priorizar via ICE rubric | 10 min |
+| **HITL #0a** Setup answers | Once per project | Tech lead | Stack + compliance + vocabulary | 15-30 min |
+| **HITL #0b** Constitution | Once (re-review annually) | Tech lead + 1+ senior | Non-negotiable tenets | 30-60 min |
+| **HITL #1** Scenarios approval | Step 7 of every feature | Product owner / QA lead | Approve the behavior contract | 10-20 min |
+| **HITL #2** Threat model approval | Step 12 if sensitive | Security lead / senior engineer | Accept residual risks | 15-30 min |
+| **HITL #3** PR draft approval | Step 12 final of every feature | Reviewer engineer (not the author) | Verify diff + ready to merge | 30-60 min |
+| **HITL B5** In-place vs strangler | Brownfield sub-flow | Tech lead + product | Architectural risk decision | 15-30 min |
+| **HITL postmortem** | After a bug with `incident:production` | Tech lead + senior outside the response team | Sign off blameless | 1-2 hours |
+| **HITL capability promote** | Post-merge if new capability | Tech lead | Document as capability or wait | 5-15 min |
+| **HITL improvement scope** | Before improvement work | Tech lead | Prioritize via ICE rubric | 10 min |
 
-### Anti-patrones de HITL (errores comunes)
+### HITL anti-patterns (common mistakes)
 
-| Anti-patrón | Problema | Solución |
+| Anti-pattern | Problem | Solution |
 |---|---|---|
-| Aprobar sin leer | El HITL pierde su valor; bugs/contratos malos pasan | Time-box: cada HITL tiene un tiempo mínimo de revisión esperado |
-| "Yo después reviso" — aprobar y revisar luego | Compromete el flujo; post-merge problems caen en producción | Política: si no tienes tiempo ahora, devuelve el HITL al day siguiente |
-| Convertir todo en checkpoint duro | Workflow se vuelve burocrático | Solo las 9 decisiones críticas del inventario (sección 8) son HITL; el resto fluye |
-| Hacer al reviewer agent el "responsable final" | El agente no toma decisiones políticas; siempre es un humano | El reviewer agent informa; el humano decide |
-| Compartir HITLs entre roles | Confusión sobre quién aprobó qué | Cada HITL tiene un dueño claro (tabla arriba) |
+| Approve without reading | The HITL loses its value; bad bugs/contracts slip through | Time-box: each HITL has an expected minimum review time |
+| "I'll review later" — approve and review afterward | Compromises the flow; post-merge problems land in production | Policy: if you don't have time now, return the HITL to the next day |
+| Turn everything into a hard checkpoint | The workflow becomes bureaucratic | Only the 9 critical decisions in the inventory (section 8) are HITLs; the rest flows |
+| Make the reviewer agent the "final owner" | The agent does not make policy decisions; it's always a human | The reviewer agent informs; the human decides |
+| Share HITLs across roles | Confusion about who approved what | Each HITL has a clear owner (table above) |
 
 ---
 
-## 9. Referencia rápida — skills, inputs, outputs
+## 9. Quick reference — skills, inputs, outputs
 
-### Workflow skills (orden típico del flujo principal)
+### Workflow skills (typical order of the main flow)
 
-| Skill | Input principal | Output principal | HITL |
+| Skill | Main input | Main output | HITL |
 |---|---|---|---|
-| `/constitution` | Template + interview 6Q | `docs/constitution.md` | HITL #0b |
-| `/setup` | Wizard 6-8Q | `AGENTS.md`, scaffold, hooks | HITL #0a |
-| `/onboard` | (nothing) | Orientación al developer | — |
+| `/constitution` | Template + 6Q interview | `docs/constitution.md` | HITL #0b |
+| `/setup` | 6-8Q wizard | `AGENTS.md`, scaffold, hooks | HITL #0a |
+| `/onboard` | (nothing) | Developer orientation | — |
 | `/grill-me` | Feature desc + CONTEXT | `.planning/grilling/<slug>-*.md` | — |
 | `/domain-model` | Grilling + CONTEXT | Updated CONTEXT.md + ADRs | — |
 | `/specify` | Grilling + CONTEXT + constitution | `docs/specs/<slug>.md` Draft | — |
-| `/clarify` | Spec Draft | Spec Clarified (con 7-cat checklist) | — |
+| `/clarify` | Spec Draft | Spec Clarified (with 7-cat checklist) | — |
 | `/to-scenarios` | Spec Clarified | `.feature` DRAFT | ⛔ **HITL #1** |
-| `/to-issues` | Spec + .feature aprobado | GitHub issues + contracts si multi-mod | — |
-| `/plan` | Issue + scenarios + AGENTS.md | Plan in issue body con file paths + dep graph | — |
+| `/to-issues` | Spec + approved .feature | GitHub issues + contracts if multi-mod | — |
+| `/plan` | Issue + scenarios + AGENTS.md | Plan in issue body with file paths + dep graph | — |
 | `/tdd` | Issue + plan + .feature | Source + tests + step defs | — |
 | `/run-acceptance` | Branch + scn labels + slos | `.planning/acceptance/*` + reviewer report | — |
-| `/code-review` | PR/branch | Reviewer report (invoca reviewer agent) | — |
+| `/code-review` | PR/branch | Reviewer report (invokes reviewer agent) | — |
 | `/security-hardening` | Diff + sensitive paths | Security audit + threat model | ⛔ **HITL #2** if new threat model |
 | `/traceability-matrix` | Features + acceptance + reviews | `docs/audit/traceability-<v>.md` | — |
 | (merge by human) | — | — | ⛔ **HITL #3** |
@@ -1514,7 +1514,7 @@ Después de B5 (in-place), el flujo continúa al `/specify` regular del flujo pr
 
 ### Operational & utility skills
 
-| Skill | Cuándo | Output |
+| Skill | When | Output |
 |---|---|---|
 | `/debug` | Bug fix workflow | Draft PR + regression test + diagnosis |
 | `/diagnose` | Standalone investigation | `.planning/diagnoses/*` |
@@ -1536,63 +1536,63 @@ Después de B5 (in-place), el flujo continúa al `/specify` regular del flujo pr
 
 ---
 
-## Apéndice: comandos útiles del día a día
+## Appendix: useful day-to-day commands
 
 ```bash
-# Inicio de proyecto
+# Project start
 /setup
 /constitution
 /onboard
 
-# Por cada feature (flujo manual)
+# Per feature (manual flow)
 /grill-me "<feature description>"
 /domain-model
 /specify
 /clarify
-/to-scenarios                              # ⛔ HITL #1 aquí
+/to-scenarios                              # ⛔ HITL #1 here
 /to-issues
 /plan
 /tdd                                       # red-green-refactor
 /run-acceptance                            # gates + reviewer agent
-/security-hardening                        # ⛔ HITL #2 si sensitive
+/security-hardening                        # ⛔ HITL #2 if sensitive
 /traceability-matrix
-gh pr create --draft                       # ⛔ HITL #3 antes de merge
-# (humano marca ready y mergea)
+gh pr create --draft                       # ⛔ HITL #3 before merge
+# (human marks ready and merges)
 /feature --close <issue>                   # Step 13 post-merge
 
-# O todo en uno (flujo orquestado)
+# Or all in one (orchestrated flow)
 /feature "<feature description>"
 
 # Bug fix
-/triage --issue <NNN>                      # clasifica
-/debug --issue <NNN>                       # invoca /diagnose + /tdd + /run-acceptance
-# Si incident:production:
+/triage --issue <NNN>                      # classify
+/debug --issue <NNN>                       # invokes /diagnose + /tdd + /run-acceptance
+# If incident:production:
 /postmortem --incident <NNN>               # draft
 
 # Improvement
-/optimize --endpoint <path>                # con baseline obligatorio
+/optimize --endpoint <path>                # with mandatory baseline
 /improve-codebase-architecture             # surface refactor candidates
 
-# Cuando contexto se satura
+# When context saturates
 /handoff --issue <NNN>                     # compact session
 
-# Para nuevo developer en el equipo
+# For a new developer on the team
 /onboard
 ```
 
 ---
 
-## Cierre
+## Closing
 
-Este documento es la guía operacional. Las reglas detalladas viven en `docs/engineering/core/`. El framework está diseñado para ser **escaneable**: lees solo lo que necesitas en cada momento.
+This document is the operational guide. The detailed rules live in `docs/engineering/core/`. The framework is designed to be **scannable**: you read only what you need at any given moment.
 
-**Si tu primer instinto es saltarte un HITL — léelo dos veces.** Los 9 HITLs (inventario en la sección 8) son los puntos donde el framework refuerza que **el humano dirige**. Saltárselos convierte Stormhelm en automatización ciega, que es exactamente lo que el framework existe para prevenir.
+**If your first instinct is to skip a HITL — read it twice.** The 9 HITLs (inventory in section 8) are the points where the framework reinforces that **the human directs**. Skipping them turns Stormhelm into blind automation, which is exactly what the framework exists to prevent.
 
-**Si tu primer instinto es duplicar un HITL — léelo una vez.** El framework no quiere supervisión teatral; quiere decisiones humanas en los puntos exactos donde aportan valor único.
+**If your first instinct is to duplicate a HITL — read it once.** The framework does not want theatrical supervision; it wants human decisions at the exact points where they provide unique value.
 
-Para feedback sobre esta guía o sugerencias de mejora basadas en uso real, comenta en el repositorio o pinea un mensaje al tech lead.
+For feedback on this guide or improvement suggestions based on real usage, comment on the repository or pin a message to the tech lead.
 
 ---
 
-*Última actualización: 2026-06-01*
-*Versión del framework: Stormhelm v1.0 (122 reglas, 31 skills, 1 agente, 5 hooks, 13 steps en flujo principal)*
+*Last updated: 2026-06-01*
+*Framework version: Stormhelm v1.0 (122 rules, 31 skills, 1 agent, 5 hooks, 13 steps in the main flow)*

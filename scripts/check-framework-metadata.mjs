@@ -77,8 +77,9 @@ const claims = [
   { re: new RegExp(`${W}\\s+steps,\\s+\\d+\\s+human\\s+checkpoint`, 'gi'), exp: () => A.featureSteps, label: 'feature-steps' },
   { re: new RegExp(`all\\s+${W}\\s+steps`, 'gi'), exp: () => A.featureSteps, label: 'feature-steps' },
 ];
-// Version footer: "(122 reglas, 30 skills, 1 agente, 4 hooks, 13 steps …)" — verify all five at once.
-const FOOTER = /\((\d+)\s+reglas,\s*(\d+)\s+skills,\s*(\d+)\s+agente\w*,\s*(\d+)\s+hooks,\s*(\d+)\s+steps/gi;
+// Version footer: "(122 rules|reglas, 30 skills, 1 agent|agente, 4 hooks, 13 steps …)" — verify all five at once.
+// Bilingual (ES/EN): WORKFLOWS-GUIDE may be either language; do not let a translation silently disable this check.
+const FOOTER = /\((\d+)\s+(?:reglas|rules),\s*(\d+)\s+skills,\s*(\d+)\s+(?:agente\w*|agents?),\s*(\d+)\s+hooks,\s*(\d+)\s+steps/gi;
 const footerExp = [A.totalRules, A.skills, A.agents, A.hooks, A.featureSteps];
 const footerLbl = ['rules', 'skills', 'agents', 'hooks', 'steps'];
 
