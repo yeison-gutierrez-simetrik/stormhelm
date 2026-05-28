@@ -128,6 +128,20 @@ for (const f of docs) {
   });
 }
 
+// --- flow consistency: /feature steps ↔ skills' "Step N of /feature" claims ---
+{
+  const feat = readFileSync('skills/feature/SKILL.md', 'utf8');
+  const steps = new Set([...feat.matchAll(/^#{2,4}\s+Step\s+(\d+)\b/gm)].map((m) => +m[1]));
+  for (const m of feat.matchAll(/^#{2,4}\s+Step\s+\d+\s+—\s+`?\/([a-z][a-z0-9-]+)`?/gm))
+    if (!skillSet.has(m[1])) block.push(`skills/feature/SKILL.md  [flow] Step names /${m[1]} but no skills/${m[1]}/SKILL.md`);
+  for (const s of skills) {
+    for (const m of readFileSync(`skills/${s}/SKILL.md`, 'utf8').matchAll(/Step\s+(\d+)(\.\d+)?\s+of\s+`?\/feature`?/gi)) {
+      if (m[2]) block.push(`skills/${s}/SKILL.md  [flow] fractional "Step ${m[1]}${m[2]} of /feature" — use an off-ramp, not a numbered step`);
+      else if (!steps.has(+m[1])) block.push(`skills/${s}/SKILL.md  [flow] claims "Step ${m[1]} of /feature" but /feature has no Step ${m[1]}`);
+    }
+  }
+}
+
 const dump = (a) => a.forEach((x) => console.log('  ' + x));
 if (warn.length) { console.log(`\n⚠️  ${warn.length} warning(s):`); dump(warn); }
 if (block.length) {

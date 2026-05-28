@@ -174,7 +174,7 @@ Tell the human:
 ## Integration with the framework
 
 - **Invoked manually** after any edit to a planning artifact.
-- **Invoked by `/feature` Step 12.5** (optional, before traceability matrix) when the feature spec changed during implementation.
+- **An optional off-ramp in `/feature`** — after `/run-acceptance` (Step 11) and **before** `/traceability-matrix` (Step 12) — when the spec/scenarios changed during implementation, so the matrix audits a consistent chain.
 - **Output feeds `/traceability-matrix`**: the matrix can assume the chain is consistent at release.
 - **Read by `reviewer` agent** when reviewing a PR whose scenarios changed; the consistency report is evidence that the chain was reconciled.
 
