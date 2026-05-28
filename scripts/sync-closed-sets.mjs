@@ -64,8 +64,13 @@ for (const f of files) {
   let src = readFileSync(f, 'utf8');
   if (!BLOCK.test(src)) continue;
   BLOCK.lastIndex = 0;
+  // Markers inside a ``` fenced code block are illustrative examples (e.g. the
+  // §36 doc), not live directives — skip them so docs can show the convention.
+  const fences = [...src.matchAll(/```[\s\S]*?```/g)].map((m) => [m.index, m.index + m[0].length]);
+  const inFence = (i) => fences.some(([a, b]) => i >= a && i < b);
   let out = src;
   for (const m of src.matchAll(BLOCK)) {
+    if (inFence(m.index)) continue;
     blocks++;
     const [whole, path, symbol, body] = m;
     let values;

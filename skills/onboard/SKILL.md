@@ -192,6 +192,7 @@ OPERATIONAL & UTILITY SKILLS
   /improve-codebase-architecture   Surface refactor candidates with ICE rubric
   /sad                  Derive a Solution Architecture Document from existing artifacts (scope ≥3 modules; on demand)
   /check-consistency    Reconcile cross-artifact drift (spec/ADR/CONTEXT → downstream) before release
+  /verify-framework-consistency   Verify the framework's own docs vs its filesystem (meta; CI gate)
 
 NIGHT SHIFT
   ./ralph-local.sh                Run Ralph against ralph-ready issues
