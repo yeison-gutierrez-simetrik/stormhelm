@@ -9,8 +9,8 @@ description: |
   `docs/architecture/<scope>-<YYYYMMDD>.md` and is regenerated on demand.
   Use when: a feature crosses ≥3 modules or a new bounded context, before
   significant architecture work, when an external reviewer / auditor / new hire
-  needs a single entry point, or quarterly as part of governance. Step 7.5 of
-  /feature (optional, between /clarify and /to-scenarios). Do NOT use to invent
+  needs a single entry point, or quarterly as part of governance. an optional
+  off-ramp in /feature, after /clarify and before /to-scenarios. Do NOT use to invent
   architecture from nothing — the source artifacts must exist first.
 ---
 
@@ -28,11 +28,11 @@ The information that belongs in a SAD already lives in Stormhelm: NFRs in the sp
 - Before significant architecture work (major migration, new external integration, new persistence layer).
 - An auditor, external reviewer, or new hire needs a single entry point.
 - Quarterly governance review.
-- Step 7.5 of `/feature` (optional, between `/clarify` and `/to-scenarios`).
+- An optional off-ramp in `/feature`: after `/clarify`, before `/to-scenarios` (not a numbered step).
 
 ## Auto-invocation triggers in `/feature`
 
-`/sad` runs automatically as Step 7.5 of `/feature` (between `/clarify` and `/to-scenarios`) when **any** of:
+`/sad` runs automatically as an off-ramp in `/feature` (after `/clarify`, before `/to-scenarios`) when **any** of:
 
 - **Multi-module:** spec spans 3+ modules or 2+ bounded contexts (same trigger as Agent Teams §107 — keeps the architectural envelope explicit before parallel work begins).
 - **Sensitive paths:** spec touches `auth/`, `payments/`, `crypto/`, or other §64 paths — the threat model already exists and `/sad` just assembles it; cheap insurance against architectural drift in regulated areas.

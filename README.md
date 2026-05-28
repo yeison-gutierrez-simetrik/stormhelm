@@ -45,10 +45,8 @@ NIGHT SHIFT (Ralph, autonomous, local)
         └─ gh pr create --draft
 
 DAY SHIFT next morning
-  Human reviews drafts → /traceability-matrix → merge
-                                                   ↓
-                                          /check-consistency
-                                          (catches cross-artifact drift)
+  Human reviews drafts → /check-consistency → /traceability-matrix → merge
+                          (reconcile cross-artifact drift before the matrix audits the chain)
 ```
 
 The Day Shift is where decisions get made and recorded. The Night Shift is where mechanical execution happens within the boundaries the Day Shift set.

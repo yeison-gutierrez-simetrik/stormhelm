@@ -88,6 +88,8 @@ If any check fails, the skill stops with a clear remediation message.
 
 ### Step 2 — Read constitution (§ index)
 
+> `/constitution` is a **precondition**, run **once per project** before `/feature` — not a step `/feature` invokes. This step only **reads** the existing `docs/constitution.md`.
+
 Lists the active capabilities and the relevant §N for the feature type. Detects:
 
 - UI involved → §104 (visual gate) applies.
@@ -118,6 +120,15 @@ Invokes `/specify`. Produces `docs/specs/<feature>.md` with the what + why + acc
 ### Step 6 — `/clarify` (resolve ambiguity)
 
 Invokes `/clarify`. Detects underspecified areas and asks targeted questions. Updates the spec.
+
+### Off-ramps after Step 6 (optional — not counted in the 13)
+
+Two optional skills branch off here, **before** scenarios are written:
+
+- **`/prototype`** — when a design/UX question is genuinely contested; produces a throwaway spike + `LEARNING.md`, then is discarded.
+- **`/sad`** — when the feature is multi-module (≥3 modules / ≥2 bounded contexts) or touches a sensitive path; assembles the Solution Architecture Document. **Mandatory for multi-module** per §107.
+
+Both feed back in before Step 7. They are off-ramps, not numbered steps.
 
 ### Step 7 — `/to-scenarios` (Gherkin generation, ⛔ human checkpoint)
 
@@ -191,6 +202,10 @@ Invokes `/run-acceptance` with the full gate:
 - Retrying indefinitely "until it passes." The 2-iteration cap is hard.
 - Suppressing a 🛑 finding by changing the test instead of the implementation.
 - Marking a slice `ralph-done` when `@release` scenarios failed.
+
+### Off-ramp after Step 11 (optional — not counted in the 13)
+
+- **`/check-consistency`** — if the spec, scenarios, or ADRs changed during implementation, reconcile cross-artifact drift **before** `/traceability-matrix` (Step 12) audits the chain.
 
 ### Step 12 — `/security-hardening` + `/traceability-matrix` + ⛔ human merge
 
