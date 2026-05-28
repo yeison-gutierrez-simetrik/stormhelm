@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 

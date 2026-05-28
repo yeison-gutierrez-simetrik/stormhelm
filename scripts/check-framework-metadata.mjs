@@ -143,6 +143,18 @@ for (const f of docs) {
   }
 }
 
+// --- per-file consistency: each "**Rules in this file**" header lists exactly the §N defined in that file ---
+for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/capabilities')]) {
+  const t = readFileSync(f, 'utf8');
+  const decl = t.match(/\*\*Rules in this file\.?\*\*\s*(.+)/i);
+  if (!decl) continue;
+  const declared = new Set(decl[1].match(/§\d+(?:-py)?/g) || []);
+  const defd = new Set([...t.matchAll(/^#{2,4}\s+(§\d+(?:-py)?)\b/gm)].map((m) => m[1]));
+  const rel = relative(ROOT, f);
+  for (const r of defd) if (!declared.has(r)) block.push(`${rel}  [rule-header] defines ${r} but "Rules in this file" omits it`);
+  for (const r of declared) if (!defd.has(r)) block.push(`${rel}  [rule-header] header lists ${r} but no such rule is defined here`);
+}
+
 const dump = (a) => a.forEach((x) => console.log('  ' + x));
 if (warn.length) { console.log(`\n⚠️  ${warn.length} warning(s):`); dump(warn); }
 if (block.length) {
