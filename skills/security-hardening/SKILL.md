@@ -45,6 +45,17 @@ It is not a substitute for the `reviewer` agent (§114), which also catches §27
 - Exit code: 0 if no critical issues, non-zero otherwise.
 - For features crossing a trust boundary (§87): a STRIDE threat model in `docs/threat-models/<feature>.md` (or update if exists).
 
+## Pre-flight checks
+
+Run before Step 1; each fails fast with an actionable message instead of failing deep in the workflow (§58, ADR-0001):
+
+```bash
+node scripts/preflight.mjs git-repo
+# This skill targets sensitive paths (§64); ensure the threat-model template exists before producing findings.
+```
+
+If any check exits non-zero, stop and report it — do not start the workflow.
+
 ## Workflow
 
 ### Step 1 — Auto-detect sensitive scope

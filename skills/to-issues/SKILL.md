@@ -67,6 +67,18 @@ Decomposition into vertical slices and labeling for Ralph requires loading the r
 
 The issue labels this skill emits are read by Ralph (`ralph-local.sh`), by `/run-acceptance` (`scenarios:scn-*`), by `reviewer` agent (`require-human-review`), and by `/traceability-matrix` (compliance metadata). Loading the right rules ensures every label has the right shape.
 
+## Pre-flight checks
+
+Run before Step 1; each fails fast with an actionable message instead of failing deep in the workflow (§58, ADR-0001):
+
+```bash
+node scripts/preflight.mjs git-repo
+node scripts/preflight.mjs feature-approved <feature-slug>   # §58/§63: do not derive issues from a draft
+node scripts/preflight.mjs gh-auth
+```
+
+If any check exits non-zero, stop and report it — do not start the workflow.
+
 ## Workflow
 
 ### Step 1 — Identify vertical slices

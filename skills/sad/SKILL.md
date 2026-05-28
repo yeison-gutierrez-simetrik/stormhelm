@@ -64,6 +64,13 @@ For mono-module, non-sensitive features `/sad` is **optional** and only invoked 
 - `docs/architecture/<scope>-<YYYYMMDD>.md` — the SAD snapshot. `<scope>` is either the feature slug or `system` for a whole-project snapshot.
 - The file is **versioned in git** so historic snapshots remain reviewable, but every regeneration writes a new dated file rather than overwriting.
 
+## Pre-flight checks
+
+Before Step 1 (§58, ADR-0001):
+
+- The spec for the scope exists and is `Status: Clarified` or `Released` (not Draft).
+- The scope genuinely triggers `/sad` (≥3 modules / ≥2 bounded contexts, or a sensitive path) — otherwise the spec is enough.
+
 ## Workflow
 
 ### Step 1 — Resolve scope

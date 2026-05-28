@@ -96,6 +96,17 @@ TDD is the only reliable way to produce code that matches the spec without drift
 
 This skill is the §Memento Pattern in practice: load the rules into context so the agent codes against them, not against an approximation of them. The reviewer agent will check after — but the cost of catching violations in `/tdd` is one iteration, while catching them at `reviewer` is a full retry.
 
+## Pre-flight checks
+
+Run before Step 1; each fails fast with an actionable message instead of failing deep in the workflow (§58, ADR-0001):
+
+```bash
+node scripts/preflight.mjs git-repo
+node scripts/preflight.mjs feature-approved <feature-slug>   # §58: implement only approved scenarios
+```
+
+If any check exits non-zero, stop and report it — do not start the workflow.
+
 ## Workflow
 
 ### Step 1 — Read the issue + plan + scenarios

@@ -43,6 +43,10 @@ After approval, the `.feature` file is **read-only for the agent** (§58). Subse
 - Each scenario tagged with stable `@scn-NNN` and at least one runtime tag.
 - A summary of scenarios produced, returned to the workflow.
 
+## Status transition (§58)
+
+This skill **owns** the entry transition: it writes each new `.feature` with the Gherkin comment header `# status: draft`. The file stays agent-editable until HUMAN CHECKPOINT 1 (`/feature` Step 7) flips it to `approved`. Never write `# status: approved` here — only the human checkpoint does.
+
 ## Workflow
 
 ### Step 1 — Identify bounded contexts
