@@ -4,7 +4,7 @@
 
 **When to read.** Configuring the local `ralph-local.sh` script, labeling issues for AFK execution, reviewing PRs produced overnight, debugging a stuck Ralph session, deciding which work is safe to automate.
 
-**Rules in this file.** §63, §64, §65, §66, §67, §68, §69, §70
+**Rules in this file.** §63, §64, §65, §66, §67, §68, §69, §70, §107
 
 > See `AGENTS.md` for the full rule index. Related: `12-bdd-and-acceptance.md` (scenarios as the AFK gate), `01-philosophy.md` (§30 vertical slices — what Ralph consumes), `15-observability.md` (session logging).
 
