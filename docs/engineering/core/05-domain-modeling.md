@@ -93,6 +93,27 @@ Domain states, kinds, codes, and other closed sets of values must be defined **o
 
 This rule serves the same intent as §20 (boolean blindness), §21 (illegal states), and §22 (PRD vocabulary): the vocabulary of the domain lives in the domain, and nowhere else.
 
+### Single source of truth: docs reference the set, they never copy it
+
+When a closed set must also appear in documentation (`CONTEXT.md`, an ADR), the
+docs **reference** the canonical code symbol and the value list is **generated** —
+never hand-copied. Copying invites drift: the `AuditEvent` set once diverged
+between `CONTEXT.md` and an ADR in both **count** and **format**.
+
+Convention — in the doc, the list lives between markers that name the canonical symbol:
+
+```markdown
+<!-- closed-set-start: src/contexts/auth/domain/audit-event.ts#AuditEvents -->
+- `auth.magic_link.requested`
+- `auth.session.created`
+<!-- closed-set-end -->
+```
+
+- `scripts/sync-closed-sets.mjs` regenerates the block from the named symbol — `--check` (verify, for CI / pre-commit), or write mode to refresh. Prose outside the markers is untouched.
+- `hooks/closed-set-check.js` (PostToolUse) surfaces a non-blocking warning when a written doc's list drifts from code.
+
+The set still lives **once** in the domain (the union/`as const` above); the docs are a generated *view* of it, so they cannot drift independently.
+
 ### Why not `enum`
 
 Do **not** use TypeScript `enum` for these values:

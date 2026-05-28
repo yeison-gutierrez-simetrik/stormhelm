@@ -13,7 +13,7 @@ The name combines two ideas: the **helm** — the wheel that keeps a ship on cou
 - **31 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, `/verify-framework-consistency`, …) that drive a disciplined workflow inside Claude Code.
 - **122 numbered rules** (`§1 – §122`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
 - **A sub-agent** (`reviewer`) that audits diffs in a fresh context and cites rule numbers in its findings.
-- **Four Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, and block destructive shell commands (`git push --force`, `reset --hard`, `branch -D`, `rm -rf .git`) via `git-guardrails.js` (§68).
+- **Five Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, block destructive shell commands via `git-guardrails.js` (§68), and warn on closed-set/doc drift via `closed-set-check.js` (§36).
 - **A capability system** with `capabilities/typescript` + `capabilities/typescript-hono` and `capabilities/python` + `capabilities/python-fastapi` shipped. Each capability activates only when your project uses that stack.
 - **MCP convention**: Context7 wired by default so agents verify third-party APIs against current docs instead of inventing them from training-data memory.
 - **A workflow from 0 to 100**: project init → grilling → spec → scenarios → issues → plan → TDD → acceptance → review → release with audit trail.
@@ -335,7 +335,8 @@ stormhelm/
 │   ├── webfetch-cache-pre.js                      # PreToolUse(WebFetch) — §108
 │   ├── webfetch-cache-post.js                     # PostToolUse(WebFetch) — §108
 │   ├── context-monitor.js                         # PostToolUse(*) — §112
-│   └── git-guardrails.js                          # PreToolUse(Bash) — §68 destructive-shell guard
+│   ├── git-guardrails.js                          # PreToolUse(Bash) — §68 destructive-shell guard
+│   └── closed-set-check.js                         # PostToolUse(Write|Edit) — §36 closed-set/doc drift
 ├── agents/
 │   └── reviewer.md                                # Independent code review sub-agent — §114
 └── skills/

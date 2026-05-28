@@ -275,6 +275,7 @@ After editing `.claude/settings.json`, restart Claude Code. The first session-st
 | `webfetch-cache-post.js` | PostToolUse(WebFetch) | ✅ Shipped | Store validated cache entries |
 | `context-monitor.js` | PostToolUse(*) | ✅ Shipped (opt-in telemetry) | Notify agent on low context |
 | `git-guardrails.js` | PreToolUse(Bash) | ✅ Shipped (mandatory for Ralph, §68) | Block destructive Git commands |
+| `closed-set-check.js` | PostToolUse(Write\|Edit\|MultiEdit) | ✅ Shipped (opt-in) | Warn on closed-set ↔ doc drift (§36) |
 | `prompt-injection-guard.js` | PreToolUse(Write\|Edit\|MultiEdit) | 📋 Specified §110, not implemented | Defend writes |
 | `read-injection-scanner.js` | PostToolUse(Read) | 📋 Specified §111, not implemented | Defend reads |
 | `session-start.js` | SessionStart | 📋 Specified §109, deferred | Meta-skill routing |
