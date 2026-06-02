@@ -141,6 +141,36 @@ this feature has failed §1 — flag and stop.>
 - (Carried over from grilling open-questions, if blocking.)
 ```
 
+### Step 2b — Label-aware section taxonomy (ADR-0002 PR-M)
+
+Ceremony is **derived, not configured** (ADR-0002): the spec contains exactly the sections the feature's classification requires — no more, no less. "Lightweight" means *fewer sections required*, never *fewer lines per section*.
+
+**Core taxonomy** (always vs conditional on a detected label):
+
+| Section | Required when |
+|---|---|
+| What changes / Why / Functional requirements / Acceptance / Out of scope | always |
+| Threat-model NFR | label `require-human-review` |
+| Multi-actor breakdown | label `feature:multi-module` or `feature:cross-context` |
+| Capacity envelope | label `feature:multi-module` |
+| SLO commitments | label `nfr:slo-declared` |
+| Background / Alternatives considered / Glossary | always optional |
+
+The classification comes from the labels the detectors emit (`feature:single-module`/`multi-module`/`cross-context` from `scripts/detect-ceremony.mjs` at `/to-issues` Step 2, surfaced early by `/domain-model`; `require-human-review` from sensitive-path scan). When `/specify` runs ahead of issue creation, run the same detector on the draft plan, or use the `/domain-model` cross-context early signal.
+
+**Capability-contributed sections (OQ2).** Beyond the core table, an **active capability may declare its own conditional sections** in its `CAPABILITY.md` frontmatter (e.g. a `python-fastapi` capability could require an "async/concurrency" section; a `payments-*` capability a PCI-scope section). `/specify` **unions** the core taxonomy with the conditional sections of the active capabilities. Core sections always apply; capability sections apply only when that capability is active.
+
+**Pending-promotion block.** For every conditional section the feature does **not** currently require, emit a commented placeholder so escalation is cheap and visible:
+
+```markdown
+<!-- pending-promotion: this spec is `feature:single-module`, not sensitive.
+     If a detector later escalates it (e.g. the diff adds an auth path → require-human-review,
+     or a third module → feature:multi-module), add the corresponding section(s):
+     Threat-model NFR / Multi-actor breakdown / Capacity envelope. INV-6 (PR-N) blocks
+     merge if the classification escalates without the backfill. Escalation is one-way:
+     auto-promote, never auto-degrade. -->
+```
+
 ### Step 3 — Cross-check against the constitution
 
 For every FR and NFR, verify no contradiction with `docs/constitution.md`. If a contradiction exists → flag and ask the human whether to revise the spec or amend the constitution (the latter is rare; it requires `/constitution` re-run).

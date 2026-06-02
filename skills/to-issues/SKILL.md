@@ -91,15 +91,22 @@ A vertical slice (§30):
 
 For each `Feature:` block in the `.feature` files, count scenarios that share a domain action. Group into slices of 1-5 scenarios each (more usually means the slice is too broad).
 
-### Step 2 — Detect multi-module (§107 trigger)
+### Step 2 — Detect multi-module + emit ceremony labels (§107 trigger; ADR-0002 PR-M)
 
-The feature is multi-module if **any** of:
+Don't eyeball the module count — **derive it** from the `/plan` "Layers affected" via the shared detector (OQ1 of ADR-0002 — same parser PR-Group's grouping uses):
 
-- 3+ modules in the slice list.
-- 2+ bounded contexts.
-- Explicit `module:X` markers in the spec.
+```bash
+node scripts/detect-ceremony.mjs <issue1>.md <issue2>.md ...
+```
 
-If multi-module, switch to Agent Teams mode (§107) at issue-generation time.
+It returns `{ modules, module_count, contexts, context_count, labels }`. Rule (conservative): **multi-module ⇔ ≥3 modules OR ≥2 bounded contexts**; **cross-context ⇔ ≥2 contexts**. Apply the emitted **ceremony labels** to each issue (ADR-0002 safeguard 1 — classification is detected, never hand-declared):
+
+- `feature:single-module` **or** `feature:multi-module`
+- `feature:cross-context` (when vocabulary spans ≥2 contexts)
+
+**Auto-create the labels if missing** in the repo: `gh label create feature:single-module --force` (and the other two). A team may override a classification, but only by an audited label flip in the GitHub timeline (ADR-0002 safeguard 1) — never a silent frontmatter field. Over-classification is safe (it only adds ceremony, downgradable by an explicit human flip); under-classification is caught later by escalation (PR-N, INV-6).
+
+If `feature:multi-module`, also switch to Agent Teams mode (§107) at issue-generation time. (An explicit `module:X` marker in the spec still forces multi-module.)
 
 ### Step 3 — Detect sensitive paths
 
