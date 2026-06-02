@@ -175,9 +175,30 @@ All scenarios marked `@release` for this slice must pass via `/run-acceptance`.
 ## Module contracts (for multi-module only)
 - See `features/listings/contracts/publication/` for api-contracts.ts, openapi-spec.yaml, mocks.ts.
 
+## Depends on
+- #<issue> (what foundation this issue consumes; structured `#N` so the grouping graph can read it). `None (foundation)` for the slice root.
+
 ## Branch
-agent/feature-<slug>-NNN
+agent/feature-<slug>   (one cumulative branch per slice-group; see Step 5b)
 ```
+
+### Step 5b — Compute slice-groups (PR-Group / FW-2)
+
+Issues that share a foundation must ship together. Don't eyeball this — compute it from the dependency graph the plans already declare (`## Depends on` + the `(#N)` / `from #N` / `reused by #N` references in each `/plan`'s "Layers affected"):
+
+```bash
+node scripts/group-slice-issues.mjs <issue1>.md <issue2>.md ...
+```
+
+It returns the connected components: each component of ≥2 issues is a **slice-group** (a cohesive set), each singleton is **standalone**. For each group it names the topological **root** (the foundation — verify it carries `introduces-capability:*` if applicable; a multi-root warning means the foundation is ambiguous and the decomposition needs a second look).
+
+Then decide packaging (Axis 2, by review-size budget — see `core/13` "Cumulative vs stacked PRs"):
+
+- **Group within budget →** one cumulative branch `agent/feature-<slug>`, one PR, `Closes #a #b #c …` for all members.
+- **Group over budget →** stacked PRs in topological order, finding-attribution (PR-Attr) mandatory.
+- **Standalone →** its own `agent/feature-<slug>` branch, `Closes #n`.
+
+Emit a `slice-group:<slug>` label on every issue of a group so the relationship is queryable.
 
 ### Step 6 — Create via `gh issue create`
 
@@ -187,10 +208,10 @@ For each slice:
 gh issue create \
   --title "<slug> — <slice title>" \
   --body "$(cat <generated-body>)" \
-  --label "ralph-ready,shift:afk,scenarios:scn-042+scn-043,budget:50k,severity:p2"
+  --label "ralph-ready,shift:afk,scenarios:scn-042+scn-043,budget:50k,severity:p2,slice-group:<slug>"
 ```
 
-If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms.
+If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms. Omit `slice-group:<slug>` for standalone issues (singletons).
 
 > **The local issue file MUST mirror these labels in its `**Labels:**` line** (Step 5 template). GitHub labels alone are not visible to the offline invariant gate (`scripts/check-invariants.mjs`), which reads issue files from `issues/` (or `.planning/issues/`). If the `**Labels:**` line is missing, INV-1/2/3/5 silently read N/A — the gate becomes a no-op and emits a `CONFIG` failure. Keep the `--label` flags and the file's `**Labels:**` line in sync.
 

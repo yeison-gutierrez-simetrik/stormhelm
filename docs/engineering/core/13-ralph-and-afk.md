@@ -313,6 +313,15 @@ Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
 
 The script is zero-deps, uses `gh` + `git` already required by the framework, and never touches state — pure read + assert. Skipping it is a §1 violation (proportionality: the cost is ~5 seconds; the consequence of skipping has been a half-day recovery in real use).
 
+### Cumulative vs stacked PRs (branch convention, PR-Group)
+
+A slice often decomposes into several issues that **share a foundation** (issue B can't be a green PR on `main` without the schema/adapter/wiring issue A introduces). Two independent decisions govern how they ship — keep them separate:
+
+- **Axis 1 — cohesion (do they form a group?).** Issues connected in the dependency graph form a **slice-group** and ship together. `scripts/group-slice-issues.mjs` computes this from the graph `scripts/parse-layers-affected.mjs` extracts from `/plan` (same parser PR-M's module-count detector uses). A connected component of ≥2 issues is a group; singletons are standalone. The group **root** is the foundation (depends on nothing within the group) and is normally the `introduces-capability:*` issue.
+- **Axis 2 — packaging (one PR or several?).** Within the review-size budget → **one cumulative branch `agent/feature-<slug>`** delivering all the group's issues with a `Closes #N` line each. Over budget → **stacked PRs** in topological order, with a documented merge order.
+
+**Cumulative is the default; stacked is discouraged.** Stacked PRs are the root of the "fix landed on the wrong branch, lower PR ships a known defect" failure (a blocking finding can be committed on the top branch while the foundation PR still merges without it). Use stacked only when a cohesive group genuinely exceeds the review budget — and then **finding-attribution (PR-Attr) is mandatory**: a blocking finding must be fixed on the branch that owns the offending code, and `main` must never sit in the intermediate state where one stacked PR is merged without the fix. The old `agent/feature-<slug>-<issue-NNN>` per-issue convention is retired precisely because it forced stacking whenever a slice had dependent issues.
+
 ---
 
 ## §68. Ralph respects `git-guardrails`: destructive Git operations are blocked at the tool level
