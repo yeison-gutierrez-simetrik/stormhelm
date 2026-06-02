@@ -17,6 +17,7 @@
 //   INV-3 §63   ralph-ready issue     ⇒ every referenced scn lives in an APPROVED .feature (§58)
 //   INV-4 —     ADR marked Accepted   ⇒ has a Date line
 //   INV-5 §59   @release scenario      ⇒ referenced by some issue (scn ↔ issue coverage)
+//   INV-8 §58   feature 'implemented' ⇒ traceability-v*-final.md exists in docs/audit/ (PR-MatrixStable)
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
 // anywhere in the repo (the reason is logged and stays auditable in git).
@@ -115,6 +116,26 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
   if (!releaseScns.size) add('INV-5', '§59', 'na', 'no @release scenarios');
   else if (!orphan.length) add('INV-5', '§59', 'pass', `${releaseScns.size} @release scns mapped to issues`);
   else add('INV-5', '§59', 'fail', `@release scns with no issue: ${orphan.join(', ')}`);
+}
+
+// INV-8 (PR-MatrixStable): features in `# status: implemented` must have a
+// `traceability-v*-final.md` artifact in docs/audit/. A `-draft.md` does not
+// satisfy this — Step 13 of /feature must re-run /traceability-matrix post-merge
+// to produce the -final version.
+{
+  const implementedFeatures = featureFiles.filter((f) => /^#\s*status:\s*implemented/im.test(read(f)));
+  if (!implementedFeatures.length) {
+    add('INV-8', '§58', 'na', 'no implemented features');
+  } else {
+    const auditFiles = walk('docs/audit', /^traceability-.*-final\.md$/);
+    if (!auditFiles.length) {
+      add('INV-8', '§58', 'fail',
+        `${implementedFeatures.length} implemented feature(s) but no traceability-v*-final.md in docs/audit/ (Step 13 of /feature must re-run /traceability-matrix post-merge)`);
+    } else {
+      add('INV-8', '§58', 'pass',
+        `${implementedFeatures.length} implemented feature(s) covered by ${auditFiles.length} -final matrix artifact(s)`);
+    }
+  }
 }
 
 // --- report -----------------------------------------------------------------
