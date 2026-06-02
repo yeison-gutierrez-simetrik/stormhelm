@@ -251,6 +251,8 @@ docs/perf-baselines/.keep            # consumed by /optimize, /traceability-matr
 features/.keep                       # consumed by /to-scenarios, /run-acceptance
 issues/.keep                         # consumed by /to-issues, /plan, Ralph
 scripts/<consumer-runtime>.mjs       # copied from $STORMHELM_PATH (see below) — skills invoke these by relative path
+hooks/*.js                           # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
+hooks/README.md                      # install + per-hook config reference
 ```
 
 **Durable rationale (tracked — see `docs/decisions/README.md`):**
@@ -318,6 +320,17 @@ for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
 
+# Consumer-runtime hooks. Shipped hooks live at `${CLAUDE_PROJECT_DIR}/hooks/<x>.js`
+# (repo root — like scripts/, NOT `.claude/hooks/`; that is the path the wiring in
+# `.claude/settings.json` references, per §113 + `hooks/README.md`). All 5 are
+# consumer-runtime: git-guardrails.js is mandatory whenever Ralph runs; the other
+# four are opt-in (§113). They are copied here; wiring them is the settings.json
+# step below. Same "broken on adoption if missing" class as the scripts above.
+mkdir -p hooks
+cp "$STORMHELM_PATH"/hooks/*.js  hooks/
+cp "$STORMHELM_PATH/hooks/README.md" hooks/README.md   # install + per-hook config reference
+chmod +x hooks/*.js
+
 # .gitignore additions for ephemeral directories
 cat >> .gitignore <<'EOF'
 
@@ -356,14 +369,24 @@ COVERAGE_CMD="uv run pytest --cov"
 >
 > For any Python stack the package manager is `uv` per §117-py. The wizard rejects projects that contain `Pipfile`, `poetry.lock`, or `requirements.txt` (as source) and offers to convert them; build hooks are blocked by default per §118-py — the wizard adds `[tool.uv] no-build-package = ["*"]` to `pyproject.toml` and seeds an empty `build-package` allowlist.
 
-### `.claude/settings.json` — MCP servers
+### `.claude/settings.json` — hooks + MCP servers
 
-The setup wizard writes an `mcpServers` block enabling the Context7 MCP (§122) so agents can fetch current library documentation instead of relying on training-data memory:
+The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/hooks/<hook>.js` (repo root, not `.claude/hooks/`). `git-guardrails.js` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
 
 ```jsonc
 {
   "permissions": { /* ... */ },
-  "hooks": { /* ... */ },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/git-guardrails.js" }] },
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-pre.js" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-post.js" }] },
+      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/context-monitor.js" }] },
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/closed-set-check.js" }] }
+    ]
+  },
   "mcpServers": {
     "context7": {
       "command": "npx",
@@ -398,7 +421,8 @@ After generation, the skill runs a self-check:
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
-5. Print a summary:
+5. Verify the hooks copied and wired: `ls hooks/git-guardrails.js hooks/closed-set-check.js hooks/context-monitor.js hooks/webfetch-cache-pre.js hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) — otherwise the destructive-git guard is silently absent.
+6. Print a summary:
 
 ```
 ✅ Stormhelm configured for <ProjectName>
@@ -412,6 +436,7 @@ Active capabilities:
   - python-fastapi (§38-py–§44-py)                       ← if FastAPI selected
 
 Active rules: §1–§122 (plus -py twins where Python is active)
+Hooks: git-guardrails (mandatory) + webfetch-cache, context-monitor, closed-set-check (opt-in, §113)
 Compliance mode: SOC2 + GDPR
 Ralph: enabled, 1 worker, 500k token budget/night
 
