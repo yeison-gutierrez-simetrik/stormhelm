@@ -145,16 +145,7 @@ this feature has failed §1 — flag and stop.>
 
 Ceremony is **derived, not configured** (ADR-0002): the spec contains exactly the sections the feature's classification requires — no more, no less. "Lightweight" means *fewer sections required*, never *fewer lines per section*.
 
-**Core taxonomy** (always vs conditional on a detected label):
-
-| Section | Required when |
-|---|---|
-| What changes / Why / Functional requirements / Acceptance / Out of scope | always |
-| Threat-model NFR | label `require-human-review` |
-| Multi-actor breakdown | label `feature:multi-module` or `feature:cross-context` |
-| Capacity envelope | label `feature:multi-module` |
-| SLO commitments | label `nfr:slo-declared` |
-| Background / Alternatives considered / Glossary | always optional |
+**Core taxonomy.** The canonical "section → required-when" table lives in `docs/engineering/core/12-bdd-and-acceptance.md` ("Label-driven section taxonomy") — use it as the source; it is not restated here, so the two cannot drift. Include exactly the sections that table marks required for the feature's current labels (plus the always-mandatory and always-optional ones).
 
 The classification comes from the labels the detectors emit (`feature:single-module`/`multi-module`/`cross-context` from `scripts/detect-ceremony.mjs` at `/to-issues` Step 2, surfaced early by `/domain-model`; `require-human-review` from sensitive-path scan). When `/specify` runs ahead of issue creation, run the same detector on the draft plan, or use the `/domain-model` cross-context early signal.
 
