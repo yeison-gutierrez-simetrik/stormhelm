@@ -84,7 +84,7 @@ Origins decide when their content changes. A TTL of "1 day" silently serves stal
       {
         "matcher": "WebFetch",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-pre.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }
         ]
       }
     ],
@@ -92,7 +92,7 @@ Origins decide when their content changes. A TTL of "1 day" silently serves stal
       {
         "matcher": "WebFetch",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-post.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }
         ]
       }
     ]
@@ -209,7 +209,7 @@ This file is written by an external mechanism (custom statusline, MCP server, Cl
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/context-monitor.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }
         ]
       }
     ]
@@ -238,21 +238,21 @@ No hook is loaded automatically by Stormhelm. Each project explicitly enables ho
     "PreToolUse": [
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-pre.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/git-guardrails.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js" }]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-post.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }]
       },
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/context-monitor.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }]
       }
     ]
   }

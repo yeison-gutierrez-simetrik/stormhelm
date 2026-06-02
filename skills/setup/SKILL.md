@@ -251,8 +251,8 @@ docs/perf-baselines/.keep            # consumed by /optimize, /traceability-matr
 features/.keep                       # consumed by /to-scenarios, /run-acceptance
 issues/.keep                         # consumed by /to-issues, /plan, Ralph
 scripts/<consumer-runtime>.mjs       # copied from $STORMHELM_PATH (see below) — skills invoke these by relative path
-hooks/*.js                           # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
-hooks/README.md                      # install + per-hook config reference
+.claude/hooks/*.js                   # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
+.claude/hooks/README.md              # install + per-hook config reference
 ```
 
 **Durable rationale (tracked — see `docs/decisions/README.md`):**
@@ -320,16 +320,16 @@ for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
 
-# Consumer-runtime hooks. Shipped hooks live at `${CLAUDE_PROJECT_DIR}/hooks/<x>.js`
-# (repo root — like scripts/, NOT `.claude/hooks/`; that is the path the wiring in
-# `.claude/settings.json` references, per §113 + `hooks/README.md`). All 5 are
-# consumer-runtime: git-guardrails.js is mandatory whenever Ralph runs; the other
-# four are opt-in (§113). They are copied here; wiring them is the settings.json
-# step below. Same "broken on adoption if missing" class as the scripts above.
-mkdir -p hooks
-cp "$STORMHELM_PATH"/hooks/*.js  hooks/
-cp "$STORMHELM_PATH/hooks/README.md" hooks/README.md   # install + per-hook config reference
-chmod +x hooks/*.js
+# Consumer-runtime hooks. Installed at `${CLAUDE_PROJECT_DIR}/.claude/hooks/<x>.js`
+# — the conventional Claude Code project-hook location, matching the README Phase 0
+# adoption path and existing consumers; the `.claude/settings.json` wiring below
+# references it. All 5 are consumer-runtime: git-guardrails.js is mandatory whenever
+# Ralph runs; the other four are opt-in (§113). They are copied here; wiring them is
+# the settings.json step below. Same "broken on adoption if missing" class as scripts.
+mkdir -p .claude/hooks
+cp "$STORMHELM_PATH"/hooks/*.js  .claude/hooks/
+cp "$STORMHELM_PATH/hooks/README.md" .claude/hooks/README.md   # install + per-hook config reference
+chmod +x .claude/hooks/*.js
 
 # .gitignore additions for ephemeral directories
 cat >> .gitignore <<'EOF'
@@ -371,20 +371,20 @@ COVERAGE_CMD="uv run pytest --cov"
 
 ### `.claude/settings.json` — hooks + MCP servers
 
-The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/hooks/<hook>.js` (repo root, not `.claude/hooks/`). `git-guardrails.js` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
+The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `.claude/hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.js`. `git-guardrails.js` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
 
 ```jsonc
 {
   "permissions": { /* ... */ },
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/git-guardrails.js" }] },
-      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-pre.js" }] }
+      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js" }] },
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }] }
     ],
     "PostToolUse": [
-      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-post.js" }] },
-      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/context-monitor.js" }] },
-      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/hooks/closed-set-check.js" }] }
+      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }] },
+      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }] },
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/closed-set-check.js" }] }
     ]
   },
   "mcpServers": {
@@ -421,7 +421,7 @@ After generation, the skill runs a self-check:
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
-5. Verify the hooks copied and wired: `ls hooks/git-guardrails.js hooks/closed-set-check.js hooks/context-monitor.js hooks/webfetch-cache-pre.js hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) — otherwise the destructive-git guard is silently absent.
+5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
 6. Print a summary:
 
 ```
