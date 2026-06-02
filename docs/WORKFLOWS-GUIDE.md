@@ -45,7 +45,9 @@ Each flow can be run two ways:
 - **Orchestrated** (`/feature`, `/debug`): a single command runs all steps.
 - **Manual** (invoking individual skills): the developer goes through each step with granular control.
 
-**Initial recommendation:** run the first 2-3 features manually to get a feel for each skill, then switch to orchestrated.
+**Initial recommendation:** run the first 2-3 features manually to get a feel for each skill, then switch to orchestrated. Manual mode is fully legitimate — the value is iterating one gate at a time.
+
+**One caveat for manual mode — the pre-merge gates have ordering/dedup that's easy to lose à-la-carte.** The `reviewer` agent (§114) is invoked **once**, by `/run-acceptance`; running `/code-review` *and* `/run-acceptance` double-invokes it. The traceability matrix is a `-draft` pre-merge and `-final` post-merge. `/check-consistency` runs *before* the matrix. So when gating manually, run **`/gates`** — the thin orchestrator that applies exactly these rules — rather than invoking the four gate skills by hand. (`/code-review` stays available for an *ad-hoc* review outside a gating run.)
 
 ---
 
@@ -1595,4 +1597,4 @@ For feedback on this guide or improvement suggestions based on real usage, comme
 ---
 
 *Last updated: 2026-06-01*
-*Framework version: Stormhelm v1.0 (122 rules, 31 skills, 1 agent, 5 hooks, 13 steps in the main flow)*
+*Framework version: Stormhelm v1.0 (122 rules, 32 skills, 1 agent, 5 hooks, 13 steps in the main flow)*

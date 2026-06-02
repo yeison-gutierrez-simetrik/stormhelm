@@ -18,7 +18,7 @@ description: |
 1. **Human ad-hoc review request** — a developer wants a fresh review of their working branch outside the `/feature` flow.
 2. **Main agent ad-hoc invocation** — during interactive work, the main agent wants to audit a diff before committing.
 
-For the automated workflows (`/feature` Step 12, Ralph pre-PR), `/run-acceptance` Step 8 already invokes the reviewer. **Do not invoke this skill from those flows** — that would double-invoke.
+For the automated workflows (`/feature` Step 12, Ralph pre-PR) **and the à-la-carte gate chain (`/gates`)**, `/run-acceptance` Step 8 already invokes the reviewer. **Do not invoke this skill from those flows** — that would double-invoke. If you are gating a slice for merge by hand, run `/gates` (not `/code-review` + `/run-acceptance` separately).
 
 ## When to invoke
 
