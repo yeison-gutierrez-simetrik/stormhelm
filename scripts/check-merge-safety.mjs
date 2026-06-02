@@ -7,9 +7,9 @@
 // mergeability in the background) silently picks the prior head, dropping any
 // commit pushed in the last few seconds. Recovery requires a cherry-pick PR.
 //
-// Real incident (belong-marketplace, slice 01, PR #9): merged while
-// mergeStateStatus was UNKNOWN; merge commit's 2nd parent was the prior HEAD,
-// not the just-pushed commit. The traceability-matrix update was excluded.
+// Observed failure mode: a PR merged while mergeStateStatus was UNKNOWN; the
+// merge commit's 2nd parent was the prior HEAD, not the just-pushed commit, so
+// the last push was silently excluded and had to be recovered separately.
 //
 // FIX: two cheap asserts.
 //   pre    — refuse to proceed if mergeable != MERGEABLE or state != CLEAN.
@@ -86,7 +86,7 @@ if (mode === 'pre') {
     fail(
       `PR #${pr} mergeable=${mergeable} (expected MERGEABLE).`,
       mergeable === 'UNKNOWN'
-        ? 'GitHub is still recomputing mergeability. WAIT and re-run; do NOT merge while UNKNOWN — silent commit loss has happened in production (cf. belong-marketplace PR #9, slice 01).'
+        ? 'GitHub is still recomputing mergeability. WAIT and re-run; do NOT merge while UNKNOWN — merging in this state has silently dropped a just-pushed commit.'
         : 'Resolve conflicts and push again.',
     );
   }
@@ -178,7 +178,7 @@ if (mode === 'post') {
       `Possible silent commit loss. Recover with:\n` +
       `     git log ${secondParent}..${intendedHead}\n` +
       `   If commits show up there, they exist on the branch but were excluded from the merge.\n` +
-      `   Either cherry-pick them into main or open a recovery PR (cf. belong-marketplace PR #10).`,
+      `   Either cherry-pick them into main or open a recovery PR.`,
     );
   }
 }

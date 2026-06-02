@@ -149,11 +149,11 @@ When `npm audit` / `pip-audit` reports a critical or high CVE, the team chooses 
 1. The version bump is a semver major delta (`X.y.z → (X+1).0.0`).
 2. The upgrade requires adding or removing a peer dependency.
 3. The upgrade requires editing `package.json` `scripts`, `engines`, or `overrides` to install cleanly.
-4. The upgrade changes a test runner's default behavior in a way that affects existing tests (e.g. `vitest 2 → 4` changed concurrency defaults and broke testcontainers fixtures in belong-marketplace, slice 01).
+4. The upgrade changes a test runner's default behavior in a way that affects existing tests (e.g. a major test-runner bump that changes concurrency defaults and breaks container-based fixtures).
 
 If any of these apply, **do not dispose as `upgrade` and move on**. The CVE issue must spawn an `improvement:dep-upgrade` issue per §100 with its own acceptance criteria — typecheck/lint/unit/acceptance all re-greened on the upgraded toolchain. The original CVE issue is closed by the merge of that improvement, not by a label disposition.
 
-**Why this rule exists:** real friction in belong-marketplace slice 01. Choosing "upgrade" for lodash CVEs cascaded to `vitest 2 → 4` / `vite 7`, broke peer resolution (`ERR_PACKAGE_PATH_NOT_EXPORTED` required adding `vite` as explicit devDep), and forced `fileParallelism:false` on testcontainers. None of this was visible from the CVE label; treating it as a single-PR fix mid-`/security-hardening` produced a noisy day of debugging that belonged in its own slice.
+**Why this rule exists:** a representative cascade — choosing "upgrade" to clear a transitive CVE (e.g. in `lodash`) pulls in a major test-runner/bundler bump, which breaks peer resolution (`ERR_PACKAGE_PATH_NOT_EXPORTED`, forcing an explicit devDep) and requires test-config changes (e.g. disabling file parallelism for container fixtures). None of this is visible from the CVE label; treating it as a single-PR fix mid-`/security-hardening` turns a one-line bump into a day of debugging that belonged in its own slice.
 
 ---
 

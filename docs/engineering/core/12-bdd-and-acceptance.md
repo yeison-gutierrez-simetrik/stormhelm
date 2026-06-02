@@ -121,7 +121,7 @@ in `#` comments alongside `# language:` and `# Spec source:`):
 # language: es
 # status: approved
 # approved_at: 2026-05-28
-# approved_by: yeison.gutierrez@simetrik.com
+# approved_by: approver@example.com
 # approved_in_commit: a1b2c3d   # the HUMAN CHECKPOINT 1 commit (auditable)
 # Spec source: docs/specs/<feature>.md FR-…
 ```

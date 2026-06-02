@@ -4,12 +4,12 @@
 // Composes a project's `sonar-project.properties` from the YAML frontmatter
 // declared by each ACTIVE capability's CAPABILITY.md (PR-Sonar / FW-6).
 //
-// PROBLEM: belong-marketplace had to hand-write classification rules in
-// sonar-project.properties to make SonarCloud treat Cucumber `features/**`
-// and `src/test-support/**` as tests (not production code with hardcoded
-// passwords), and to exclude `auth-schema.ts` + Drizzle migrations as
-// generated code. None of this was modeled in the framework — every project
-// reinvents the same classification mapping.
+// PROBLEM: without this, every project hand-writes the same classification
+// rules in sonar-project.properties so SonarCloud treats acceptance glue
+// (e.g. Cucumber `features/**`, `test-support/**`) as tests rather than
+// production code with throwaway credentials, and excludes generated code
+// (ORM migrations, codegen'd schema files). Each project reinvents the same
+// mapping; this derives it from the active capabilities instead.
 //
 // FIX: each capability declares what it contributes via frontmatter:
 //   sonar:

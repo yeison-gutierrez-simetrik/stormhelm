@@ -98,7 +98,7 @@ Every term entry uses a **Term / definition / `_Avoid_:` triple** so the rejecte
 - A new auth library (e.g. `better-auth`) being introduced → verify endpoints and method signatures the ADR depends on.
 - A new payment provider, queue, observability stack, etc. → verify the SDK methods the application port will call.
 
-If Context7 returns no match or contradicts what the ADR/spec assumes (e.g. stable Better Auth does not ship RFC 7662 introspection endpoints — real incident in belong-marketplace), **stop and surface the discrepancy** before writing the term into the canonical vocabulary. Catching the mismatch at `/domain-model` time is exponentially cheaper than catching it mid-`/tdd` (see §122 "When to verify"). The Context7 lookup is logged in the session transcript so the reviewer agent can verify the rule was honored.
+If Context7 returns no match or contradicts what the ADR/spec assumes (e.g. an auth library's stable release may not ship the RFC 7662 introspection endpoints an ADR assumed), **stop and surface the discrepancy** before writing the term into the canonical vocabulary. Catching the mismatch at `/domain-model` time is exponentially cheaper than catching it mid-`/tdd` (see §122 "When to verify"). The Context7 lookup is logged in the session transcript so the reviewer agent can verify the rule was honored.
 
 ```markdown
 # Ubiquitous Language

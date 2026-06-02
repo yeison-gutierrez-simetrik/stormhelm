@@ -163,7 +163,7 @@ git commit -m "docs/audit: traceability matrix for v1.42.0 (${STATUS_SUFFIX#-})"
 
 ### Stable identifiers — anchor on issues + commits, never on PR numbers (PR-MatrixStable)
 
-PR numbers are **mutable**: closing one PR and re-routing through another (e.g. consolidating two stacked PRs into one cumulative) breaks any audit document that anchored on `PR #N`. Real friction in belong-marketplace: the slice 01 matrix referenced #8/#9; when #8 was closed and #9 absorbed everything, the matrix's PR column was wrong and required a follow-up correction PR (#10) — which itself was almost lost in the merge (see §67 merge safety asserts).
+PR numbers are **mutable**: closing one PR and re-routing through another (e.g. consolidating two stacked PRs into one cumulative) breaks any audit document that anchored on `PR #N`. Representative failure: a matrix anchored on two stacked PRs goes stale when one is closed and the other absorbs its commits — the PR column is then wrong and needs a follow-up correction PR (which is itself exposed to the §67 merge-safety failure mode).
 
 Canonical columns of the matrix (in priority order):
 

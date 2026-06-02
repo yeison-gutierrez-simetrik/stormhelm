@@ -304,7 +304,7 @@ node scripts/check-merge-safety.mjs 142 post   # verify no commit was dropped
 
 ### Merge safety asserts (mandatory)
 
-`gh pr merge` against a PR whose `mergeable=UNKNOWN` or `mergeStateStatus ≠ CLEAN` can drop a recently pushed commit silently — GitHub uses the prior head as the merge source while it is still recomputing. This has happened in production (belong-marketplace PR #9, slice 01, recovered via cherry-pick PR #10).
+`gh pr merge` against a PR whose `mergeable=UNKNOWN` or `mergeStateStatus ≠ CLEAN` can drop a recently pushed commit silently — GitHub uses the prior head as the merge source while it is still recomputing. This has been observed in practice: a commit pushed seconds before the merge was excluded, and had to be recovered via a follow-up cherry-pick PR.
 
 Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
 
