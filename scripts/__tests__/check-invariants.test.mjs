@@ -117,3 +117,23 @@ test('INV-6 escalation can be overridden by an audited skip-invariant line', () 
   assert.equal(status, 0, 'an audited skip-invariant line turns the INV-6 failure into a skip');
   assert.match(out, /⚠️ INV-6.*OVERRIDDEN/);
 });
+
+// Regression (PR #42 fix): a genuinely single-module slice that lists ≥3 FLAT files
+// under one layer (a single logical context) must NOT escalate. Before the parser
+// granularity fix, `src/domain/{user,order,cart}.ts` read as 3 modules and INV-6
+// false-failed, forcing multi-module ceremony on a single-context change (§1).
+const flatSingleContext = (dir) => {
+  const p = join(dir, 'issues/002-list.md');
+  return readFileSync(p, 'utf8').replace(
+    /### Layers affected[\s\S]*$/,
+    '### Layers affected\n- `src/domain/user.ts`\n- `src/domain/order.ts`\n- `src/domain/cart.ts`\n',
+  );
+};
+
+test('INV-6 does NOT escalate a single-module slice of 3 flat files in one layer', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'issues/002-list.md'), flatSingleContext(dir));
+  });
+  assert.equal(status, 0, '3 flat files under one layer = 1 module, not a multi-module escalation');
+  assert.match(out, /✅ INV-6 .*single-module issue\(s\) match/);
+});

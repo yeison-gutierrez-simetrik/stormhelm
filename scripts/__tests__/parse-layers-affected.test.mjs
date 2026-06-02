@@ -19,7 +19,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseFile } from '../parse-layers-affected.mjs';
+import { parseFile, extractModules } from '../parse-layers-affected.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = [
@@ -84,4 +84,33 @@ test('unbounded "reused by" list with "and" separator is fully captured', () => 
   const nums = [...tmp.matchAll(/\breused\s+by\s+((?:#?\d+)(?:\s*(?:[,/]|and)\s*#?\d+)*)/g)]
     .flatMap((m) => [...m[1].matchAll(/\d+/g)].map((n) => Number(n[0])));
   assert.deepEqual(nums, [2, 3, 4, 5, 6, 7]);
+});
+
+// --- extractModules granularity (PR #42 fix): a "module" is the DIRECTORY of a
+// file, grouped at src/<layer>/<ctx>, REGARDLESS of path depth. Pins the fix for
+// the INV-6 false-escalation where 3 flat files in one layer read as 3 modules. ---
+
+test('flat files directly under a layer collapse to ONE module (src/domain)', () => {
+  const layers = '### Layers affected\n- `src/domain/user.ts`\n- `src/domain/order.ts`\n- `src/domain/cart.ts`\n';
+  assert.deepEqual(extractModules(layers), ['src/domain']);
+});
+
+test('deep files under per-context dirs stay distinct (one module per context)', () => {
+  const layers = '- `src/domain/identity/a.ts`\n- `src/domain/billing/b.ts`\n- `src/domain/orders/c.ts`\n';
+  assert.deepEqual(extractModules(layers), ['src/domain/billing', 'src/domain/identity', 'src/domain/orders']);
+});
+
+test('multiple files within one context dir collapse to that context', () => {
+  const layers = '- `src/modules/a/catalog.ts`\n- `src/modules/a/store.ts`\n';
+  assert.deepEqual(extractModules(layers), ['src/modules/a']);
+});
+
+test('depth no longer changes counting: 3 files under one layer = 1, not 3', () => {
+  const flat = extractModules('- `src/core/context.ts`\n- `src/core/result.ts`\n- `src/core/runtime.ts`\n');
+  assert.equal(flat.length, 1);
+  assert.deepEqual(flat, ['src/core']);
+});
+
+test('top-level files (no directory) contribute no module', () => {
+  assert.deepEqual(extractModules('- `package.json`\n- `tsconfig.json`\n'), []);
 });
