@@ -1,0 +1,28 @@
+name: verify-scripts-tests
+
+# Runs the scripts/__tests__/ suite so the framework's own executable helpers are
+# validated by CI — not just check-framework-metadata. Closes the blind spot from
+# PR #31 (issue #32): a green metadata gate only meant "the code parses", while the
+# invariant gate + parser + grouping had ZERO CI coverage. The check-invariants test
+# runs against a POPULATED synthetic consumer, so "pass" means the rules actually
+# catch what they claim, not that they returned N/A on the empty framework repo.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'docs/engineering/capabilities/**'
+      - '.github/workflows/verify-scripts-tests.yml'
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run the scripts/__tests__/ suite
+        run: node --test scripts/__tests__/*.test.mjs
