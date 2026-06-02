@@ -142,6 +142,8 @@ Branching by primary language. Each branch activates one capability folder.
   ☑ None of the above                   → security rules become recommended, not blocking
 ```
 
+> **No ceremony "mode" prompt — by design (ADR-0002).** Compliance scope (above) is project-level and sets which `§84-§90` enforcements are mandatory. **Ceremony level is NOT a project setting** — there is intentionally no "lightweight vs compliance track" toggle. How much process a feature carries is *derived per feature* by detectors (`scripts/detect-ceremony.mjs` + the sensitive-path scan) and recorded as labels, escalated one-way and gated by `INV-6`. A project-level toggle was considered and rejected (stickiness toward permanent opt-out; wrong granularity — sensitivity is a property of the feature, not the project). See ADR-0002 and `docs/WORKFLOWS-GUIDE.md` §1.
+
 ### Step 6 — Vocabulary seed
 
 ```

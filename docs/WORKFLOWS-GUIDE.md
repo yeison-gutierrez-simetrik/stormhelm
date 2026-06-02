@@ -24,10 +24,11 @@
 
 ## 1. Workflow philosophy
 
-Stormhelm does not automate development. **It disciplines it.** The framework is designed around two operational principles:
+Stormhelm does not automate development. **It disciplines it.** The framework is designed around three operational principles:
 
 1. **The human directs, the agents execute.** Business, architecture, and acceptance decisions live with the human. Mechanical execution (writing tests, implementing, validating gates) is delegable.
 2. **Every workflow artifact is reviewable, versionable, and auditable.** There is no "magic" — every decision produces a file, every gate produces a report, every PR produces evidence.
+3. **Ceremony is derived, not configured (ADR-0002).** How much process a piece of work carries is a property of *that feature*, computed from detectors (`scripts/detect-ceremony.mjs` → `feature:single-module`/`multi-module`/`cross-context`; sensitive-path scan → `require-human-review`), **not** a project-wide "lightweight vs compliance" setting you pick once at `/setup`. A trivial CRUD slice carries little ceremony; the moment a slice touches `auth/` or spans three modules, the detectors escalate it and `/specify` requires the matching sections. Classification is recorded as auditable GitHub labels, overridable only by a loud label flip — never a silent frontmatter field. Escalation is one-way (auto-promote, never auto-degrade; `INV-6` blocks merge if a slice grows heavier than its labels). This is why there is no ceremony mode prompt in `/setup`.
 
 ### The 4 main flows
 
