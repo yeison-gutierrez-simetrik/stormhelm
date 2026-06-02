@@ -295,8 +295,23 @@ gh pr ready "$PR_NUMBER"                                                     # �
 gh pr list --draft --label agent-generated
 # After review:
 gh pr ready 142            # mark as ready
-gh pr merge 142 --squash   # human merges
+
+# Merge safety asserts (mandatory — see "Merge safety" below):
+node scripts/check-merge-safety.mjs 142 pre
+gh pr merge 142 --squash   # human merges only after pre-check is green
+node scripts/check-merge-safety.mjs 142 post   # verify no commit was dropped
 ```
+
+### Merge safety asserts (mandatory)
+
+`gh pr merge` against a PR whose `mergeable=UNKNOWN` or `mergeStateStatus ≠ CLEAN` can drop a recently pushed commit silently — GitHub uses the prior head as the merge source while it is still recomputing. This has happened in production (belong-marketplace PR #9, slice 01, recovered via cherry-pick PR #10).
+
+Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
+
+- **Pre-merge:** `node scripts/check-merge-safety.mjs <pr> pre` refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN`. If `UNKNOWN`, wait and re-run; do not bypass.
+- **Post-merge:** `node scripts/check-merge-safety.mjs <pr> post` is the first action of `/feature` Step 13. It compares the merge commit's 2nd parent against the head GitHub recorded for the PR; if they differ, a commit was lost and recovery is needed.
+
+The script is zero-deps, uses `gh` + `git` already required by the framework, and never touches state — pure read + assert. Skipping it is a §1 violation (proportionality: the cost is ~5 seconds; the consequence of skipping has been a half-day recovery in real use).
 
 ---
 
