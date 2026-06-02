@@ -153,6 +153,8 @@ Use coarse buckets (50k, 80k, 100k, 150k, 200k). Round up.
 ```markdown
 # Issue NNN — <slice title>
 
+**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+scn-043` `budget:50k` `severity:p2`
+
 ## Scenarios covered
 - scn-042, scn-043 (see `features/listings/listing-publication.feature`)
 
@@ -189,6 +191,8 @@ gh issue create \
 ```
 
 If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms.
+
+> **The local issue file MUST mirror these labels in its `**Labels:**` line** (Step 5 template). GitHub labels alone are not visible to the offline invariant gate (`scripts/check-invariants.mjs`), which reads issue files from `issues/` (or `.planning/issues/`). If the `**Labels:**` line is missing, INV-1/2/3/5 silently read N/A — the gate becomes a no-op and emits a `CONFIG` failure. Keep the `--label` flags and the file's `**Labels:**` line in sync.
 
 ### Step 7 — Generate module contracts (multi-module only)
 

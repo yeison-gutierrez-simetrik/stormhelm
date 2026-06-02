@@ -55,44 +55,11 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // --- helpers ---------------------------------------------------------------
-
-const EDGE_PATTERNS = [
-  // 1. "(#N)" after a symbol/file/word — backward
-  {
-    re: /([^\s(]+)\s*\(#(\d+)\)/g,
-    kind: 'backward',
-    getEvidence: (m, source) => contextSnippet(source, m.index, 80),
-  },
-  // 2. "from #N" — backward
-  {
-    re: /\bfrom\s+#(\d+)\b/g,
-    kind: 'backward',
-    getEvidence: (m, source) => contextSnippet(source, m.index, 80),
-  },
-  // 3. "Depends on: #N" / "Depends on: #N, #M" — backward (issue body)
-  //    Matches the structured form PR-Group will emit; also tolerates the
-  //    pre-PR-Group prose form "Depends on: 01a" (returns nothing — the
-  //    01a → #N migration is a separate PR-Group concern).
-  {
-    re: /^\s*(?:-\s+)?(?:#(\d+))(?:\s*\(.*?\))?\s*$/gm,
-    kind: 'backward',
-    section: 'depends-on',
-    getEvidence: (m, source) => `Depends on: #${m[1]}`,
-  },
-  // 4. "reused by #N/#M..." — forward
-  {
-    re: /\breused\s+by\s+#?(\d+)(?:[\s,/]+#?(\d+))?(?:[\s,/]+#?(\d+))?(?:[\s,/]+#?(\d+))?/g,
-    kind: 'forward',
-    multi: true,
-    getEvidence: (m, source) => contextSnippet(source, m.index, 80),
-  },
-  // 5. "#N builds" — forward (the consumer is described as building on top)
-  {
-    re: /#(\d+)\s+builds\b/g,
-    kind: 'forward',
-    getEvidence: (m, source) => contextSnippet(source, m.index, 80),
-  },
-];
+//
+// The five edge patterns are implemented inline in parseFile() below (search
+// for "Pattern 1".."Pattern 5"). An earlier draft kept a parallel EDGE_PATTERNS
+// table here that was never wired in — removed, since two copies of the patterns
+// is exactly the drift trap this shared parser exists to avoid.
 
 function contextSnippet(src, start, span) {
   const begin = Math.max(0, start - 0);

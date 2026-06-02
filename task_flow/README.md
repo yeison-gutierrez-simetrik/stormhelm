@@ -1,5 +1,13 @@
 # task_flow
 
+> ⚠️ **No autoritativo — instantánea de ejemplo, no es el framework.** Este directorio es un
+> proyecto de muestra inicializado con Stormhelm en un momento dado. **Puede estar desactualizado**
+> respecto al framework vivo en la raíz (las reglas §N, las skills y los conteos pueden diferir) y
+> está **excluido del gate de metadata de CI** (`scripts/check-framework-metadata.mjs`), por lo que
+> su drift no se valida. No lo tomes como fuente de verdad: para las reglas y skills canónicas,
+> mirá siempre la raíz del repo. Existe solo como referencia ilustrativa de "cómo se ve un proyecto
+> con Stormhelm aplicado".
+
 Proyecto en limpio inicializado con **[Stormhelm](../README.md)** — el marco de trabajo asistido por agentes para desarrollo de software.
 
 ---

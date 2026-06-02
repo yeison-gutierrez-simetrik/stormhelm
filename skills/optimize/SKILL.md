@@ -98,10 +98,14 @@ jq '.audits["largest-contentful-paint"], .audits["cumulative-layout-shift"], .au
 **For agent token cost:**
 
 ```bash
-# Replay a representative workload and capture tokens consumed per task
-./scripts/replay-agent-workload.sh --tasks=20 --log=/tmp/tokens-baseline.log
+# Replay a representative workload (re-run a fixed set of tasks/prompts through
+# the agent) and capture tokens consumed per task into a log, then summarize:
 awk '/tokens_total/{sum+=$2; n++} END{print "avg:", sum/n, "total:", sum}' /tmp/tokens-baseline.log
 ```
+
+> There is no bundled replay harness. Produce `/tmp/tokens-baseline.log` with whatever
+> driver your project uses to exercise the agent over a fixed task set — the point is a
+> repeatable token baseline, not a specific tool.
 
 **Required PR section after Step 1:**
 

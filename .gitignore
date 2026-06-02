@@ -38,3 +38,6 @@ coverage/
 # Dry-run artifacts internos (no son parte del framework)
 test-run-feature/
 test-run-feature-2/
+
+# Contributor-local comparative analysis (not part of the shipped framework)
+Analisis-Comparativo-Frameworks-AI-Development.md
