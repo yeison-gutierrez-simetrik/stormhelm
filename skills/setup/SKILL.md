@@ -303,12 +303,15 @@ cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 # (`node scripts/<x>.mjs`, resolved against the consumer repo root), so they must
 # live in the consumer repo — not only in $STORMHELM_PATH. Without this step every
 # gate that runs `node scripts/...` (preflight, invariants, merge-safety, slice
-# grouping, closed-set sync, Sonar compose) fails on a freshly-adopted project.
-# check-framework-metadata.mjs is framework-self-maintenance and is intentionally
-# NOT copied. See CLAUDE.md "scripts/ taxonomy".
+# grouping, ceremony detection, closed-set sync, Sonar compose) fails on a
+# freshly-adopted project. check-framework-metadata.mjs is framework-self-
+# maintenance and is intentionally NOT copied. See CLAUDE.md "scripts/ taxonomy".
+#
+# When adding a new scripts/*.mjs that a shipped skill or hook invokes by relative
+# path, add it here AND to the validation `ls` below — otherwise it ships broken.
 mkdir -p scripts
 for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
-         group-slice-issues.mjs parse-layers-affected.mjs \
+         group-slice-issues.mjs parse-layers-affected.mjs detect-ceremony.mjs \
          sync-closed-sets.mjs compose-sonar-properties.mjs; do
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
@@ -392,7 +395,7 @@ After generation, the skill runs a self-check:
 1. Verify every `§N` referenced in the generated `AGENTS.md` exists in a file present in the project.
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
-4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
+4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Print a summary:
 
 ```

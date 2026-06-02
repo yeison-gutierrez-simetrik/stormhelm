@@ -23,7 +23,7 @@
 //
 // Usage:  node scripts/detect-ceremony.mjs <issue1>.md <issue2>.md ...
 // Output: JSON { modules, module_count, contexts, context_count, labels }
-// Zero external deps beyond the sibling parser. Exit 0 always.
+// Zero external deps beyond the sibling parser. Exit 0 on success; 2 on usage error.
 
 import { pathToFileURL } from 'node:url';
 import { parseFile } from './parse-layers-affected.mjs';
