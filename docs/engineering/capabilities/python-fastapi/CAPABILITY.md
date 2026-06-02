@@ -5,6 +5,8 @@ extends: python
 sonar:
   test_inclusions:
     - "features/**"
+  coverage_exclusions:
+    - "features/**"
   exclusions:
     - "alembic/versions/**"
     - "src/**/migrations/**"
