@@ -118,22 +118,31 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
   else add('INV-5', '§59', 'fail', `@release scns with no issue: ${orphan.join(', ')}`);
 }
 
-// INV-8 (PR-MatrixStable): features in `# status: implemented` must have a
-// `traceability-v*-final.md` artifact in docs/audit/. A `-draft.md` does not
-// satisfy this — Step 13 of /feature must re-run /traceability-matrix post-merge
-// to produce the -final version.
+// INV-8 (PR-MatrixStable): every feature in `# status: implemented` must be
+// covered by a `traceability-v*-final.md` artifact in docs/audit/ — checked
+// PER FEATURE, by requiring each of the feature's @scn-NNN scenarios to appear
+// in some -final matrix. A `-draft.md` does not satisfy this; Step 13 of
+// /feature must re-run /traceability-matrix post-merge to produce the -final.
+// Per-feature (not "≥1 -final exists anywhere"): a stale -final from a prior
+// release must NOT satisfy a newly-implemented feature whose Step 13 was skipped.
 {
   const implementedFeatures = featureFiles.filter((f) => /^#\s*status:\s*implemented/im.test(read(f)));
   if (!implementedFeatures.length) {
     add('INV-8', '§58', 'na', 'no implemented features');
   } else {
-    const auditFiles = walk('docs/audit', /^traceability-.*-final\.md$/);
-    if (!auditFiles.length) {
+    const finalText = walk('docs/audit', /^traceability-.*-final\.md$/).map(read).join('\n');
+    const scnsOf = (f) => [...read(f).matchAll(/@(scn-\d+)/g)].map((m) => m[1]);
+    const uncovered = implementedFeatures.filter((f) => {
+      const scns = scnsOf(f);
+      // a feature with no scenario tags can't be pinned to a matrix row → treat as uncovered
+      return scns.length === 0 || !scns.every((s) => finalText.includes(s));
+    });
+    if (!finalText || uncovered.length) {
       add('INV-8', '§58', 'fail',
-        `${implementedFeatures.length} implemented feature(s) but no traceability-v*-final.md in docs/audit/ (Step 13 of /feature must re-run /traceability-matrix post-merge)`);
+        `implemented feature(s) not pinned to a -final matrix: ${uncovered.map((f) => f.split('/').pop()).join(', ') || '(no -final matrix in docs/audit/)'} — Step 13 of /feature must re-run /traceability-matrix post-merge`);
     } else {
       add('INV-8', '§58', 'pass',
-        `${implementedFeatures.length} implemented feature(s) covered by ${auditFiles.length} -final matrix artifact(s)`);
+        `${implementedFeatures.length} implemented feature(s), all scenarios pinned to a -final matrix`);
     }
   }
 }
