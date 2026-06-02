@@ -236,11 +236,27 @@ This invocation is **opt-in** based on a `surface-tech-debt` flag in the slice's
 
 The skill does not auto-merge; human always closes the loop.
 
+**⚠️ Merge safety asserts (mandatory, §67).** Before invoking `gh pr merge`, run:
+
+```bash
+node scripts/check-merge-safety.mjs <pr_number> pre
+```
+
+The script refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN` (especially `UNKNOWN`, which means GitHub is still recomputing mergeability — merging in this state has caused silent commit loss in production, cf. belong-marketplace PR #9). If the check fails, **WAIT and re-run**, do not bypass.
+
 ### Step 13 — Post-merge close-out
 
 `/feature` does not end at PR creation. After the human merges the PR (at HUMAN CHECKPOINT 2), Step 13 closes the feature lifecycle. This step runs **once per merged PR**, triggered by the merge event (manually invoked, or by a GitHub Action that calls `/feature --close <issue>`).
 
 **Actions (all idempotent — safe to re-run):**
+
+0. **Verify merge integrity first (§67).** Before any other Step 13 action, confirm no commit was silently dropped during the merge:
+
+   ```bash
+   node scripts/check-merge-safety.mjs <pr_number> post
+   ```
+
+   The script compares the merge commit's 2nd parent against the head GitHub recorded for the PR. If they differ, a commit was lost (cf. belong-marketplace PR #9 → PR #10 recovery). Investigate before proceeding with steps 1-7 below.
 
 1. **Re-run `/traceability-matrix` over the merged commit.** The Step 12 run was on the pre-merge branch; the post-merge run pins the matrix to the actual main-branch commit hash that ships.
 2. **Update the issue with merge metadata:**
