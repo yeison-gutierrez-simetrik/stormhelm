@@ -215,7 +215,7 @@ For each completed slice:
 
 - Invokes `/security-hardening` if `require-human-review` label is set (sensitive domain per §64).
 - Updates the traceability matrix per §62.
-- Opens a draft PR per §67 (always `--draft`).
+- Opens a draft PR per §67 (always `--draft`). **The PR body MUST include a `Closes #<issue>` line for every issue the slice delivers** (one per line, e.g. `Closes #12`), so GitHub auto-closes them when the PR merges. This mirrors Ralph's `ralph-local.sh` (which templates `Closes #$ISSUE_NUMBER`); the interactive path must not drop it, or issues stay open after merge and require manual cleanup. For a cumulative slice branch delivering several issues, list all of them (`Closes #12`, `Closes #13`, …).
 - Applies the `ralph-done` label when the draft PR opens (slice implemented + gated, awaiting human merge). Step 13 then transitions `ralph-done` → `released`. (Ralph's `ralph-local.sh` does the same after its draft PR.)
 
 **Note on reviewer agent:** the `reviewer` sub-agent (§114) was **already invoked** by `/run-acceptance` Step 8 in the previous step. Its report is included in `.planning/acceptance/<slug>-*.md` and is attached to the PR description automatically. Step 12 does **not** re-invoke the reviewer — that would be redundant and double the token spend.
@@ -264,7 +264,7 @@ The script refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN` 
 2. **Update the issue with merge metadata:**
    - PR link, merged-at timestamp, merged-by user.
    - Move label from `ralph-done` → `released`.
-   - Close the issue.
+   - Close the issue. If the PR body carried `Closes #<issue>` (Step 12), GitHub already closed it on merge — verify and skip. Otherwise close it explicitly: `gh issue close <n> --reason completed --comment "<merge SHA + traceability matrix>"`. Belt-and-suspenders: the `Closes` keyword is the primary mechanism; this is the fallback for any issue that wasn't auto-closed.
 3. **Update the spec status:** edit `docs/specs/<feature-slug>.md` Status from `Clarified` (or `In implementation`) to **`Released`**.
 4. **Update `docs/events.md`** if new event names were registered during `/tdd` Step 6 (logs phase). The Step 13 verifies the event registry is in sync with what production emits.
 5. **Append to `docs/audit/incidents.md`** *only if* an incident was tied to this slice (e.g., this PR was the resolution of a `/postmortem`). Otherwise no-op.
