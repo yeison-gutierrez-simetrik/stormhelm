@@ -153,6 +153,23 @@ feature instead of deep inside the pipeline.
 - The `git-guardrails` hook blocks `git commit` on `*.feature` files from non-human commits.
 - Pre-flight: skills that consume approved scenarios call `scripts/preflight.mjs feature-approved <slug>` and refuse to run on `draft`/`clarifying` features.
 
+### Label-driven section taxonomy (ADR-0002 — amendment to §58, no new §N)
+
+Spec **and** `.feature` ceremony scale with the feature's *detected* classification, not a project setting. ADR-0002 (Accepted) makes this concrete; this is the §58-adjacent reference (it deliberately adds **no new numbered rule** — INV-6 enforces it, see below):
+
+- **Sections are required by label, not by length.** "Lightweight" means *fewer sections required*, never *fewer lines per section*. `/specify` includes exactly the sections the classification requires (core taxonomy + any sections an active capability declares — OQ2), plus a `<!-- pending-promotion -->` block naming the conditional sections that would be added on escalation.
+
+  | Section | Required when |
+  |---|---|
+  | What changes / Why / FRs / Acceptance / Out-of-scope | always |
+  | Threat-model NFR | `require-human-review` |
+  | Multi-actor breakdown | `feature:multi-module` or `feature:cross-context` |
+  | Capacity envelope | `feature:multi-module` |
+  | SLO commitments | `nfr:slo-declared` |
+
+- **Classification is detected, recorded as labels, overridden loudly.** `scripts/detect-ceremony.mjs` emits the `feature:*-module`/`cross-context` labels at `/to-issues`; the sensitive-path scan emits `require-human-review`. A human may override only via an audited label flip (GitHub timeline) — never a silent spec frontmatter field.
+- **Escalation is one-way and gated.** A feature auto-promotes light → full when a detector fires on the diff; it is **never** auto-degraded. `INV-6` (`scripts/check-invariants.mjs`) blocks merge if a `feature:single-module` issue's plan grows to multi-module without the backfill (SAD + the sections above) or an audited `skip-invariant: INV-6` flip. The `reviewer` re-detects on the live diff (incl. sensitive paths) and emits a `requires-escalation` finding.
+
 ---
 
 ## §59. Each scenario has a stable ID `scn-NNN` referenced from issues
