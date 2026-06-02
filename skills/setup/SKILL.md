@@ -250,36 +250,46 @@ features/.keep                       # consumed by /to-scenarios, /run-acceptanc
 issues/.keep                         # consumed by /to-issues, /plan, Ralph
 ```
 
+**Durable rationale (tracked — see `docs/decisions/README.md`):**
+
+```
+docs/decisions/grilling/.keep        # /grill-me transcripts (PR-I)
+docs/decisions/open-questions/.keep  # questions deferred to stakeholders
+docs/decisions/clarify-logs/.keep    # /clarify pass outputs
+```
+
 **Gitignored (ephemeral working state):**
 
 ```
 .planning/budget.txt                 # token budget for Ralph
 .planning/ralph-sessions/.keep       # Ralph session logs (§69)
-.planning/grilling/.keep             # /grill-me transcripts
-.planning/grilling-docs/.keep        # /grill-with-docs reports
-.planning/acceptance/.keep           # /run-acceptance reports
+.planning/grilling-docs/.keep        # /grill-with-docs brownfield reconnaissance reports
+.planning/acceptance/.keep           # /run-acceptance reports (kept until merge)
 .planning/reviews/.keep              # /code-review (reviewer agent) reports
 .planning/security-audits/.keep      # /security-hardening reports
 .planning/diagnoses/.keep            # /diagnose reports
 .planning/characterizations/.keep    # /characterization-tests reports
 .planning/impact/.keep               # /impact-analysis reports
 .planning/architecture-reviews/.keep # /improve-codebase-architecture reports
-.planning/prototypes/.keep           # /prototype throwaway code (and LEARNING.md persists separately)
+.planning/prototypes/.keep           # /prototype throwaway code (LEARNING.md goes to docs/prototypes/)
+.planning/consistency/.keep          # /check-consistency reconciliation reports
 ```
 
 The script:
 
 ```bash
 mkdir -p \
-  docs/{specs,adr,audit,postmortems,threat-models,perf-baselines} \
+  docs/{specs,adr,audit,postmortems,threat-models,perf-baselines,architecture} \
+  docs/decisions/{grilling,open-questions,clarify-logs} \
   features issues \
-  .planning/{ralph-sessions,grilling,grilling-docs,acceptance,reviews,security-audits,diagnoses,characterizations,impact,architecture-reviews,prototypes}
+  .planning/{ralph-sessions,grilling-docs,acceptance,reviews,security-audits,diagnoses,characterizations,impact,architecture-reviews,prototypes,consistency}
 
-for d in docs/specs docs/adr docs/audit docs/postmortems docs/threat-models docs/perf-baselines features issues \
-         .planning/ralph-sessions .planning/grilling .planning/grilling-docs .planning/acceptance \
+for d in docs/specs docs/adr docs/audit docs/postmortems docs/threat-models docs/perf-baselines docs/architecture \
+         docs/decisions/grilling docs/decisions/open-questions docs/decisions/clarify-logs \
+         features issues \
+         .planning/ralph-sessions .planning/grilling-docs .planning/acceptance \
          .planning/reviews .planning/security-audits .planning/diagnoses .planning/characterizations \
-         .planning/impact .planning/architecture-reviews .planning/prototypes \
-         .planning/consistency docs/architecture; do
+         .planning/impact .planning/architecture-reviews .planning/prototypes .planning/consistency; do
   touch "$d/.keep"
 done
 

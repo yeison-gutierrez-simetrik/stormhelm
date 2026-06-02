@@ -121,7 +121,7 @@ The full chain end-to-end. Most users run it via the single `/feature "..."` orc
 
 #### 1. Grill the request — `/grill-me "<feature description>"`
 
-The agent asks 10-120 questions in **multiple-choice format with recommendation** (one option marked ✅, rationale per option, `Other / correction` last). The transcript lands in `.planning/grilling/<slug>-<YYYYMMDD>.md` preserving every rejected option (these become free `Considered Options` for any ADR that follows).
+The agent asks 10-120 questions in **multiple-choice format with recommendation** (one option marked ✅, rationale per option, `Other / correction` last). The transcript lands in `docs/decisions/grilling/<slug>-<YYYYMMDD>.md` preserving every rejected option (these become free `Considered Options` for any ADR that follows).
 
 Format spec: `skills/grill-me/references/transcript-format.md`.
 

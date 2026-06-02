@@ -34,7 +34,7 @@ The spec answers two questions in business language: **what** must change in the
 
 ## Inputs
 
-- `.planning/grilling/<slug>-*.md` (output of `/grill-me`).
+- `docs/decisions/grilling/<slug>-*.md` (output of `/grill-me`).
 - `docs/CONTEXT.md` (updated by `/domain-model`).
 - `docs/constitution.md`.
 - `docs/adr/` (any ADRs that constrain this feature).
@@ -76,7 +76,7 @@ The spec is the source of truth for `/to-scenarios`. Every gap in the spec becom
 
 ### Step 1 — Validate prerequisites
 
-If `.planning/grilling/<slug>-*.md` is absent → stop, instruct to run `/grill-me` first.
+If `docs/decisions/grilling/<slug>-*.md` is absent → stop, instruct to run `/grill-me` first.
 If `docs/CONTEXT.md` was not updated for this feature's terms → stop, instruct to run `/domain-model`.
 
 ### Step 2 — Draft the spec
@@ -91,7 +91,7 @@ Canonical structure:
 **Slug:** <feature-slug>
 **Status:** Draft
 **Date:** YYYY-MM-DD
-**Source:** .planning/grilling/<slug>-YYYYMMDD.md
+**Source:** docs/decisions/grilling/<slug>-YYYYMMDD.md
 
 ## What changes after this ships
 
@@ -152,7 +152,7 @@ When an NFR mentions a numeric target for **latency**, **throughput**, **error r
 | Source | When applicable | Format in spec |
 |---|---|---|
 | **Existing baseline** | Brownfield change to an endpoint already measured | `NFR-N. (latency target). Source: docs/perf-baselines/<endpoint>.md baseline 2026-04-15` |
-| **Explicit stakeholder decision** | Greenfield endpoint; the human gave a target during grilling | `NFR-N. (latency target). Source: stakeholder decision in .planning/grilling/<slug>-*.md Q14` |
+| **Explicit stakeholder decision** | Greenfield endpoint; the human gave a target during grilling | `NFR-N. (latency target). Source: stakeholder decision in docs/decisions/grilling/<slug>-*.md Q14` |
 | **Constitution default** | The constitution declares a default for endpoint class | `NFR-N. (latency target). Source: constitution C.7 (default p95 ≤ 500 ms for public API)` |
 
 If none of the three sources applies, the NFR ships as **`TBD — requires source`** and `/specify` stops to ask the human:

@@ -33,7 +33,7 @@ For brownfield work (B3 in the brownfield sub-flow), this skill detects what the
 
 ## Inputs
 
-- Output of `/grill-me` (`.planning/grilling/<slug>-*.md`).
+- Output of `/grill-me` (`docs/decisions/grilling/<slug>-*.md`).
 - Current `docs/CONTEXT.md`.
 - Existing `docs/adr/` (to avoid duplicating prior decisions).
 - For brownfield: the actual code paths being modified.
@@ -91,6 +91,14 @@ For each drift term, decide which name wins:
 ### Step 3 — Update `CONTEXT.md`
 
 Every term entry uses a **Term / definition / `_Avoid_:` triple** so the rejected wordings are explicit, not implicit. Drift later happens because deprecated terms creep back in; an explicit `_Avoid_:` line gives the reviewer agent something to grep for.
+
+**§122 invocation (PR-Cap).** Before writing any term that names a third-party library, framework, SDK, or external API into `CONTEXT.md`, **run a Context7 lookup against the specific symbols the term implies**. Common cases:
+
+- A new ORM (e.g. `drizzle`) being introduced → verify the schema-builder API matches what the spec assumes.
+- A new auth library (e.g. `better-auth`) being introduced → verify endpoints and method signatures the ADR depends on.
+- A new payment provider, queue, observability stack, etc. → verify the SDK methods the application port will call.
+
+If Context7 returns no match or contradicts what the ADR/spec assumes (e.g. stable Better Auth does not ship RFC 7662 introspection endpoints — real incident in belong-marketplace), **stop and surface the discrepancy** before writing the term into the canonical vocabulary. Catching the mismatch at `/domain-model` time is exponentially cheaper than catching it mid-`/tdd` (see §122 "When to verify"). The Context7 lookup is logged in the session transcript so the reviewer agent can verify the rule was honored.
 
 ```markdown
 # Ubiquitous Language

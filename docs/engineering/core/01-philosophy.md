@@ -180,3 +180,15 @@ const db = connect(env.DATABASE_URL);
 - For Ralph (`shift:afk`), the same hook setup that handles WebFetch caching (§108) is sufficient — there is no separate Context7 hook. The rule is enforced by skill convention, not by runtime guard.
 - When the `introduces-capability:<name>` label is set (§63), the slice **must** include a Context7 lookup in the agent log; the reviewer rejects PRs that show an invented API.
 
+### When to verify — **early, not in `/tdd`**
+
+The rule fires **at adoption time**, not when the first test runs against the library. Real friction in production (belong-marketplace slice 01): §122 caught a Better Auth mismatch in `/tdd` Step 7 — the ADR had assumed RFC 7662 / RFC 7009 endpoints that stable Better Auth does not ship. Catching it earlier (at `/domain-model` or in the ADR review) would have avoided the FR-5 rescope mid-implementation.
+
+Required invocation points, in order:
+
+1. **`/domain-model` Step 3** — when a new third-party library is named in CONTEXT.md (typically through a port adapter), run Context7 against the specific symbols/endpoints the ADR or spec relies on. If they do not exist, fail the step with the discrepancy named explicitly.
+2. **`/setup` capability adoption** — when activating a capability (e.g. `python-fastapi`, `typescript-better-auth`), verify the capability's declared APIs against current docs. Any drift between capability metadata and reality blocks adoption.
+3. **`/tdd` Step 7** — last-line defense. By the time `/tdd` runs §122, the first two checks should have caught any drift; if not, the failure happens here but is treated as a process bug, not a code bug.
+
+Earlier is cheaper. The order above is by ascending cost-of-failure: catching in `/tdd` is the most expensive (work to redo); catching in `/setup` is the cheapest (one Context7 call before committing to the capability).
+

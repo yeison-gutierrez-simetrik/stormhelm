@@ -42,7 +42,7 @@ When the interrogation is over, the agent and the human share a **single mental 
 
 ## Outputs
 
-- A conversation transcript saved to `.planning/grilling/<slug>-<YYYYMMDD>.md`.
+- A conversation transcript saved to `docs/decisions/grilling/<slug>-<YYYYMMDD>.md`.
 - A **shared design concept**: the resolved tree of decisions, ready to feed `/domain-model` and `/specify`.
 - A list of **open questions** that need stakeholders beyond the immediate developer (saved as `<slug>-open-questions.md`).
 
@@ -171,7 +171,7 @@ Blocking open questions stop the workflow. Non-blocking proceed with documented 
 
 ### Step 6 — Write the design concept
 
-Save `.planning/grilling/<slug>-<YYYYMMDD>.md` with:
+Save `docs/decisions/grilling/<slug>-<YYYYMMDD>.md` with:
 
 - The original input.
 - The resolved design tree (questions + answers, organized by branch).
