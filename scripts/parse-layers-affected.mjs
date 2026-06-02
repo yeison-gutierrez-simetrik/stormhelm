@@ -52,6 +52,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // --- helpers ---------------------------------------------------------------
 
@@ -188,11 +189,14 @@ function parseFile(filePath) {
     addEdge(Number(m[1]), 'backward', contextSnippet(md, m.index, 60));
   }
 
-  // Pattern 3: "reused by #N(/#M/#K...)" — forward.
-  for (const m of md.matchAll(/\breused\s+by\s+#?(\d+)(?:[\s,/]+#?(\d+))?(?:[\s,/]+#?(\d+))?(?:[\s,/]+#?(\d+))?/g)) {
+  // Pattern 3: "reused by #N(/#M/#K... and #Z)" — forward.
+  // Unbounded list: match the whole "reused by <list>" tail, then pull every
+  // number from it. Separators include "/", ",", whitespace, and "and"
+  // (e.g. "reused by #3/#4/#5", "reused by #3, #4 and #5").
+  for (const m of md.matchAll(/\breused\s+by\s+((?:#?\d+)(?:\s*(?:[,/]|and)\s*#?\d+)*)/g)) {
     const snippet = contextSnippet(md, m.index, 60);
-    for (const g of [m[1], m[2], m[3], m[4]]) {
-      if (g) addEdge(Number(g), 'forward', snippet);
+    for (const num of m[1].matchAll(/\d+/g)) {
+      addEdge(Number(num[0]), 'forward', snippet);
     }
   }
 
@@ -256,16 +260,25 @@ function addCrossWarnings(records) {
   }
 }
 
+// --- public API ------------------------------------------------------------
+// Exported so the two downstream consumers (PR-Group's grouping algorithm and
+// PR-M's module-count detector) import the same parser instead of re-parsing.
+export { parseFile, addCrossWarnings, extractModules, issueNumberFromPath };
+
 // --- CLI -------------------------------------------------------------------
+// Only runs when executed directly (`node parse-layers-affected.mjs ...`), not
+// on import — otherwise importing the module would trigger the usage error.
 
-const args = process.argv.slice(2);
-if (args.length === 0) {
-  console.error('Usage: node scripts/parse-layers-affected.mjs <issue.md> [issue2.md ...]');
-  process.exit(2);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.error('Usage: node scripts/parse-layers-affected.mjs <issue.md> [issue2.md ...]');
+    process.exit(2);
+  }
+
+  const records = args.map(parseFile);
+  addCrossWarnings(records);
+
+  const out = records.length === 1 ? records[0] : records;
+  console.log(JSON.stringify(out, null, 2));
 }
-
-const records = args.map(parseFile);
-addCrossWarnings(records);
-
-const out = records.length === 1 ? records[0] : records;
-console.log(JSON.stringify(out, null, 2));
