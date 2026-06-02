@@ -92,8 +92,9 @@ function issueNumberFromPath(p) {
   return m ? Number(m[1]) : null;
 }
 
-// Affected modules: parse list items under "Layers affected" looking for
-// `src/<context>/...` paths and group by first 2 segments.
+// Affected modules: parse list items under "Layers affected" looking for file
+// paths and group each by the DIRECTORY that contains it, at src/<layer>/<ctx>
+// granularity (`src/<a>/<b>` under src/, else the first 2 segments).
 function extractModules(layersSection) {
   if (!layersSection) return [];
   const set = new Set();
@@ -101,15 +102,15 @@ function extractModules(layersSection) {
     // Lines that start with - or * are list items; backticks delimit file paths.
     const matches = line.matchAll(/`([a-zA-Z0-9_./-]+\.[a-zA-Z0-9_.-]+)`/g);
     for (const m of matches) {
-      const path = m[1];
-      // Group by first 2 directory segments under src/.
-      const segs = path.split('/');
-      if (segs[0] === 'src' && segs.length >= 3) {
-        set.add(segs.slice(0, 3).join('/'));
-      } else if (segs.length >= 2) {
-        // Top-level paths like "package.json" or "drizzle.config.ts" — keep as-is.
-        set.add(segs.slice(0, 2).join('/'));
-      }
+      // The regex matches a FILE path (its last segment carries an extension). A
+      // "module" is the DIRECTORY containing it — strip the filename FIRST so depth
+      // doesn't change whether we count per-file or per-directory. A 3-segment
+      // `src/domain/user.ts` must group to `src/domain`, NOT stay per-file as
+      // `src/domain/user.ts` — otherwise 3 flat files in one layer falsely read as
+      // 3 modules (INV-6 false-escalation; see PR #42).
+      const dir = m[1].split('/').slice(0, -1);
+      if (!dir.length) continue; // top-level file (e.g. package.json) — no module
+      set.add((dir[0] === 'src' ? dir.slice(0, 3) : dir.slice(0, 2)).join('/'));
     }
   }
   return [...set].sort();
