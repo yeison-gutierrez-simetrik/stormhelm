@@ -9,8 +9,8 @@
 // PROBLEM: parsing the plan twice in two different scripts is the classic
 // drift trap. One parser, two consumers, one fixture.
 //
-// Sources of edges (verified against belong-marketplace slice 01 planes
-// #1-#5; see `.planning/framework-feedback/housekeeping-close.md`):
+// Sources of edges (each pattern is exercised by a synthetic 5-issue slice in
+// scripts/__tests__/fixtures/):
 //
 //   Backward (B references A — "B depends on A"):
 //     "Depends on: #A" / "Depends on: 01a (...)"
@@ -37,9 +37,9 @@
 //   JSON to stdout, one object per input file:
 //   {
 //     "issue_number": 4,
-//     "affected_modules": ["src/domain/org", "src/application", ...],
+//     "affected_modules": ["src/modules/c", "src/core", ...],
 //     "references_to_issues": [
-//       { "from": 4, "to": 3, "kind": "backward", "evidence": "reuse ownership.ts (#3)" },
+//       { "from": 4, "to": 3, "kind": "backward", "evidence": "reuse invariant.ts (#3)" },
 //       ...
 //     ],
 //     "warnings": ["..."]
@@ -163,9 +163,9 @@ function parseFile(filePath) {
   const modules = extractModules(layers);
 
   // Edges: scanned over the WHOLE document — preambles, "Layers affected",
-  // dependency graphs, all carry edge claims (verified against belong slice 01
-  // planes #1-#5 where ~30% of edges live in the preamble or dependency-graph
-  // section, not in Layers affected itself).
+  // dependency graphs all carry edge claims. Real plans put a sizable share of
+  // edges in the preamble or dependency-graph section, not in Layers affected
+  // itself, so the whole document is scanned.
   const edgeMap = new Map(); // key: `${to}|${kind}` → { from, to, kind, evidence: [snippets] }
 
   function addEdge(to, kind, evidence) {

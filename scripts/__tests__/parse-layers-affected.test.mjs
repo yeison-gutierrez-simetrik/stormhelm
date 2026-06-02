@@ -1,9 +1,10 @@
 // Regression test for scripts/parse-layers-affected.mjs
 //
-// Golden specification = belong-marketplace slice 01 (issues #1-#5). The 5
-// fixtures in ./fixtures mirror the real plan phrasings (using the structured
-// `Depends on: #N` form the parser targets). The parser, run over all five,
-// must produce exactly this dependency DAG (A->B = "B depends on A"):
+// Golden specification = a synthetic, project-agnostic 5-issue slice (see
+// ./fixtures). The fixtures use neutral domain names and the structured
+// `Depends on: #N` form the parser targets; each one exercises a distinct edge
+// pattern. The parser, run over all five, must produce exactly this dependency
+// DAG (A->B = "B depends on A"):
 //
 //   #1->#2  #1->#3  #1->#5  #2->#3  #2->#4  #2->#5  #3->#4  #4->#5   (8 edges)
 //
@@ -22,11 +23,11 @@ import { parseFile } from '../parse-layers-affected.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = [
-  '01-auth-foundation.md',
-  '02-signup.md',
-  '03-company-registration.md',
-  '04-membership.md',
-  '05-active-company.md',
+  '01-foundation.md',
+  '02-component-a.md',
+  '03-component-b.md',
+  '04-component-c.md',
+  '05-component-d.md',
 ].map((f) => join(here, 'fixtures', f));
 
 const records = fixtures.map(parseFile);
