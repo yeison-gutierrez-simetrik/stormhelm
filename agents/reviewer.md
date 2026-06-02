@@ -75,6 +75,7 @@ Go through the diff and cluster findings by category. For each finding, capture:
 - A one-sentence description of what is wrong.
 - The minimal change that would fix it (without writing the code yourself — describe in prose).
 - The severity (see Step 4).
+- **For 🛑 blocking findings — the owning branch (finding attribution, PR-Attr).** `git blame -L <line>,<line> -- <file>` the offending line(s) to find the commit that introduced them, then `git branch --contains <sha>` to identify which branch owns that code. State it in the finding. This matters for **stacked PRs**: a blocking defect can live in the foundation commit while the fix gets committed on the branch stacked above it — so the lower PR still merges the defect. The fix MUST land on the **owning** branch, and `main` must never sit in the intermediate state where one stacked PR merged without it (see `core/13` §67 "Cumulative vs stacked PRs"). For a single cumulative branch this is trivially the PR's own branch; the attribution only bites when PRs are stacked.
 
 Categories to scan in order:
 
@@ -119,11 +120,13 @@ Report format (always):
 **File:** `src/domain/quotes/quote.ts:14`
 **Issue:** Imports `Stripe` from `@stripe/stripe-js`. The domain layer must have zero infrastructure imports.
 **Fix direction:** Move the Stripe interaction to an outbound adapter; define a `PaymentPort` interface in the domain.
+**Owning branch:** `agent/feature-<slug>` (introduced by the PR's own commit — fix here). *(For stacked PRs, run `git blame` + `git branch --contains` and name the branch that owns the line; the fix must land there, not on a branch stacked above it.)*
 
 ### 2. §27 — Authorization missing
 **File:** `src/application/use-cases/accept-quote.use-case.ts:8`
 **Issue:** `execute` reads the quote and creates the SOW without checking that `ctx.userId` is allowed to accept this quote.
 **Fix direction:** Add the membership/role check before the state mutation; return `{ ok: false, code: "FORBIDDEN" }` on failure.
+**Owning branch:** `agent/feature-<slug>`.
 
 ## ⚠️ Should fix (N)
 
