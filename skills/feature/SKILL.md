@@ -54,7 +54,7 @@ Internally, `/feature` invokes the same skills that are callable individually. I
 
 ## Outputs
 
-- A draft PR per vertical slice (per §67), on branches `agent/feature-<slug>-<issue-NNN>`.
+- A draft PR per **slice-group** (per §67 + PR-Group): one cumulative branch `agent/feature-<slug>` delivering every issue in the group, each via a `Closes #<issue>` line. A *slice-group* is the set of issues that share a foundation and must ship together (computed by `scripts/group-slice-issues.mjs` from the dependency graph — see Step 8). Within the review-size budget → one cumulative PR; over budget → stacked PRs in topological order (see `core/13-ralph-and-afk.md` "Cumulative vs stacked PRs"). A standalone issue (no shared-foundation dependency) gets its own `agent/feature-<slug>` branch. *(The old per-issue `agent/feature-<slug>-<issue-NNN>` convention is retired: it forced stacking whenever a slice had dependent issues.)*
 - All artifacts in canonical locations:
   - `docs/specs/<feature>.md` (from `/specify`)
   - `docs/CONTEXT.md` (updated by `/domain-model`)
