@@ -134,7 +134,7 @@ These were the open questions; resolved with the co-signer before acceptance.
 
 1. **Detector for `feature:multi-module` — counted how?** → **From `/plan`'s "Layers affected", via `scripts/parse-layers-affected.mjs`** (its `affected_modules` output), falling back to diff path prefixes when no plan exists yet. This reuses the parser already built for PR-Group — "one parser, two consumers" (PR-Group's grouping + this module-count detector). `feature:multi-module` fires at ≥3 distinct modules or ≥2 bounded contexts.
 2. **Section taxonomy in capabilities, not just core?** → **Capabilities MAY contribute their own conditional sections.** `/specify` unions the core taxonomy (table above) with the conditional sections declared by the active capabilities' `CAPABILITY.md`. Core sections always apply; capability sections apply only when that capability is active. (Chosen over core-only for stack-specific spec needs, e.g. an async section for `python-fastapi`.)
-3. **What §N does INV-6 cite?** → **No new §rule.** INV-6 cites `—` (like INV-4 "Accepted ADR has a Date"), enforced as an invariant with this ADR as its specification. The rule set stays at §1–§122 — no count churn in README/AGENTS/`check-framework-metadata`. (Rejected adding §123 in `core/12` or a new `core/21`.)
+3. **What §N does INV-6 cite?** → **No new §rule.** INV-6 cites `—` (like INV-4 "Accepted ADR has a Date"), enforced as an invariant with this ADR as its specification. The rule set stays at §1–§122 — no count churn in README/AGENTS/`check-framework-metadata`. (Rejected: adding the next-numbered rule in `core/12`, or a new `core/21-conditional-ceremony.md`.)
 
 ## References
 

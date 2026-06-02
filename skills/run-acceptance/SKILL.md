@@ -169,6 +169,8 @@ If no SLO declared for the endpoint → record measurement informationally, do n
 
 ### Step 8 — Invoke reviewer agent (§114)
 
+> **This is the single reviewer invocation for the slice.** `/feature` Step 12 and the à-la-carte chain `/gates` rely on it and do not re-invoke the reviewer. Do not separately run `/code-review` in the same gating pass — that double-invokes the agent (redundant, double token spend).
+
 Regardless of pass/fail in Steps 2-7, invoke the `reviewer` agent:
 
 ```
