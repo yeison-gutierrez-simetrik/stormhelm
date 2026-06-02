@@ -84,3 +84,36 @@ test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
   assert.equal(status, 1);
   assert.match(out, /❌ INV-4/);
 });
+
+// --- INV-6 (ADR-0002 PR-N): classification stable across the diff ---
+
+const escalateTo3Contexts = (dir) => {
+  const p = join(dir, 'issues/002-list.md');
+  return readFileSync(p, 'utf8').replace(
+    /### Layers affected[\s\S]*$/,
+    '### Layers affected\n- `src/domain/identity/x.ts`\n- `src/domain/billing/y.ts`\n- `src/domain/orders/z.ts`\n',
+  );
+};
+
+test('INV-6 passes when a single-module issue\'s plan matches (declared == detected)', () => {
+  const { out } = run(FIXTURE);
+  assert.match(out, /✅ INV-6 .*single-module issue\(s\) match/);
+});
+
+test('INV-6 fails (exit 1) when a single-module issue\'s plan escalates to multi-module', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'issues/002-list.md'), escalateTo3Contexts(dir));
+  });
+  assert.equal(status, 1, 'declared single-module but plan now detects multi-module must fail (one-way escalation)');
+  assert.match(out, /❌ INV-6/);
+});
+
+test('INV-6 escalation can be overridden by an audited skip-invariant line', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'issues/002-list.md');
+    writeFileSync(p, escalateTo3Contexts(dir) +
+      '\nskip-invariant: INV-6 — accepted: cumulative slice; multi-module backfill tracked separately.\n');
+  });
+  assert.equal(status, 0, 'an audited skip-invariant line turns the INV-6 failure into a skip');
+  assert.match(out, /⚠️ INV-6.*OVERRIDDEN/);
+});

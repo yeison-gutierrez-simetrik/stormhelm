@@ -19,7 +19,8 @@
 //   INV-3 §63   ralph-ready issue     ⇒ every referenced scn is DEFINED and APPROVED (§58)
 //   INV-4 —     ADR marked Accepted   ⇒ has a Date line
 //   INV-5 §59   @release scenario      ⇒ referenced by some issue (scn ↔ issue coverage)
-//   INV-6 —     reserved (ADR-0002 Accepted: classification-stability detector — implemented by PR-N)
+//   INV-6 —     ADR-0002 PR-N: classification stable — a feature:single-module issue
+//               whose /plan now detects multi-module has escalated (one-way) ⇒ fail (cites —)
 //   INV-7 —     intentionally NOT an executable invariant. Finding-attribution
 //               (PR-Attr) is a reviewer + process concern — no offline artifact to
 //               check. See agents/reviewer.md (blame → owning branch) and core/13
@@ -28,10 +29,13 @@
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
 // anywhere in the repo (the reason is logged and stays auditable in git).
-// Zero external dependencies. Exit 0 = all met (or N/A), 1 = a blocking failure.
+// Zero npm dependencies (imports only the sibling parser/detector, which /setup
+// installs alongside this script). Exit 0 = all met (or N/A), 1 = a blocking failure.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseFile } from './parse-layers-affected.mjs';
+import { detectCeremony } from './detect-ceremony.mjs';
 
 const walk = (dir, re, acc = []) => {
   if (!existsSync(dir)) return acc;
@@ -142,6 +146,26 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
   if (!releaseScns.size) add('INV-5', '§59', 'na', 'no @release scenarios');
   else if (!orphan.length) add('INV-5', '§59', 'pass', `${releaseScns.size} @release scns mapped to issues`);
   else add('INV-5', '§59', 'fail', `@release scns with no issue: ${orphan.join(', ')}`);
+}
+
+// INV-6 (ADR-0002 PR-N): classification stable across the diff. A feature:single-module
+// issue whose /plan ("Layers affected") now detects multi-module has ESCALATED — the
+// declared label is lighter than reality. Fail and demand the multi-module backfill
+// (SAD via INV-1, multi-actor/capacity spec sections) or an audited label flip.
+// One-way: only detected-heavier-than-declared fails; over-classification (declared
+// multi, detected single) is allowed and never auto-degraded. The reviewer (agents/
+// reviewer.md) re-detects on the live diff incl. sensitive paths; INV-6 is the offline
+// backstop for the module-classification part. Override (audited degrade):
+// `skip-invariant: INV-6 — <reason>`.
+{
+  const declaredSingle = issues.filter((i) => i.hasLabel('feature:single-module'));
+  const escalated = declaredSingle
+    .map((i) => ({ i, d: detectCeremony([parseFile(i.f)]) }))
+    .filter(({ d }) => d.labels.includes('feature:multi-module'))
+    .map(({ i, d }) => `${i.f.split('/').pop()} (plan detects ${d.module_count} modules / ${d.context_count} contexts)`);
+  if (!declaredSingle.length) add('INV-6', '—', 'na', 'no feature:single-module issue');
+  else if (!escalated.length) add('INV-6', '—', 'pass', `${declaredSingle.length} single-module issue(s) match detected classification`);
+  else add('INV-6', '—', 'fail', `classification escalated (declared single-module, plan detects multi-module): ${escalated.join('; ')} — add the multi-module artifacts (SAD + spec sections) or flip the label`);
 }
 
 // INV-8 (PR-MatrixStable): every feature in `# status: implemented` must be

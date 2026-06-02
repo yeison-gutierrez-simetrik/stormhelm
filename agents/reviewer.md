@@ -42,6 +42,13 @@ You receive on invocation:
 
 **Invariant gate.** Before auditing, run `node scripts/check-invariants.mjs`. Treat every ❌ it reports as a 🛑 **blocking** finding, citing the rule it names (e.g. §87 missing threat model; §63/§58 `ralph-ready` scenarios not in an approved `.feature`). These are skipped mandatory rules, not style nits. A `skip-invariant:` override counts only if its stated reason is sound.
 
+**Classification re-detection (ADR-0002 safeguard 3 / PR-N).** You receive the feature's labels as context. Re-run the detectors **against the live diff** — not just the plan — because implementation can grow heavier than the spec assumed:
+
+- **Module/context classification:** if the diff touches ≥3 modules or ≥2 bounded contexts but the issue is labeled `feature:single-module`, the classification has escalated.
+- **Sensitivity:** if the diff introduces a sensitive path (`auth/`, `payments/`, `crypto/`, a credential/JWT/OAuth surface, PII handling) but the issue lacks `require-human-review`, it has escalated.
+
+When the post-diff classification is **heavier** than the labels reflect, emit a 🛑 finding of category **`requires-escalation`** naming the artifacts now required (e.g. *"diff adds `src/auth/` → needs `require-human-review` + a `docs/threat-models/` STRIDE model"*; *"diff spans 3 modules → needs `feature:multi-module` + SAD + the multi-actor/capacity spec sections"*). `INV-6` is the offline backstop for the module-classification half (it blocks merge in `check-invariants`); you are the only check that sees the *diff* for the sensitive-path half. Escalation is **one-way**: you never down-classify — a `full → light` degrade is a human's audited `skip-invariant: INV-6 — <reason>` label flip, not your call.
+
 
 ### Step 1 — Establish scope
 

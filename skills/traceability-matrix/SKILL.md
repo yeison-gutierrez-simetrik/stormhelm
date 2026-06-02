@@ -70,7 +70,7 @@ The matrix is only meaningful if the chain it audits is sound. Before generating
 node scripts/check-invariants.mjs
 ```
 
-Checks: multi-module ⇒ SAD exists (§107); `require-human-review` ⇒ threat model exists (§87); `ralph-ready` scns live in **approved** `.feature` files (§63/§58); Accepted ADRs carry a Date; every `@release` scenario maps to an issue (§59). Override one check only with an auditable `skip-invariant: INV-X — <reason>` line. The report is included as matrix evidence and read by the `reviewer` agent.
+Checks: multi-module ⇒ SAD exists (§107); `require-human-review` ⇒ threat model exists (§87); `ralph-ready` scns live in **approved** `.feature` files (§63/§58); Accepted ADRs carry a Date; every `@release` scenario maps to an issue (§59); **classification stable — a `feature:single-module` issue whose plan now detects multi-module has escalated (INV-6, ADR-0002 PR-N)**; an implemented feature is pinned to a `-final` matrix (INV-8). Override one check only with an auditable `skip-invariant: INV-X — <reason>` line. The report is included as matrix evidence and read by the `reviewer` agent.
 
 ## Workflow
 
