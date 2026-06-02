@@ -182,7 +182,7 @@ const db = connect(env.DATABASE_URL);
 
 ### When to verify — **early, not in `/tdd`**
 
-The rule fires **at adoption time**, not when the first test runs against the library. Real friction in production (belong-marketplace slice 01): §122 caught a Better Auth mismatch in `/tdd` Step 7 — the ADR had assumed RFC 7662 / RFC 7009 endpoints that stable Better Auth does not ship. Catching it earlier (at `/domain-model` or in the ADR review) would have avoided the FR-5 rescope mid-implementation.
+The rule fires **at adoption time**, not when the first test runs against the library. A representative failure this prevents: an ADR adopts an auth library assuming it ships token-introspection / revocation endpoints (RFC 7662 / RFC 7009), but the library's stable release does not — and §122 only catches it at `/tdd` Step 7, forcing a requirement rescope mid-implementation. Catching it earlier (at `/domain-model` or in the ADR review) avoids the rework.
 
 Required invocation points, in order:
 
