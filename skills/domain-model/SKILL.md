@@ -167,11 +167,14 @@ The skill outputs a brief summary that downstream skills consume:
 **Added (5):** Provider, Listing, Quote, SOW, ProviderVerification
 **Renamed (1):** service_request → Quote (ADR 0007)
 **Deprecated (0):**
+**Bounded contexts touched (2):** Marketplace, Identity → `feature:cross-context` (early signal)
 
 **Open ADRs from this run:** 0007
 
 Next: invoke /specify with this vocabulary loaded.
 ```
+
+**Cross-context early signal (ADR-0002 PR-M).** If the vocabulary delta introduces terms from **≥2 bounded contexts** (per `CONTEXT.md`'s context list), record it here as a `feature:cross-context` early signal. This is informational at `/domain-model` time (no issues exist yet); `/to-issues` Step 2 confirms it mechanically from the `/plan` modules (`scripts/detect-ceremony.mjs`) and applies the label. Surfacing it early lets `/specify` include the multi-actor/capacity sections the classification will require (ADR-0002 safeguard 2), instead of discovering it after issues are cut.
 
 ## Integration with the framework
 
