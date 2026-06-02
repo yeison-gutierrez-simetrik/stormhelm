@@ -111,7 +111,7 @@ _If no threat model exists for this scope, state explicitly: `(no threat model โ
 
 ## 9. Open questions
 
-Copied from `.planning/grilling/{{slug}}-open-questions.md`. Status as of {{YYYY-MM-DD}}.
+Copied from `docs/decisions/grilling/{{slug}}-open-questions.md`. Status as of {{YYYY-MM-DD}}.
 
 - **OQ-{{n}}**: {{question}}
   - Who decides: {{role}}
@@ -139,6 +139,6 @@ Derived from threat-model findings (ยง6), prototype "neither variant won" outcom
 - Threat model: `docs/threat-models/{{slug}}.md` (if applicable)
 - Prototypes: {{list of `docs/prototypes/{{date}}-{{slug}}.md`}}
 - Plans: `.planning/plans/{{feature-slug}}/*.md`
-- Open questions: `.planning/grilling/{{slug}}-open-questions.md`
+- Open questions: `docs/decisions/grilling/{{slug}}-open-questions.md`
 
 <!-- /sad generated on {{YYYY-MM-DD}} from the above artifacts. -->

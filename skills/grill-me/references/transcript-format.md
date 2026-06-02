@@ -1,6 +1,6 @@
 # Grilling Transcript Format
 
-`/grill-me` writes a transcript to `.planning/grilling/<slug>-<YYYYMMDD>.md` using this shape. The transcript is the canonical record of the design tree resolution and is read by `/domain-model`, `/specify`, and the `reviewer` agent.
+`/grill-me` writes a transcript to `docs/decisions/grilling/<slug>-<YYYYMMDD>.md` using this shape. The transcript is the canonical record of the design tree resolution and is read by `/domain-model`, `/specify`, and the `reviewer` agent.
 
 ## Template
 
@@ -12,7 +12,7 @@
 - **Source:** <inline | @file.md>
 - **Status:** complete | stopped-early | blocked-on-OQ
 - **Question count:** <n> (target range per calibration table)
-- **Open questions document:** `.planning/grilling/<slug>-open-questions.md` (if any)
+- **Open questions document:** `docs/decisions/grilling/<slug>-open-questions.md` (if any)
 
 ## Resolved design tree
 

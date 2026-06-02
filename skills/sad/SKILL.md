@@ -57,7 +57,7 @@ For mono-module, non-sensitive features `/sad` is **optional** and only invoked 
 - `.planning/prototypes/<slug>/LEARNING.md` and `.planning/prototypes/<slug>/` reports (evidence).
 - `docs/perf-baselines/*.md` (SLO-related evidence from `/optimize`).
 - `issues/<slug>/*.md` and `.planning/plans/*.md` (per-issue plans from `/plan`).
-- Open questions from `.planning/grilling/<slug>-open-questions.md`.
+- Open questions from `docs/decisions/grilling/<slug>-open-questions.md`.
 
 ## Outputs
 

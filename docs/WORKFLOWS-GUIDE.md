@@ -290,7 +290,7 @@ Q18-Q28: variants on email format, errors, retry, etc.
 
 **Output:**
 
-`.planning/grilling/provider-review-20260601.md`:
+`docs/decisions/grilling/provider-review-20260601.md`:
 
 ```markdown
 # Grilling session — provider-review
@@ -337,7 +337,7 @@ Q18-Q28: variants on email format, errors, retry, etc.
 **Skill invoked:** `/domain-model`.
 
 **Input:**
-- `.planning/grilling/provider-review-20260601.md`.
+- `docs/decisions/grilling/provider-review-20260601.md`.
 - `docs/CONTEXT.md`.
 - `docs/adr/`.
 
@@ -408,7 +408,7 @@ Decisions taken:
 **Skill invoked:** `/specify`.
 
 **Input:**
-- `.planning/grilling/provider-review-20260601.md`.
+- `docs/decisions/grilling/provider-review-20260601.md`.
 - `docs/CONTEXT.md` (updated by Step 4).
 - `docs/constitution.md`.
 - `docs/adr/0003-review-as-entity-with-lifecycle.md`.
@@ -1497,7 +1497,7 @@ After B5 (in-place), the flow continues to the regular `/specify` of the main fl
 | `/constitution` | Template + 6Q interview | `docs/constitution.md` | HITL #0b |
 | `/setup` | 6-8Q wizard | `AGENTS.md`, scaffold, hooks | HITL #0a |
 | `/onboard` | (nothing) | Developer orientation | — |
-| `/grill-me` | Feature desc + CONTEXT | `.planning/grilling/<slug>-*.md` | — |
+| `/grill-me` | Feature desc + CONTEXT | `docs/decisions/grilling/<slug>-*.md` | — |
 | `/domain-model` | Grilling + CONTEXT | Updated CONTEXT.md + ADRs | — |
 | `/specify` | Grilling + CONTEXT + constitution | `docs/specs/<slug>.md` Draft | — |
 | `/clarify` | Spec Draft | Spec Clarified (with 7-cat checklist) | — |
