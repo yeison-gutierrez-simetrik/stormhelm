@@ -19,8 +19,11 @@
 //   INV-3 §63   ralph-ready issue     ⇒ every referenced scn is DEFINED and APPROVED (§58)
 //   INV-4 —     ADR marked Accepted   ⇒ has a Date line
 //   INV-5 §59   @release scenario      ⇒ referenced by some issue (scn ↔ issue coverage)
-//   INV-6 —     reserved (ADR-0002, Proposed: classification-stability detector — not yet implemented)
-//   INV-7 —     reserved (unused; kept to avoid renumbering INV-8)
+//   INV-6 —     reserved (ADR-0002 Accepted: classification-stability detector — implemented by PR-N)
+//   INV-7 —     intentionally NOT an executable invariant. Finding-attribution
+//               (PR-Attr) is a reviewer + process concern — no offline artifact to
+//               check. See agents/reviewer.md (blame → owning branch) and core/13
+//               §67 "Cumulative vs stacked PRs". Slot kept so INV-8 isn't renumbered.
 //   INV-8 §58   feature 'implemented' ⇒ traceability-v*-final.md covers its scns (PR-MatrixStable)
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
