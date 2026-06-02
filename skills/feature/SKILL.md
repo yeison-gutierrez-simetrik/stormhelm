@@ -244,9 +244,11 @@ node scripts/check-merge-safety.mjs <pr_number> pre
 
 The script refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN` (especially `UNKNOWN`, which means GitHub is still recomputing mergeability — merging in this state has caused silent commit loss in production, cf. belong-marketplace PR #9). If the check fails, **WAIT and re-run**, do not bypass.
 
-### Step 13 — Post-merge close-out
+### Step 13 — Post-merge close-out — **MANDATORY**
 
 `/feature` does not end at PR creation. After the human merges the PR (at HUMAN CHECKPOINT 2), Step 13 closes the feature lifecycle. This step runs **once per merged PR**, triggered by the merge event (manually invoked, or by a GitHub Action that calls `/feature --close <issue>`).
+
+**Step 13 is mandatory, not optional.** It is enforced mechanically by **INV-8** (`scripts/check-invariants.mjs`): a feature at `# status: implemented` whose scenarios are not pinned to a `traceability-v*-final.md` matrix fails the invariant gate and blocks release certification (`/traceability-matrix`). The pre-merge matrix from Step 12 is a `-draft`; only the post-merge Step 13 run produces the `-final` anchored to the merged commit. Skipping Step 13 is therefore caught, not silently tolerated.
 
 **Actions (all idempotent — safe to re-run):**
 

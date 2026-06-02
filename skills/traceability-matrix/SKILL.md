@@ -106,14 +106,15 @@ For each public endpoint covered by a scenario, look up the SLO in `docs/slos.md
 
 **Generated:** YYYY-MM-DD
 **Release tag:** v1.42.0
+**Status:** draft | final   ← required (PR-MatrixStable). See "Stable identifiers" below.
 **Scenarios:** N total (X new in this release, Y unchanged, Z deprecated)
 
 ## Matrix
 
-| Scenario ID | Feature file | Last passed | Last passing commit | Issue(s) | PR(s) | Constitution | SLO |
-|---|---|---|---|---|---|---|---|
-| scn-001 | features/quotes/quote-acceptance.feature | 2026-05-19 14:32 | a3b9f12 | #042, #043 | #144 | C.5 | p95 ≤ 600 ms (measured 482 ms) |
-| scn-042 | features/listings/listing-publication.feature | 2026-05-20 09:18 | c1d2e3f | #145 | #150 | C.3 | N/A |
+| Scenario ID | Feature file | Last passed | Issue(s) | Merged commit | Release tag | PR(s) | Constitution | SLO |
+|---|---|---|---|---|---|---|---|---|
+| scn-001 | features/quotes/quote-acceptance.feature | 2026-05-19 14:32 | #042, #043 | a3b9f12 | v1.42.0 | #144 *(auxiliary)* | C.5 | p95 ≤ 600 ms (measured 482 ms) |
+| scn-042 | features/listings/listing-publication.feature | 2026-05-20 09:18 | #145 | c1d2e3f | v1.42.0 | #150 *(auxiliary)* | C.3 | N/A |
 | ... |
 
 ## New scenarios in v1.42.0
@@ -148,10 +149,32 @@ For each public endpoint covered by a scenario, look up the SLO in `docs/slos.md
 
 ```bash
 mkdir -p docs/audit
-mv /tmp/matrix.md docs/audit/traceability-v1.42.0.md
-git add docs/audit/traceability-v1.42.0.md
-git commit -m "docs/audit: traceability matrix for v1.42.0"
+# Pre-merge: write as -draft so it cannot be mistaken for the audit artifact.
+# Post-merge: Step 13 of /feature re-runs this skill and writes -final.
+if [ -z "$MERGED_COMMIT_SHA" ]; then
+  STATUS_SUFFIX="-draft"
+else
+  STATUS_SUFFIX="-final"
+fi
+mv /tmp/matrix.md "docs/audit/traceability-v1.42.0${STATUS_SUFFIX}.md"
+git add "docs/audit/traceability-v1.42.0${STATUS_SUFFIX}.md"
+git commit -m "docs/audit: traceability matrix for v1.42.0 (${STATUS_SUFFIX#-})"
 ```
+
+### Stable identifiers — anchor on issues + commits, never on PR numbers (PR-MatrixStable)
+
+PR numbers are **mutable**: closing one PR and re-routing through another (e.g. consolidating two stacked PRs into one cumulative) breaks any audit document that anchored on `PR #N`. Real friction in belong-marketplace: the slice 01 matrix referenced #8/#9; when #8 was closed and #9 absorbed everything, the matrix's PR column was wrong and required a follow-up correction PR (#10) — which itself was almost lost in the merge (see §67 merge safety asserts).
+
+Canonical columns of the matrix (in priority order):
+
+1. **`Issue(s)`** — issue number is a stable identifier (issues persist even after consolidation; closed issues retain their number).
+2. **`Merged commit`** — the SHA of the merge commit in the default branch. Strongest possible identifier; never changes.
+3. **`Release tag`** — the semver tag covering this scenario.
+4. **`PR(s)`** — auxiliary, marked `*(auxiliary)*` in the table header to remind the reader they are not the canonical reference. Use them as breadcrumbs to GitHub UI but do not depend on them surviving a topology change.
+
+When a draft matrix is generated pre-merge (Step 12 of `/feature`), the `Merged commit` column reads `<pending>` and `Status: draft` is set in the header. The matrix is **not the audit artifact yet**. Only after `/feature` Step 13 re-runs this skill with the merged SHA known (via `MERGED_COMMIT_SHA` env or by reading `git log --merges` against the issue closing keywords) does the file flip to `-final`. The `-final` artifact is what compliance reads.
+
+**Enforcement.** A new invariant (INV-8) in `scripts/check-invariants.mjs` will refuse to certify a feature as `status: implemented` (§58 state machine) unless its corresponding `traceability-v*-final.md` exists. The pre-merge `-draft.md` does not satisfy it. This makes Step 13 effectively mandatory without needing prose enforcement.
 
 ### Step 7 — Update the index
 
