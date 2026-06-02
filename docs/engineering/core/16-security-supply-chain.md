@@ -132,6 +132,29 @@ If a critical CVE cannot be fixed immediately (no patch available, upstream main
 
 Why bad: defeats the gate. Critical CVEs slip in silently.
 
+### Disposition: upgrade vs exception vs replace (PR-Up amendment)
+
+When `npm audit` / `pip-audit` reports a critical or high CVE, the team chooses one of four dispositions. Each has different downstream consequences:
+
+| Disposition | When to use | Downstream effect |
+|---|---|---|
+| **`patch`** | A targeted patch release fixes the CVE without API changes | Drop-in. CI re-runs. No further process. |
+| **`upgrade-minor`** | Minor version bump fixes the CVE (e.g. `1.4.2 → 1.5.0`) | Drop-in usually; CI re-runs. If the bump touches peer deps or breaks soft-deprecated APIs, treat as `upgrade-major`. |
+| **`upgrade-major`** | Major version bump required (semver major delta OR cascades to peer/sibling deps) | **Not a label-only fix.** Re-enters the full test gate (typecheck + lint + unit + acceptance) and routes through `improvement:dep-upgrade` per §100. See heuristic below. |
+| **`exception`** | No patch available; document and defer | Per the "Documented exception process" above, with the 30/90 day windows. |
+| **`replace`** | The dependency is itself the problem (abandoned, alternative exists) | Architectural change. Open ADR before code. |
+
+**Heuristic for "is this `upgrade-major`?"** — A CVE upgrade is `upgrade-major` if **any** of:
+
+1. The version bump is a semver major delta (`X.y.z → (X+1).0.0`).
+2. The upgrade requires adding or removing a peer dependency.
+3. The upgrade requires editing `package.json` `scripts`, `engines`, or `overrides` to install cleanly.
+4. The upgrade changes a test runner's default behavior in a way that affects existing tests (e.g. `vitest 2 → 4` changed concurrency defaults and broke testcontainers fixtures in belong-marketplace, slice 01).
+
+If any of these apply, **do not dispose as `upgrade` and move on**. The CVE issue must spawn an `improvement:dep-upgrade` issue per §100 with its own acceptance criteria — typecheck/lint/unit/acceptance all re-greened on the upgraded toolchain. The original CVE issue is closed by the merge of that improvement, not by a label disposition.
+
+**Why this rule exists:** real friction in belong-marketplace slice 01. Choosing "upgrade" for lodash CVEs cascaded to `vitest 2 → 4` / `vite 7`, broke peer resolution (`ERR_PACKAGE_PATH_NOT_EXPORTED` required adding `vite` as explicit devDep), and forced `fileParallelism:false` on testcontainers. None of this was visible from the CVE label; treating it as a single-PR fix mid-`/security-hardening` produced a noisy day of debugging that belonged in its own slice.
+
 ---
 
 ## §86. SAST with `semgrep` (OWASP rulesets) runs on PRs touching auth, crypto, or external I/O

@@ -47,7 +47,7 @@
 
 ## Open questions
 
-- See `.planning/grilling/<slug>-open-questions.md`.
+- See `docs/decisions/grilling/<slug>-open-questions.md`.
 
 ## Clarifications log
 

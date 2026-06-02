@@ -42,7 +42,9 @@ const issueFiles = walk('.planning/issues', /^\d.*\.md$/);
 const featureFiles = walk('features', /\.feature$/);
 const sads = walk('docs/architecture', /\.md$/).filter((f) => !/INDEX/i.test(f));
 const threats = walk('docs/threat-models', /\.md$/).filter((f) => !/TEMPLATE/i.test(f));
-const adrs = [...walk('docs/adr', /\.md$/), ...walk('docs/decisions', /\.md$/)];
+// PR-I: docs/decisions/ now holds rationale (grilling, clarify-logs, open-questions),
+// not ADRs. ADRs live only in docs/adr/. The README of docs/decisions/ documents the split.
+const adrs = walk('docs/adr', /^\d.*\.md$/);
 
 const labelLine = (t) => (t.match(/^\*\*Labels:\*\*(.*)$/m) || [, ''])[1];
 const issues = issueFiles.map((f) => {

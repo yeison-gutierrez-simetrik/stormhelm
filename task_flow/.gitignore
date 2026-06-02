@@ -32,3 +32,20 @@ coverage/
 # Claude Code cache (settings.json y skills/agents/hooks SÍ se versionan)
 .claude/cache/
 .claude/.local/
+
+# Stormhelm — ephemeral scratchpad ONLY.
+# IMPORTANT: do NOT add a blanket `.planning/` rule. Specific paths only.
+# Durable rationale (grilling, open-questions, clarify-logs) lives in
+# docs/decisions/ and is ALWAYS tracked. See docs/decisions/README.md.
+.planning/budget.txt
+.planning/ralph-sessions/
+.planning/grilling-docs/
+.planning/acceptance/
+.planning/reviews/
+.planning/security-audits/
+.planning/diagnoses/
+.planning/characterizations/
+.planning/impact/
+.planning/architecture-reviews/
+.planning/prototypes/
+.planning/consistency/
