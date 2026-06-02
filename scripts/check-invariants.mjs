@@ -12,12 +12,16 @@
 //
 // Invariants (keyed on Stormhelm conventions — issue labels, §58 `# status:`,
 // artifact presence):
+//   CONFIG —    issue files exist      ⇒ at least one carries a `**Labels:**` line
+//                                        (else the label-driven checks below are a no-op)
 //   INV-1 §107  multi-module feature  ⇒ a SAD exists in docs/architecture/
 //   INV-2 §87   require-human-review  ⇒ a threat model exists in docs/threat-models/
-//   INV-3 §63   ralph-ready issue     ⇒ every referenced scn lives in an APPROVED .feature (§58)
+//   INV-3 §63   ralph-ready issue     ⇒ every referenced scn is DEFINED and APPROVED (§58)
 //   INV-4 —     ADR marked Accepted   ⇒ has a Date line
 //   INV-5 §59   @release scenario      ⇒ referenced by some issue (scn ↔ issue coverage)
-//   INV-8 §58   feature 'implemented' ⇒ traceability-v*-final.md exists in docs/audit/ (PR-MatrixStable)
+//   INV-6 —     reserved (ADR-0002, Proposed: classification-stability detector — not yet implemented)
+//   INV-7 —     reserved (unused; kept to avoid renumbering INV-8)
+//   INV-8 §58   feature 'implemented' ⇒ traceability-v*-final.md covers its scns (PR-MatrixStable)
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
 // anywhere in the repo (the reason is logged and stays auditable in git).
@@ -38,7 +42,10 @@ const walk = (dir, re, acc = []) => {
 const read = (f) => readFileSync(f, 'utf8');
 
 // --- gather artifacts -------------------------------------------------------
-const issueFiles = walk('.planning/issues', /^\d.*\.md$/);
+// Issue files: canonical location is `issues/` (per /feature + /to-issues);
+// `.planning/issues/` is also accepted for projects that keep them with planning
+// evidence. Both are scanned so the gate runs regardless of the project's choice.
+const issueFiles = [...walk('issues', /^\d.*\.md$/), ...walk('.planning/issues', /^\d.*\.md$/)];
 const featureFiles = walk('features', /\.feature$/);
 const sads = walk('docs/architecture', /\.md$/).filter((f) => !/INDEX/i.test(f));
 const threats = walk('docs/threat-models', /\.md$/).filter((f) => !/TEMPLATE/i.test(f));
@@ -53,6 +60,7 @@ const issues = issueFiles.map((f) => {
   const scns = [...t.matchAll(/scenarios:([a-z0-9+-]+)/gi)].flatMap((m) => m[1].match(/scn-\d+/g) || []);
   return {
     f, hasLabel: (l) => new RegExp('`' + l + '`').test(lbl),
+    labelsPresent: lbl.trim().length > 0,
     ralphReady: /`ralph-ready`/.test(lbl), multiModule: /`feature:multi-module`/.test(lbl),
     sensitive: /`require-human-review`/.test(lbl), scns: [...new Set(scns)],
   };
@@ -77,11 +85,19 @@ const issueScns = new Set(issues.flatMap((i) => i.scns));
 // global overrides
 const overrides = {};
 for (const f of [...issueFiles, ...featureFiles, ...adrs, ...sads, ...threats])
-  for (const m of read(f).matchAll(/skip-invariant:\s*(INV-\d)\s*[—-]\s*(.+)/g)) overrides[m[1]] = m[2].trim();
+  for (const m of read(f).matchAll(/skip-invariant:\s*(INV-\d+)\s*[—-]\s*(.+)/g)) overrides[m[1]] = m[2].trim();
 
 // --- invariants -------------------------------------------------------------
 const results = [];
 const add = (id, rule, status, detail) => results.push({ id, rule, status, detail });
+
+// CONFIG: if issue files exist but none carry a `**Labels:**` line, the label-
+// driven invariants (INV-1/2/3/5) all read N/A — a green no-op. Fail loudly.
+// (/to-issues must write a `**Labels:** \`label\` ...` line into each issue file;
+// GitHub labels alone are not visible to this offline checker.)
+if (issueFiles.length && !issues.some((i) => i.labelsPresent))
+  add('CONFIG', '§63', 'fail',
+    `${issueFiles.length} issue file(s) found but none carry a "**Labels:**" line — the label-driven invariants cannot run and would silently pass. Emit a "**Labels:** \`ralph-ready\` ..." line per issue (see /to-issues).`);
 
 // INV-1: multi-module ⇒ SAD exists
 if (!issues.some((i) => i.multiModule)) add('INV-1', '§107', 'na', 'no multi-module issue');
@@ -95,13 +111,18 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 
 // INV-3: ralph-ready ⇒ referenced scns are in an approved .feature
 {
-  const bad = [];
+  const bad = [], undef = [];
   for (const i of issues.filter((x) => x.ralphReady))
-    for (const scn of i.scns)
-      if (definedScns.has(scn) && !scnApproved[scn]) bad.push(`${scn} (${i.f.split('/').pop()})`);
+    for (const scn of i.scns) {
+      if (!definedScns.has(scn)) undef.push(`${scn} (${i.f.split('/').pop()})`);
+      else if (!scnApproved[scn]) bad.push(`${scn} (${i.f.split('/').pop()})`);
+    }
   if (!issues.some((x) => x.ralphReady)) add('INV-3', '§63', 'na', 'no ralph-ready issue');
-  else if (!bad.length) add('INV-3', '§63', 'pass', 'all ralph-ready scns in approved features');
-  else add('INV-3', '§63', 'fail', `ralph-ready scns in non-approved features (§58): ${bad.join(', ')}`);
+  else if (!bad.length && !undef.length) add('INV-3', '§63', 'pass', 'all ralph-ready scns defined and approved');
+  else add('INV-3', '§63', 'fail', [
+    bad.length ? `scns in non-approved features (§58): ${bad.join(', ')}` : '',
+    undef.length ? `scns not defined in any .feature: ${undef.join(', ')}` : '',
+  ].filter(Boolean).join('; '));
 }
 
 // INV-4: ADR Accepted ⇒ has a Date

@@ -152,7 +152,8 @@ if (mode === 'post') {
     );
   }
 
-  const parents = (parentsRaw.match(/^parent ([0-9a-f]{40})$/gm) || [])
+  // {40,64} covers both SHA-1 (40 hex) and SHA-256 (64 hex) object formats.
+  const parents = (parentsRaw.match(/^parent ([0-9a-f]{40,64})$/gm) || [])
     .map((line) => line.split(' ')[1]);
 
   if (parents.length < 2) {
