@@ -1,9 +1,10 @@
 # ADR 0002 — Conditional ceremony by per-feature detection (not by project-level toggle)
 
 **Date:** 2026-05-29
-**Status:** Proposed
+**Status:** Accepted
+**Accepted:** 2026-06-02
 **Supersedes:** none
-**Co-sign required:** original author of `stormhelm-improvements-20260529.md` (FW-5 reformulation) before status flips to `Accepted`.
+**Co-signed:** Yeison Gutiérrez (original author of `stormhelm-improvements-20260529.md`, FW-5 reformulation). The three open questions below were resolved before acceptance; see "Resolved decisions".
 
 ## Context
 
@@ -52,6 +53,8 @@ A team can override the auto-classification, but only by **flipping a label via 
 | Capacity envelope | Conditional | label `feature:multi-module` |
 | Background / Alternatives considered / Glossary | Always optional | — |
 
+The table above is the **core** taxonomy. Per the OQ2 resolution, an **active capability may contribute its own conditional sections** (e.g. a `python-fastapi` capability could require an "async/concurrency" section, a `payments-*` capability a PCI-scope section). A capability declares these in its `CAPABILITY.md` frontmatter alongside its `sonar:` block; `/specify` unions the core taxonomy with the conditional sections of the active capabilities. Core sections always apply; capability sections apply only when that capability is active. (This keeps stack-specific spec needs with the stack, while the cross-stack baseline stays in core.)
+
 "Lightweight" therefore means: **fewer sections required**, not fewer lines per section. A line cap (e.g. "≤200 lines") was considered and rejected — it is a proxy that does not survive contact with a determined corner-cutter. A required-section list is the invariant the framework actually cares about and is straightforward to verify mechanically (`/traceability-matrix` already enumerates required sections; this ADR widens that to be label-aware).
 
 ### Safeguard 3 — Escalation is unidirectional and blocks merge
@@ -59,7 +62,7 @@ A team can override the auto-classification, but only by **flipping a label via 
 The dangerous failure mode is a feature that **starts** classified as light but **becomes** sensitive during implementation (e.g. the diff adds an `Authorization:` header parser the spec never mentioned). To prevent silent under-ceremony:
 
 - **Re-detection is continuous.** The `reviewer` agent (§114) receives the feature's labels as context. When it audits a diff, it re-runs the detectors against the diff itself. If the post-diff classification is heavier than the pre-diff classification — e.g. the diff introduces a sensitive path — the agent emits a 🛑 finding of category `requires-escalation` naming the artifacts now required (e.g. `ADR for auth approach`, `docs/threat-models/<scope>-*.md`).
-- **The invariant gate blocks merge.** `scripts/check-invariants.mjs` gains `INV-6 §X: classification stable across diff` — fails if the diff implies a heavier classification than the labels reflect, and demands the backfill artifacts before passing. `/traceability-matrix` runs this and refuses to certify release until satisfied. The PR cannot merge.
+- **The invariant gate blocks merge.** `scripts/check-invariants.mjs` gains `INV-6 — classification stable across diff` (cites `—`, no new §rule; see OQ3 resolution) — fails if the diff implies a heavier classification than the labels reflect, and demands the backfill artifacts before passing. `/traceability-matrix` runs this and refuses to certify release until satisfied. The PR cannot merge.
 - **Escalation is one-way.** A feature can be promoted `light → full` automatically by the detectors. A feature is **never** auto-degraded from `full → light`. Degrading is an explicit human override via label flip and is treated as a `[skip-invariant: INV-6 — reason: ...]` event in the auditable override pattern from PR-D.
 
 The asymmetry — auto-promote, never auto-degrade — closes the worst failure case of a project-level toggle: a feature whose risk profile changed under implementation and quietly stayed in the relaxed regime.
@@ -95,7 +98,7 @@ Adopt the conditional ceremony pattern with all three safeguards. Update `/speci
 | `/to-issues` Step 3 | Already does sensitivity scanning; extends to emit the three new labels (`feature:single-module`, `feature:multi-module`, `feature:cross-context`) explicitly rather than implicitly via §107. Auto-creates the labels in the repo if missing (`gh label create --force`). | 0.5 day |
 | `/domain-model` Step 3 | Emits `feature:cross-context` when vocabulary crosses bounded contexts. Cheap derivation from the diff to CONTEXT.md. | 0.5 day |
 | `reviewer` agent | Receives the feature's labels as context; re-runs detectors on the diff; emits `requires-escalation` finding when post-diff classification is heavier than pre-diff. | 1 day |
-| `scripts/check-invariants.mjs` | Adds **INV-6 §N — classification stable across diff**. Reads labels + diff, compares against detectors, blocks if escalation pending without backfill. | 1 day |
+| `scripts/check-invariants.mjs` | Adds **INV-6 — classification stable across diff** (cites `—`, no new §rule). Reads labels + diff, compares against detectors, blocks if escalation pending without backfill. | 1 day |
 | `scripts/check-framework-metadata.mjs` | Verifies that each `/specify`-required section, when conditional, has its trigger label documented in the spec. Prevents drift between this ADR and the skills. | 0.5 day |
 | `/setup` | Ships the minimal constitution + CONTEXT stubs and no project-level mode prompts. | 0.5 day |
 | `docs/engineering/core/12-bdd-and-acceptance.md` (§58 area) | Documents the label-driven required-section taxonomy as a §N amendment. | 0.5 day |
@@ -125,11 +128,13 @@ Total: **6 days** of focused work, in three PRs:
 - **ADR-0001 (GitHub-only).** Compatible. The detection mechanism leans entirely on GitHub labels and `gh` CLI — same surface as the rest of the framework.
 - **No supersession.** ADR-0002 introduces a new mechanism; it does not retract or alter ADR-0001.
 
-## Open questions (resolve before flip to Accepted)
+## Resolved decisions (2026-06-02, co-signed)
 
-1. **Detector for `feature:multi-module` — counted how?** Touched modules computed from the diff path prefixes or from the spec's "Component map" section? Both have failure modes; pick one and document. _(Proposed: from `/plan` output, falling back to diff path prefixes when no plan exists yet.)_
-2. **Section taxonomy in capabilities, not just core.** Does `capabilities/python-fastapi` add its own conditional sections (e.g. async patterns)? Or do capabilities only contribute rules, not section requirements? _(Proposed: capabilities contribute rules only; section taxonomy lives in core.)_
-3. **What §N number does INV-6 cite?** The "classification stability across diff" rule does not exist yet in `docs/engineering/core/`. Likely belongs in `core/12-bdd-and-acceptance.md` or a new `core/21-conditional-ceremony.md`. _(Proposed: §123 in `core/12`, since it sits next to §58 approval-state.)_ <!-- metadata-ok: §123 is the rule this ADR proposes to add; it intentionally exceeds the current max. -->
+These were the open questions; resolved with the co-signer before acceptance.
+
+1. **Detector for `feature:multi-module` — counted how?** → **From `/plan`'s "Layers affected", via `scripts/parse-layers-affected.mjs`** (its `affected_modules` output), falling back to diff path prefixes when no plan exists yet. This reuses the parser already built for PR-Group — "one parser, two consumers" (PR-Group's grouping + this module-count detector). `feature:multi-module` fires at ≥3 distinct modules or ≥2 bounded contexts.
+2. **Section taxonomy in capabilities, not just core?** → **Capabilities MAY contribute their own conditional sections.** `/specify` unions the core taxonomy (table above) with the conditional sections declared by the active capabilities' `CAPABILITY.md`. Core sections always apply; capability sections apply only when that capability is active. (Chosen over core-only for stack-specific spec needs, e.g. an async section for `python-fastapi`.)
+3. **What §N does INV-6 cite?** → **No new §rule.** INV-6 cites `—` (like INV-4 "Accepted ADR has a Date"), enforced as an invariant with this ADR as its specification. The rule set stays at §1–§122 — no count churn in README/AGENTS/`check-framework-metadata`. (Rejected adding §123 in `core/12` or a new `core/21`.)
 
 ## References
 
@@ -140,4 +145,8 @@ Total: **6 days** of focused work, in three PRs:
 
 ## Notes on this ADR
 
-This ADR is `Proposed`, not `Accepted`. The status flips only after the original feedback author co-signs the commit, per the framework's tenet that decisions touching framework philosophy are not unilateral. Implementation PRs (PR-M, PR-N, PR-O) do not start until the ADR is `Accepted`.
+This ADR is **`Accepted`** (2026-06-02), co-signed by the original feedback author per the framework's tenet that decisions touching framework philosophy are not unilateral. The three open questions were resolved first (see "Resolved decisions"). Implementation now proceeds via PR-M, PR-N, PR-O:
+
+- **PR-M:** detector emission (incl. the `parse-layers-affected.mjs`-based module count) + section taxonomy in `/specify`/`/to-issues`/`/domain-model`, with capability-declared conditional sections.
+- **PR-N:** escalation mechanism in `reviewer` + `check-invariants.mjs` INV-6 (cites `—`) + traceability gate.
+- **PR-O:** `/setup` minimal defaults + docs amendments.
