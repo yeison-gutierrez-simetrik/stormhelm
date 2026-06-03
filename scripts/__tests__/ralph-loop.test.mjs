@@ -292,6 +292,16 @@ test('FU-22: ASCII title unchanged in spirit (lowercased, dashed)', () => {
   });
 });
 
+// ── FOLLOW-UP 21: scenarios:* label expansion (shared lib helper) ─────────────
+
+// T20 — ralph_expand_scns normalizes compact/spelled/comma label forms.
+test('FU-21: ralph_expand_scns expands every wild label form', () => {
+  const r = spawnSync('bash', ['-c',
+    `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_expand_scns "scn-021+022,scn-030+scn-031"`,
+  ], { encoding: 'utf8' });
+  assert.equal(r.stdout.trim(), 'scn-021 scn-022 scn-030 scn-031');
+});
+
 // T12 — unit coverage for ralph_acceptance_result_check: every rejection reason.
 test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran<expected; accepts green', () => {
   withConsumer((dir) => {

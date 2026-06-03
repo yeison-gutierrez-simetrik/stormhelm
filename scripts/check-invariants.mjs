@@ -64,7 +64,17 @@ const labelLine = (t) => (t.match(/^\*\*Labels:\*\*(.*)$/m) || [, ''])[1];
 const issues = issueFiles.map((f) => {
   const t = read(f);
   const lbl = labelLine(t);
-  const scns = [...t.matchAll(/scenarios:([a-z0-9+-]+)/gi)].flatMap((m) => m[1].match(/scn-\d+/g) || []);
+  // Accept every form the scenarios:* label takes in the wild (FOLLOW-UP 21):
+  // canonical GitHub-compact `scn-021+022` (the 50-char label limit forces it),
+  // spelled `scn-021+scn-022`, and comma `scn-021,scn-022`. The old /scn-\d+/g
+  // silently dropped bare numeric continuations → INV-5 false orphans on every
+  // multi-scenario label.
+  const scns = [...t.matchAll(/scenarios:([a-z0-9+,-]+)/gi)].flatMap((m) =>
+    m[1].split(/[+,]/).flatMap((seg) => {
+      const n = seg.match(/^(?:scn-)?(\d+)$/);
+      return n ? [`scn-${n[1]}`] : [];
+    }),
+  );
   return {
     f, hasLabel: (l) => new RegExp('`' + l + '`').test(lbl),
     labelsPresent: lbl.trim().length > 0,
