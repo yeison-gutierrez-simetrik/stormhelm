@@ -30,16 +30,25 @@ function compose(...caps) {
 }
 const exclusionsLine = (out) => out.split('\n').find((l) => l.startsWith('sonar.exclusions='));
 
-test('no capability exclusions → exactly the vendored dirs', () => {
+// The standing vendored prefix every composed sonar.exclusions starts with:
+// the two vendored dirs + the root Night Shift engine /setup delivers (FOLLOW-UP 10 + 12).
+const VENDORED = 'scripts/**,.claude/**,ralph-local.sh,ralph-lib.sh,ralph-blocked-comment.md.tmpl';
+
+test('no capability exclusions → exactly the vendored set (dirs + root Ralph engine)', () => {
   // Regression that matters most: pre-fix, a capability with no exclusions emitted
-  // NO sonar.exclusions line at all. Now it must always emit the vendored ones.
-  assert.equal(exclusionsLine(compose('cap-plain')), 'sonar.exclusions=scripts/**,.claude/**');
+  // NO sonar.exclusions line at all. Now it must always emit the vendored set.
+  const line = exclusionsLine(compose('cap-plain'));
+  assert.equal(line, `sonar.exclusions=${VENDORED}`);
+  // FOLLOW-UP 12: the root Night Shift files (outside scripts/ and .claude/) must be covered.
+  for (const f of ['ralph-local.sh', 'ralph-lib.sh', 'ralph-blocked-comment.md.tmpl']) {
+    assert.ok(line.includes(f), `${f} (vendored at project root) must be excluded`);
+  }
 });
 
-test('capability exclusions are appended AFTER the vendored dirs', () => {
+test('capability exclusions are appended AFTER the vendored set', () => {
   assert.equal(
     exclusionsLine(compose('cap-excl')),
-    'sonar.exclusions=scripts/**,.claude/**,src/**/migrations/**',
+    `sonar.exclusions=${VENDORED},src/**/migrations/**`,
   );
 });
 
@@ -54,7 +63,7 @@ test('sonar.exclusions is always emitted, preceded by the explanatory comment bl
 
 test('a capability that declares scripts/** itself is deduped, not duplicated', () => {
   const line = exclusionsLine(compose('cap-dup'));
-  assert.equal(line, 'sonar.exclusions=scripts/**,.claude/**,src/**/foo/**');
+  assert.equal(line, `sonar.exclusions=${VENDORED},src/**/foo/**`);
   assert.equal((line.match(/scripts\/\*\*/g) || []).length, 1, 'scripts/** must appear exactly once');
 });
 

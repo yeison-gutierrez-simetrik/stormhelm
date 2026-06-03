@@ -121,14 +121,18 @@ function collectActive(roots) {
   return order;
 }
 
-// Framework-vendored directories every consumer copies in via adoption + /setup:
-// the consumer-runtime scripts/ and the whole .claude/ tree (skills, agents, hooks).
-// These are framework infra, NOT product code — exclude them so a consumer's
-// SonarCloud gate (especially Automatic Analysis, which ignores `sonar.sources=src`
-// and scans the whole repo) doesn't flag framework code (execSync/RegExp/createHash
-// hotspots in the shipped scripts + hooks) as product defects. Standing exclusion for
-// every project, not capability-derived. See FOLLOW-UP 10.
-const VENDORED_EXCLUSIONS = ['scripts/**', '.claude/**'];
+// Framework-vendored paths every consumer copies in via adoption + /setup:
+// the consumer-runtime scripts/, the whole .claude/ tree (skills, agents, hooks),
+// AND the Night Shift engine /setup delivers to the project ROOT (ralph-local.sh +
+// ralph-lib.sh + ralph-blocked-comment.md.tmpl — these live at root, not under the two
+// dirs, so they need explicit names). All framework infra, NOT product code — exclude
+// them so a consumer's SonarCloud gate (esp. Automatic Analysis, which ignores
+// `sonar.sources=src` and scans the whole repo) doesn't flag framework code (execSync/
+// RegExp/createHash in the shipped scripts/hooks, or the vendored Ralph bash) as product
+// defects. Standing exclusion for every project, not capability-derived. See FOLLOW-UP
+// 10 + 12. NOTE: if the Night Shift engine ever moves off the root (e.g. into `.ralph/`),
+// move its entries here too.
+const VENDORED_EXCLUSIONS = ['scripts/**', '.claude/**', 'ralph-local.sh', 'ralph-lib.sh', 'ralph-blocked-comment.md.tmpl'];
 
 function merge(caps) {
   const out = { test_inclusions: [], coverage_exclusions: [], exclusions: [...VENDORED_EXCLUSIONS] };
