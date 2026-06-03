@@ -211,6 +211,8 @@ grep -n "exclusion\|sources\|vendored\|scripts\|\.claude" scripts/compose-sonar-
 
 ## FOLLOW-UP 12 — `VENDORED_EXCLUSIONS` misses the root Night Shift engine  ·  **Severity: LOW-MEDIUM**
 
+> ✅ **RESOLVED by #59** (merged 2026-06-03) — the three root engine files were added to `VENDORED_EXCLUSIONS` + pinned by the composer test. Kept below as the record.
+
 **Problem.** FOLLOW-UP 10 (#54) gave `compose-sonar-properties.mjs` a standing `VENDORED_EXCLUSIONS = ['scripts/**', '.claude/**']` so a consumer's SonarCloud gate doesn't flag framework-vendored code. But **#56 delivers the Night Shift engine to the consumer's project ROOT** (`ralph-local.sh`, `ralph-lib.sh`, `ralph-blocked-comment.md.tmpl`) — and those root files are **outside** the two vendored dirs. **SonarCloud does analyze shell**, so the vendored Ralph bash trips the gate as product code.
 
 Confirmed live on belong-marketplace (PR #13, a re-sync delivering the engine, touching **0 `src/` files**): the gate failed **`C Maintainability Rating on New Code`**, and the *only* analyzable non-excluded files in the PR were `ralph-lib.sh` + `ralph-local.sh` — i.e. the failure is **entirely** vendored framework bash, zero product code. Same class as FOLLOW-UP 10, just a surface the standing exclusion list forgot.
@@ -236,6 +238,8 @@ Then update the composer test (`scripts/__tests__/compose-sonar-properties.test.
 ---
 
 ## FOLLOW-UP 13 — Composer emits the wrong file for Automatic-Analysis consumers (`sonar-project.properties` is ignored; `.sonarcloud.properties` is read)  ·  **Severity: MEDIUM**
+
+> ✅ **RESOLVED by #59** (merged 2026-06-03) — the composer gained a `--write` mode that emits **both** `.sonarcloud.properties` (Automatic Analysis) and `sonar-project.properties` (CI scanner), pinned by a test. Remaining: `/setup`/adoption should call `compose-sonar-properties.mjs --write` so consumers get `.sonarcloud.properties` automatically (adoption-wiring half). Kept below as the record.
 
 **Problem.** `compose-sonar-properties.mjs` emits **`sonar-project.properties`**. But SonarCloud **Automatic Analysis** — the GitHub-App default with no CI scanner, which most adopters use — **does not read `sonar-project.properties` at all** (that file is only for the CI-based scanner). Automatic Analysis reads **`.sonarcloud.properties`** (repo root) + the SonarCloud UI. So for any Automatic-Analysis consumer the composed config (`sonar.sources`, `sonar.exclusions`, `sonar.coverage.exclusions`, `sonar.tests`) is **silently ignored** — nothing the composer writes takes effect. This is the actual mechanism behind the "Automatic Analysis ignores `sonar.sources`" observation noted in FOLLOW-UP 10.
 
@@ -268,6 +272,6 @@ grep -n "sonar-project.properties\|sonarcloud.properties" scripts/compose-sonar-
 2. **Item 2** (dangling refs) — quick, prevents future sessions chasing ghosts; pairs with item 7.
 3. **Items 4, 5, 6** — small, mechanical/decisions; batchable in an afternoon (still **separate PRs** — different concerns).
 4. **Item 3** (task_flow) + **Item 7** (CLAUDE.md) + **Item 8** (drift) — decisions; do once the maintainer rules on direction.
-5. **Items 12 + 13** (consumer Sonar, follow-ons to the merged #54/FOLLOW-UP 10) — do together; both touch the composer's Sonar output. **13 first** (it's load-bearing: writing to `.sonarcloud.properties` is what makes ANY composed exclusion take effect for Automatic-Analysis consumers — without it, 12 is also a no-op there), then 12 (add the root Night Shift files to `VENDORED_EXCLUSIONS`). FOLLOW-UP 10 is already merged — leave it as-is.
+5. ~~**Items 12 + 13** (consumer Sonar)~~ — ✅ **DONE via #59** (root engine in `VENDORED_EXCLUSIONS` + `--write` emits both `.sonarcloud.properties` and `sonar-project.properties`). FOLLOW-UP 10 was already merged (#54). **Remaining sliver:** wire `/setup`/adoption to call `compose-sonar-properties.mjs --write` so consumers get `.sonarcloud.properties` written automatically (otherwise they only inherit it by re-composing by hand).
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
