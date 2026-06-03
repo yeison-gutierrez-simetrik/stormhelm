@@ -8,8 +8,25 @@
 # Since FOLLOW-UP 14 the loop's green signal is the structured result file
 # (.planning/acceptance/issue-<N>-result.json), not prose — the mock honors
 # that contract; the prose lines remain only as transcript realism.
-prompt=""; for a in "$@"; do prompt="$a"; done
-if echo "$prompt" | grep -q "/tdd"; then echo "advanced one slice; unit tests green"; exit 0; fi
+#   MOCK_IN_TOKENS / MOCK_OUT_TOKENS  usage reported per call in JSON mode (default 1200/340)
+json_mode=""
+prompt=""; prev=""
+for a in "$@"; do
+  [ "$prev" = "--output-format" ] && [ "$a" = "json" ] && json_mode=1
+  [ "$prev" = "-p" ] && prompt="$a"
+  prev="$a"
+done
+# emit <text> — honors --output-format json with a result envelope + usage,
+# mirroring the real CLI (text mode carries no usage data at all).
+emit() {
+  if [ -n "$json_mode" ]; then
+    printf '{"type":"result","subtype":"success","result":"%s","usage":{"input_tokens":%s,"output_tokens":%s}}\n' \
+      "$1" "${MOCK_IN_TOKENS:-1200}" "${MOCK_OUT_TOKENS:-340}"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+if echo "$prompt" | grep -q "/tdd"; then emit "advanced one slice; unit tests green"; exit 0; fi
 if echo "$prompt" | grep -q "/run-acceptance"; then
   issue=$(echo "$prompt" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
   green=1
@@ -25,8 +42,8 @@ if echo "$prompt" | grep -q "/run-acceptance"; then
         > ".planning/acceptance/issue-${issue}-result.json"
     fi
   fi
-  if [ "$green" = "1" ]; then echo "ran scenarios. all gates green"; else echo "ran scenarios. smoke gate failed"; fi
+  if [ "$green" = "1" ]; then emit "ran scenarios. all gates green"; else emit "ran scenarios. smoke gate failed"; fi
   exit 0
 fi
-if echo "$prompt" | grep -q "/code-review"; then echo "${MOCK_REVIEW:-Reviewed diff. No blocking issues. 💡 minor: extract a helper.}"; exit 0; fi
-echo "ok"; exit 0
+if echo "$prompt" | grep -q "/code-review"; then emit "${MOCK_REVIEW:-Reviewed diff. No blocking issues. 💡 minor: extract a helper.}"; exit 0; fi
+emit "ok"; exit 0
