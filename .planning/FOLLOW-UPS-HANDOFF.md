@@ -268,6 +268,8 @@ grep -n "sonar-project.properties\|sonarcloud.properties" scripts/compose-sonar-
 
 # Night Shift gate hardening — FOLLOW-UPs 14–22 (from the belong-marketplace slice-02 live run, 2026-06-03)
 
+> ✅ **ALL NINE RESOLVED (2026-06-03, same day).** PR map: **15→#63**, **16→#64**, **14→#65** (+#66 fix-forward: GNU-stat portability in the mtime check), **17→#68**, **18→#69**, **19→#70**, **22→#71**, **20→#72**, **21→#73**. Related, landed in the same run: **#67** (English sweep of `ralph-local.sh.tmpl` — shipped artifacts carry no Spanish), **#74** (item-13 adoption sliver: `/setup` runs the composer `--write`), **#75** (FOLLOW-UP 23, found during 19). Notable deltas vs the drafts below: 14 uses a **per-issue** result file (parallel workers don't race) and also fixed a latent `set -e` kill on non-zero `claude` exits; 17's `--comments` flag shows ONLY comments (the contract documents both calls); 19 had a second root cause the draft missed (subshell loses the cumulative — fixed with a token ledger file); 21 also fixed `summarize_scenarios` and canonicalized the label form in `/to-issues`. Each item's section is kept below as the record; the Ralph loop test suite grew 8 → 21 tests (repo suite 67).
+
 **Context for all nine items.** First fully-AFK Ralph run on a consumer (belong-marketplace, issue #14, Stripe Connect onboarding). **The agent's code was green from iteration 1** (verified externally: 5/5 scenarios, 37/37 steps, 77/77 unit/integration, reviewer verdict CLEAN). Ralph still burned **8 iterations without ever registering green** — every failure was gate/loop tooling, not code. Full forensics: belong-marketplace PR #17 body + session log `14-20260603-191849.log`. Line numbers below refer to the consumer copies stamped `framework@3013f9d`; locate the framework originals with `git ls-files | grep -E "ralph-(local|lib)|run-acceptance|preflight|check-invariants"`. Items 14–17 are the kill chain (each alone was sufficient to block forever); 18–22 are hardening. **Separate PRs per item**, same conventions as above.
 
 ---
@@ -459,8 +461,8 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 3. **Items 4, 5, 6** — small, mechanical/decisions; batchable in an afternoon (still **separate PRs** — different concerns).
 4. **Item 3** (task_flow) + **Item 7** (CLAUDE.md) + **Item 8** (drift) — decisions; do once the maintainer rules on direction.
 5. ~~**Items 12 + 13** (consumer Sonar)~~ — ✅ **DONE via #59** (root engine in `VENDORED_EXCLUSIONS` + `--write` emits both `.sonarcloud.properties` and `sonar-project.properties`). FOLLOW-UP 10 was already merged (#54). ~~**Remaining sliver:**~~ ✅ done via #74 — `/setup` now calls `compose-sonar-properties.mjs --write` and validates both files exist.
-6. **Items 14–17 (Night Shift kill chain) — do these BEFORE anyone runs Ralph AFK again.** Each alone blocks a green slice forever: 15 + 16 first (both edit `skills/run-acceptance/SKILL.md` — still separate PRs, one per concern), then 14 (structured result contract in `ralph-local.sh`/`ralph-lib.sh` + the skill's output step — design it so 16's sanity check feeds it), then 17 (plan↔tdd channel alignment). Validation for all four exists on the consumer: belong-marketplace PR #17 + session log `14-20260603-191849.log` (8 iterations, green code, zero green registrations).
-7. **Items 18–19** (pre-flight + budget accounting) — make the loop's failures diagnosable and its budget contract real. 19 touches `ralph_call_claude_with_retry`, so land 14 first (same file region).
-8. **Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization) — small, mechanical, each with fixture tests; batchable in an afternoon (separate PRs).
+6. ~~**Items 14–17 (Night Shift kill chain)**~~ — ✅ **DONE** (#63, #64, #65+#66, #68) — see the PR map banner above.
+7. ~~**Items 18–19** (pre-flight + budget accounting)~~ — ✅ **DONE** (#69, #70).
+8. ~~**Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization)~~ — ✅ **DONE** (#72, #73, #71).
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
