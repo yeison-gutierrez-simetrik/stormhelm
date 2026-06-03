@@ -1598,4 +1598,4 @@ For feedback on this guide or improvement suggestions based on real usage, comme
 ---
 
 *Last updated: 2026-06-01*
-*Framework version: Stormhelm v1.0 (122 rules, 32 skills, 1 agent, 5 hooks, 13 steps in the main flow)*
+*Framework version: Stormhelm v1.0 (123 rules, 32 skills, 1 agent, 5 hooks, 13 steps in the main flow)*

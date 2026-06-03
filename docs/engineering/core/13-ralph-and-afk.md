@@ -4,7 +4,7 @@
 
 **When to read.** Configuring the local `ralph-local.sh` script, labeling issues for AFK execution, reviewing PRs produced overnight, debugging a stuck Ralph session, deciding which work is safe to automate.
 
-**Rules in this file.** §63, §64, §65, §66, §67, §68, §69, §70, §107
+**Rules in this file.** §63, §64, §65, §66, §67, §68, §69, §70, §107, §123
 
 > See `AGENTS.md` for the full rule index. Related: `12-bdd-and-acceptance.md` (scenarios as the AFK gate), `01-philosophy.md` (§30 vertical slices — what Ralph consumes), `15-observability.md` (session logging).
 
@@ -313,7 +313,9 @@ Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
 
 The script is zero-deps, uses `gh` + `git` already required by the framework, and never touches state — pure read + assert. Skipping it is a §1 violation (proportionality: the cost is ~5 seconds; the consequence of skipping has been a half-day recovery in real use).
 
-### Cumulative vs stacked PRs (branch convention, PR-Group)
+---
+
+## §123. Cumulative vs stacked PRs (branch convention)
 
 A slice often decomposes into several issues that **share a foundation** (issue B can't be a green PR on `main` without the schema/adapter/wiring issue A introduces). Two independent decisions govern how they ship — keep them separate:
 
