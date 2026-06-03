@@ -177,8 +177,14 @@ ralph_iteration_start() {
 
 ralph_iteration_end() {
   local outcome="${1:-unknown}"
-  ralph_log_event "info" "ralph.iteration.completed" \
-    "{\"outcome\":$(ralph_json_string "$outcome")}"
+  local reason="${2:-}"
+  if [ -n "$reason" ]; then
+    ralph_log_event "info" "ralph.iteration.completed" \
+      "{\"outcome\":$(ralph_json_string "$outcome"),\"reason\":$(ralph_json_string "$reason")}"
+  else
+    ralph_log_event "info" "ralph.iteration.completed" \
+      "{\"outcome\":$(ralph_json_string "$outcome")}"
+  fi
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -195,6 +201,122 @@ ralph_scenario_failed() {
   local reason="${2:-}"
   ralph_log_event "warn" "ralph.scenario.failed" \
     "{\"scenario\":$(ralph_json_string "$scn"),\"reason\":$(ralph_json_string "$reason")}"
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# file_mtime <path>
+#
+# Portable mtime-as-epoch (BSD stat on macOS, GNU stat on Linux).
+# Prints 0 if the file does not exist or stat fails.
+# ──────────────────────────────────────────────────────────────────────
+ralph_file_mtime() {
+  local f="${1:?ralph_file_mtime requires <path>}"
+  stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# acceptance_result_check <file> <issue> <min_epoch>
+#
+# The loop's ONLY green signal (§66). /run-acceptance writes a
+# machine-readable result file as its MANDATORY last step:
+#
+#   .planning/acceptance/issue-<N>-result.json
+#   { "issue": 14, "exit_code": 0,
+#     "scenarios": { "scn-021": "passed", "scn-022": "passed" },
+#     "ran": 2, "expected": 2,
+#     "gates": { "smoke": "pass", "slice_scenarios": "pass", ... },
+#     "failure_reason": null }
+#
+# This replaces grepping the literal string "exit code: 0" in the LLM
+# session's free-text output — a correctness gate must not depend on an
+# LLM's phrasing (any wording drift read as failure; certain prose could
+# read as a false green).
+#
+# Checks, in order (each failure prints a machine-greppable reason to
+# stdout and returns 1):
+#   result-file-missing          — skill never wrote the contract file
+#   result-file-invalid-json     — file exists but is not valid JSON
+#   result-file-stale            — older than this iteration's start
+#   result-file-wrong-issue      — written for another issue
+#   ran-below-expected           — scenario filter matched fewer than the
+#                                  labels claim (empty-selection false green)
+#   exit_code=N: <failure_reason>— the gate itself failed
+# Prints "green" and returns 0 only when everything holds.
+# ──────────────────────────────────────────────────────────────────────
+ralph_acceptance_result_check() {
+  local file="${1:?ralph_acceptance_result_check requires <file>}"
+  local issue="${2:?ralph_acceptance_result_check requires <issue>}"
+  local min_epoch="${3:-0}"
+
+  if [ ! -f "$file" ]; then
+    echo "result-file-missing (${file})"
+    return 1
+  fi
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    echo "result-file-invalid-json (${file})"
+    return 1
+  fi
+  local mtime
+  mtime=$(ralph_file_mtime "$file")
+  if [ "$mtime" -lt "$min_epoch" ]; then
+    echo "result-file-stale (mtime ${mtime} < iteration start ${min_epoch})"
+    return 1
+  fi
+  local rissue
+  rissue=$(jq -r '.issue // empty' "$file")
+  if [ "$rissue" != "$issue" ]; then
+    echo "result-file-wrong-issue (got ${rissue:-none}, expected ${issue})"
+    return 1
+  fi
+  # Empty-selection guard: if the skill reports ran/expected, fewer ran
+  # than expected means the tag filter is wrong — never a pass, even if
+  # exit_code claims 0 (defense in depth vs the ANDed-tags class of bug).
+  local ran expected
+  ran=$(jq -r '.ran // empty' "$file")
+  expected=$(jq -r '.expected // empty' "$file")
+  if [[ "$ran" =~ ^[0-9]+$ ]] && [[ "$expected" =~ ^[0-9]+$ ]] && [ "$ran" -lt "$expected" ]; then
+    echo "ran-below-expected (${ran} < ${expected})"
+    return 1
+  fi
+  local code
+  code=$(jq -r '.exit_code // empty' "$file")
+  if [ "$code" = "0" ]; then
+    echo "green"
+    return 0
+  fi
+  local reason
+  reason=$(jq -r '.failure_reason // "unspecified"' "$file")
+  echo "exit_code=${code:-missing}: ${reason}"
+  return 1
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# log_scenarios_from_result <file> <expected_scenarios>
+#
+# Emit ralph.scenario.passed / ralph.scenario.failed per scenario from
+# the result file's scenarios{} map — per-scenario TRUTH, instead of
+# blanket-marking every labeled scenario as passed on a green run.
+# `expected_scenarios` is the scenarios:* label value; both the plain
+# (scn-021,scn-022) and GitHub-compact (scn-021+022) forms are accepted.
+# A scenario absent from the map is left un-logged → the blocked-comment
+# summary reports it as "not attempted".
+# ──────────────────────────────────────────────────────────────────────
+ralph_log_scenarios_from_result() {
+  local file="${1:?ralph_log_scenarios_from_result requires <file>}"
+  local expected="${2:-}"
+  local scn status
+  for scn in $(echo "$expected" | tr ',+' ' '); do
+    case "$scn" in
+      scn-*) : ;;
+      *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
+    esac
+    status=$(jq -r --arg s "$scn" '.scenarios[$s] // "missing"' "$file" 2>/dev/null || echo "missing")
+    case "$status" in
+      passed) ralph_scenario_passed "$scn" ;;
+      missing) : ;;
+      *) ralph_scenario_failed "$scn" "$status" ;;
+    esac
+  done
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -708,6 +830,9 @@ iteration_start() { ralph_iteration_start "$@"; }
 iteration_end() { ralph_iteration_end "$@"; }
 scenario_passed() { ralph_scenario_passed "$@"; }
 scenario_failed() { ralph_scenario_failed "$@"; }
+file_mtime() { ralph_file_mtime "$@"; }
+acceptance_result_check() { ralph_acceptance_result_check "$@"; }
+log_scenarios_from_result() { ralph_log_scenarios_from_result "$@"; }
 git_action() { ralph_git_action "$@"; }
 budget_checkpoint() { ralph_budget_checkpoint "$@"; }
 error_tool() { ralph_error_tool "$@"; }

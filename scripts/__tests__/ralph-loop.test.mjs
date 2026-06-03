@@ -163,3 +163,80 @@ test('session log is valid NDJSON throughout', () => {
     assert.equal(ev[ev.length - 1].event, 'ralph.session.ended');
   });
 });
+
+// ── FOLLOW-UP 14: structured acceptance result channel ────────────────────────
+
+// T9 — green is decided by the result FILE, not prose: the mock prints no
+// "exit code: 0" anywhere, yet a green result file → PR + per-scenario truth.
+test('FU-14: green via result file (no prose contract); per-scenario events from scenarios{}', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+    assert.match(out, /pull\/9/);
+    const ev = readEvents(dir, 1);
+    const passed = ev.filter((e) => e.event === 'ralph.scenario.passed');
+    assert.equal(passed.length, 1, 'exactly the scenarios{} entries, not blanket-passed labels');
+    assert.equal(passed[0].details.scenario, 'scn-001');
+  });
+});
+
+// T10 — the skill never writes the contract file → fail with a machine-greppable
+// reason in the NDJSON (the live run's forensic gap: 8 iterations, zero reasons).
+test('FU-14: missing result file → acceptance-failing with reason result-file-missing', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '2'], { MOCK_NO_RESULT_FILE: '1' });
+    assert.notEqual(status, 0);
+    const ev = readEvents(dir, 1);
+    const fails = ev.filter((e) => e.event === 'ralph.iteration.completed' && e.details.outcome === 'acceptance-failing');
+    assert.ok(fails.length >= 1);
+    assert.match(fails[0].details.reason, /result-file-missing/);
+    assert.equal(endStatus(ev), 'blocked');
+  });
+});
+
+// T11 — a failing result file surfaces its failure_reason in the NDJSON.
+test('FU-14: failing result file → failure_reason recorded in iteration.completed', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '1'], { MOCK_ACCEPT: 'exit code: 1' });
+    const ev = readEvents(dir, 1);
+    const fail = ev.find((e) => e.event === 'ralph.iteration.completed' && e.details.outcome === 'acceptance-failing');
+    assert.match(fail.details.reason, /exit_code=1: mock forced failure/);
+    const scnFail = ev.find((e) => e.event === 'ralph.scenario.failed');
+    assert.equal(scnFail?.details?.scenario, 'scn-001', 'per-scenario failure fed from the result file');
+  });
+});
+
+// T12 — unit coverage for ralph_acceptance_result_check: every rejection reason.
+test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran<expected; accepts green', () => {
+  withConsumer((dir) => {
+    const check = (json, args) => {
+      const r = spawnSync('bash', ['-c',
+        `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_acceptance_result_check ${args}`,
+      ], { cwd: dir, encoding: 'utf8', input: '' });
+      return { rc: r.status, out: r.stdout.trim() };
+    };
+    const file = join(dir, 'r.json');
+    const write = (obj) => spawnSync('bash', ['-c', `cat > "${file}"`], { input: JSON.stringify(obj), encoding: 'utf8' });
+
+    write({ issue: 7, exit_code: 0, scenarios: {}, ran: 2, expected: 2, failure_reason: null });
+    assert.deepEqual(check(null, `"${file}" 7 0`), { rc: 0, out: 'green' });
+
+    assert.match(check(null, `"${dir}/absent.json" 7 0`).out, /result-file-missing/);
+
+    write({ issue: 9, exit_code: 0 });
+    assert.match(check(null, `"${file}" 7 0`).out, /result-file-wrong-issue/);
+
+    write({ issue: 7, exit_code: 0, ran: 0, expected: 2 });
+    assert.match(check(null, `"${file}" 7 0`).out, /ran-below-expected/, 'empty selection is never a pass');
+
+    write({ issue: 7, exit_code: 1, failure_reason: 'smoke gate red' });
+    assert.match(check(null, `"${file}" 7 0`).out, /exit_code=1: smoke gate red/);
+
+    // stale: min_epoch far in the future
+    write({ issue: 7, exit_code: 0 });
+    assert.match(check(null, `"${file}" 7 99999999999`).out, /result-file-stale/);
+
+    spawnSync('bash', ['-c', `echo "not json" > "${file}"`]);
+    assert.match(check(null, `"${file}" 7 0`).out, /result-file-invalid-json/);
+  });
+});
