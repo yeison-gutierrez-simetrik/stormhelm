@@ -102,15 +102,39 @@ active capability's runner differs.
 - An **empty selection is legitimate here** (early in a slice-group every `@smoke` scenario may belong to open siblings) — treat as pass and record "0 selected, N excluded (§61)" in the report. Contrast with Step 3, where an empty selection always means the filter is wrong.
 - A scenario owned by **this** issue is never excluded — if its steps are undefined, that is a real failure (the slice is missing step definitions), not a §61 exemption.
 
-### Step 3 — Run @release scenarios for this slice
+### Step 3 — Run this slice's scenarios (from the issue's `scenarios:*` labels)
 
-Filter to scenarios in the issue's labels:
+> **Tag-expression semantics — do NOT use repeated `--tags` flags.** cucumber-js
+> (and the cucumber standard) combine multiple `--tags` flags with **AND**. A
+> scenario carries exactly **one** `@scn-NNN` tag, so
+> `--tags=@release --tags=@scn-042 --tags=@scn-043` matches **zero scenarios —
+> and exits 0**: the gate "passes nothing, successfully" (false green). Always
+> build a single **OR** expression.
 
 ```bash
-$BDD_RUNNER --tags=@release --tags=@scn-042 --tags=@scn-043
+# This issue's scenarios, expanded from the label (both , and + compact forms):
+THIS_SCNS=$(gh issue view "$ISSUE_NUM" --json labels \
+  --jq '[.labels[].name | select(startswith("scenarios:"))] | join(",")' \
+  | tr ',+' '\n' | sed -E 's/^scenarios://; s/^scn-//; /^$/d; s/^/scn-/' \
+  | grep -E '^scn-[0-9]+$' | sort -u)
+EXPECTED_COUNT=$(echo "$THIS_SCNS" | grep -c .)
+TAG_EXPR=$(echo "$THIS_SCNS" | sed 's/^/@/' | tr '\n' '|' | sed 's/|$//; s/|/ or /g')
+
+$BDD_RUNNER --tags "$TAG_EXPR"      # e.g. --tags "@scn-042 or @scn-043"
 ```
 
-Report pass/fail per scenario.
+This runs **all** scenarios the issue's labels claim (the `@release` subset
+included — an extra `and @release` conjunct would only blur the count check
+below; re-running a `@smoke`-tagged scenario already covered by Step 2 is
+harmless).
+
+**MANDATORY sanity check.** The run must report **exactly `EXPECTED_COUNT`
+scenarios**. `0 scenarios` (or any count below `EXPECTED_COUNT`) means the
+filter is wrong or a `.feature` file is missing its `@scn-NNN` tag — treat it
+as **FAIL**, never as pass. An empty selection exits 0 in cucumber-js; this
+check is what prevents that false green.
+
+Report pass/fail per scenario, plus `ran/expected` counts.
 
 ### Step 4 — Visual acceptance gate (§104) — if UI involved
 
@@ -221,7 +245,7 @@ The reviewer's findings are appended to the acceptance report.
 | Gate | Result | Detail |
 |---|---|---|
 | @smoke scenarios (scoped, §61) | ✅ 12/12 | 3 sibling-owned scn excluded |
-| @release scenarios (this slice) | ✅ 2/2 | scn-042, scn-043 passed |
+| This-slice scenarios | ✅ 2/2 (expected 2) | scn-042, scn-043 passed |
 | Visual gate (§104) | ✅ | 3 viewports, dark mode, a11y tree clean |
 | Schemathesis (§105) | ⏭️ N/A | no public API in this slice |
 | Stub detection (§106) | ✅ | no stubs in diff |
