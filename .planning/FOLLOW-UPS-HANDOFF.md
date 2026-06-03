@@ -266,6 +266,182 @@ grep -n "sonar-project.properties\|sonarcloud.properties" scripts/compose-sonar-
 
 ---
 
+# Night Shift gate hardening — FOLLOW-UPs 14–22 (from the belong-marketplace slice-02 live run, 2026-06-03)
+
+**Context for all nine items.** First fully-AFK Ralph run on a consumer (belong-marketplace, issue #14, Stripe Connect onboarding). **The agent's code was green from iteration 1** (verified externally: 5/5 scenarios, 37/37 steps, 77/77 unit/integration, reviewer verdict CLEAN). Ralph still burned **8 iterations without ever registering green** — every failure was gate/loop tooling, not code. Full forensics: belong-marketplace PR #17 body + session log `14-20260603-191849.log`. Line numbers below refer to the consumer copies stamped `framework@3013f9d`; locate the framework originals with `git ls-files | grep -E "ralph-(local|lib)|run-acceptance|preflight|check-invariants"`. Items 14–17 are the kill chain (each alone was sufficient to block forever); 18–22 are hardening. **Separate PRs per item**, same conventions as above.
+
+---
+
+## FOLLOW-UP 14 — `ralph-local.sh` decides green by grepping the literal string `exit code: 0` in LLM prose  ·  **Severity: CRITICAL**
+
+**Problem.** The loop's ONLY green signal is:
+```bash
+# ralph-local.sh line ~242 (consumer copy @3013f9d)
+if echo "$ACCEPTANCE_OUT" | grep -q "exit code: 0"; then
+```
+`$ACCEPTANCE_OUT` is the free-text final message of a `claude -p /run-acceptance` session, prompted only with "Reporta exit code." Any phrasing drift — `Exit code: 0`, `exit code 0`, `exited with 0`, a Spanish sentence, a markdown table — reads as **failure even when every gate passed**. The inverse risk also exists: prose like `the previous run's exit code: 0 became 1` would read as green. A correctness gate must not depend on an LLM's phrasing.
+
+**Evidence (live).** 8 iterations, all `outcome: acceptance-failing`, while the implementation was externally verified green. The failing iterations also record **no failure reason** — `ralph.iteration.completed {'outcome': 'acceptance-failing'}` is the only forensic trace, which made diagnosis needlessly slow.
+
+**Verify:** `grep -n '"exit code: 0"' ralph-local.sh` (or templates/ equivalent).
+
+**Fix.** Replace the prose grep with a **structured result channel**:
+1. `/run-acceptance` (skill) writes a machine-readable result file as its LAST step, e.g. `.planning/acceptance/last-result.json`:
+   ```json
+   { "issue": 14, "exit_code": 0,
+     "scenarios": { "scn-021": "passed", "scn-022": "passed" },
+     "gates": { "smoke": "pass", "release": "pass", "stubs": "pass" },
+     "failure_reason": null }
+   ```
+   The skill documents this as a MANDATORY output contract (file write, not prose).
+2. `ralph-local.sh` reads the file with `jq` (exists + `exit_code == 0` + file mtime newer than iteration start), feeds `ralph_scenario_passed/failed` per scenario from `scenarios{}`, and logs `failure_reason` into the NDJSON on failure.
+3. Keep the prose grep only as a deprecated fallback behind a warning, or delete it.
+4. Add `scripts/__tests__/` coverage: a fixture result file → green path; missing/stale file → fail path with reason logged.
+
+**Acceptance.** A green acceptance run registers green regardless of how the session phrases its summary; a failing run records *why* in the session NDJSON; tests cover both. No consumer prose-contract remains.
+
+---
+
+## FOLLOW-UP 15 — `/run-acceptance` Step 2 runs `@smoke` GLOBALLY → permanently blocks every slice-group  ·  **Severity: CRITICAL**
+
+**Problem.** `skills/run-acceptance/SKILL.md` Step 2:
+```bash
+$BDD_RUNNER --tags=@smoke
+```
+runs **all** `@smoke` scenarios in the repo. In any slice-group (the framework's own PR-Group/§30 model), sibling slices' `.feature` files are approved and committed **before** implementation — their step definitions don't exist **by design** (§61). cucumber reports them `undefined` → non-zero exit → Step 2 **BLOCKS, unconditionally, until the whole slice-group is implemented**. The gate is structurally incompatible with the framework's own vertical-slice decomposition.
+
+**Evidence (live).** Slice-02 ships 18 approved scenarios across 3 issues; #14 implements 5. The sibling `@smoke` scenarios scn-026/031/035 (issues #15/#16) were undefined → Step 2 could never pass for #14, regardless of code.
+
+**Verify:** `grep -n 'tags=@smoke' skills/run-acceptance/SKILL.md`; reproduce with any repo holding an approved-but-unimplemented sibling `.feature`.
+
+**Fix.** Scope the smoke gate to "implemented or this-slice" scenarios:
+```bash
+# Exclude @smoke scenarios belonging to OPEN sibling issues (their scenarios:* labels):
+OPEN_SCNS=$(gh issue list --state open --json labels \
+  --jq '[.[].labels[].name | select(startswith("scenarios:"))] | join("+")' \
+  | grep -oE 'scn-[0-9]+' | sort -u | grep -v -F "$THIS_ISSUE_SCNS" || true)
+$BDD_RUNNER --tags "@smoke and not (${OPEN_SCNS_AS_OR_EXPR})"
+```
+(Or equivalently: pre-compute defined scenarios via `--dry-run` and intersect.) Document the rationale inline (§61: sibling scenarios are undefined by design). Validated live: the scoped form passed 9/9 on the consumer.
+
+**Acceptance.** A consumer with approved-but-unimplemented sibling features passes Step 2 for an implemented slice; a genuinely broken implemented `@smoke` scenario still blocks.
+
+---
+
+## FOLLOW-UP 16 — `/run-acceptance` Step 3 example uses ANDed `--tags` flags → matches 0 scenarios, exits 0  ·  **Severity: HIGH**
+
+**Problem.** Step 3's canonical example:
+```bash
+$BDD_RUNNER --tags=@release --tags=@scn-042 --tags=@scn-043
+```
+cucumber-js combines multiple `--tags` flags with **AND**. A scenario carries exactly one `@scn-NNN` tag, so this matches **zero scenarios** — and cucumber exits **0** on an empty selection. The gate "passes nothing, successfully": with FOLLOW-UP 14's per-scn verification it reads as all-failed; without it, it would be a **false green**. Sessions copy skill examples literally, so the bug re-injects every iteration.
+
+**Evidence (live).** Reproduced verbatim on the consumer: `--tags=@release --tags=@scn-021 --tags=@scn-022` → `0 scenarios, 0 steps, exit: 0`. The correct form passed 5/5.
+
+**Verify:** `grep -n 'tags=@release --tags' skills/run-acceptance/SKILL.md`.
+
+**Fix.**
+1. Single expression: `$BDD_RUNNER --tags "@scn-042 or @scn-043"` (the `@release` conjunct is redundant when scn tags are explicit; if kept: `"(@scn-042 or @scn-043) and @release"`).
+2. Add a MANDATORY sanity check to the skill: *the run must report exactly as many scenarios as the issue's `scenarios:*` label lists; `0 scenarios` means the filter is wrong — treat as FAIL, never pass.* (This guard also belongs in FOLLOW-UP 14's structured verification.)
+
+**Acceptance.** Documented commands match cucumber-js tag semantics; an accidental empty selection is reported as failure, with a test (fixture or doc-tested snippet) pinning the semantics.
+
+---
+
+## FOLLOW-UP 17 — Ralph's sessions receive the issue BODY only; comments (where `/plan` writes!) are invisible  ·  **Severity: HIGH**
+
+**Problem.** The iteration prompt (`ralph-local.sh` line ~197) says *"Lee el cuerpo del issue …"* and sessions comply — they run plain `gh issue view N`, which **does not include comments**. But `/plan` (skill) documents its output as *"added to the issue body **(via `gh issue comment` or by editing the issue body)**"* — and the comment path is the natural choice. Result: **the technical plan and any mid-flight amendments posted as comments never reach the implementing agent.** The two skills contradict each other on the contract channel.
+
+**Evidence (live).** A plan amendment posted as a comment at 19:31Z was ignored for 5 consecutive iterations; the identical content appended to the **body** (`gh issue edit --body`) was picked up by the very next fresh iteration (which then did the change red-first, correctly).
+
+**Verify:** `grep -n "cuerpo del issue\|gh issue view" ralph-local.sh skills/tdd/SKILL.md`; `grep -n "issue comment\|issue body" skills/plan/SKILL.md`.
+
+**Fix — align the channel, pick ONE:**
+- (a) **Recommended:** prompt instructs *"Lee el issue completo: `gh issue view N --comments`"* (and `/tdd`'s inputs section says the same) — comments become a first-class amendment channel; OR
+- (b) `/plan` MUST write into the body (drop the comment option), and document that comments are advisory-only for Ralph.
+Either way, state the chosen contract in BOTH `skills/plan/SKILL.md` and `skills/tdd/SKILL.md` + the ralph prompt, so they can't drift apart again.
+
+**Acceptance.** A plan amendment posted via the documented channel demonstrably appears in the next iteration's behavior (manual test acceptable); the three artifacts name the same channel.
+
+---
+
+## FOLLOW-UP 18 — `ralph-local.sh` has no environment pre-flight (Docker, secrets) → burns iterations on unfixable failures  ·  **Severity: MEDIUM-HIGH**
+
+**Problem.** The loop validates the issue contract (labels, budget) but nothing about the **execution environment**. If the acceptance stack needs Docker (testcontainers — the framework's own §31 "test-real" default) and the daemon is down, every iteration fails identically with zero diagnostic, and no amount of code edits can fix it. Same class: required env vars still set to dev placeholders.
+
+**Evidence (live).** Docker daemon was off → iterations 2–4 (~25 min) produced zero commits and `acceptance-failing` with no recorded cause. `open -a Docker` fixed it in 6 seconds — after manual diagnosis.
+
+**Verify:** `grep -n "docker" ralph-local.sh ralph-lib.sh` → no hits.
+
+**Fix.** Pre-flight block before iteration 1 (fail fast, actionable message):
+```bash
+# testcontainers detected? (devDependency @testcontainers/* or cucumber World using it)
+if grep -q '"@testcontainers/' package.json 2>/dev/null; then
+  docker info >/dev/null 2>&1 || { echo "❌ Docker daemon not running — acceptance uses testcontainers (§31). Start Docker and relaunch."; exit 1; }
+fi
+```
+Optionally a generic hook point (`RALPH_PREFLIGHT_CMD`) so consumers add stack-specific checks (e.g. "STRIPE_SECRET_KEY is not the dev sentinel"). Detection heuristics belong in the stack capability, not hardcoded.
+
+**Acceptance.** With Docker stopped, `./ralph-local.sh N` exits before iteration 1 with the actionable message; with Docker up, behavior unchanged. Test with a fixture package.json.
+
+---
+
+## FOLLOW-UP 19 — Token accounting reports 0 for every iteration → the `budget:NNk` gate is dead code  ·  **Severity: MEDIUM**
+
+**Problem.** Every NDJSON event in the live run shows `tokensConsumedDelta: 0, tokensConsumedCumulative: 0` across 8 real iterations (`Tokens: 0/120000` on stdout). The §63/§65 budget contract — the thing that distinguishes `budget:120k` from infinity — never engages; only `max_iterations` bounds the loop. Likely cause: the `claude -p` invocation's usage is never captured (plain text output has no usage data).
+
+**Verify:** `grep -n "tokensConsumed\|usage\|output-format" ralph-lib.sh ralph-local.sh` — confirm no usage extraction; cross-check any consumer session log: `jq '.tokensConsumedCumulative' *.log | sort -u` → only `0`.
+
+**Fix.** Invoke `claude -p ... --output-format json` (result JSON carries usage/cost fields), parse total tokens per call in `ralph_call_claude_with_retry`, and feed the existing `ralph_budget_checkpoint` / `check_budget_or_block` plumbing (whose `budget_exceeded → blocked` path #57 already fixed — it's currently unreachable). Keep the human-readable transcript by extracting `.result` text from the JSON for `$TDD_OUT`/`$ACCEPTANCE_OUT` consumers. Add a fixture test for the parser.
+
+**Acceptance.** A real iteration logs non-zero deltas; an artificially tiny `budget:1k` label triggers the `budget_exceeded` block path; tests green.
+
+---
+
+## FOLLOW-UP 20 — `preflight.mjs feature-approved` matches by FILENAME `<slug>.feature` — false-negative for the naming `/to-scenarios` itself prescribes  ·  **Severity: MEDIUM**
+
+**Problem.** `scripts/preflight.mjs` `findFeature()` (line ~42) returns a file only if it is literally named `<slug>.feature`. But `/to-scenarios` names outputs `features/<bounded-context>/<topic>.feature` (its own examples: `listing-publication.feature`) and **multi-context features produce N files** — none named after the slug. The check then fails with *"no features/**/<slug>.feature found — run /to-scenarios"* even when every file exists and is `# status: approved`. Consumers of `/to-issues` and `/run-acceptance` hit this on every multi-context feature.
+
+**Evidence (live).** Slice-02: two approved files (`features/onboarding/stripe-connect-onboarding.feature`, `features/settlement/stripe-account-webhook.feature`) → `feature-approved 02-stripe-connect-onboarding` failed; approval had to be verified by hand.
+
+**Verify:** `sed -n '33,46p' scripts/preflight.mjs`; `node scripts/preflight.mjs feature-approved <any-multi-context-slug>` in a consumer.
+
+**Fix.** Resolve by **content, not filename**: a feature file belongs to a slug iff its header comment matches `# spec: docs/specs/<slug>.md` (the header `/to-scenarios` already writes). Collect ALL matches; fail if zero (unchanged message); fail listing the offenders if ANY match is not `approved`; pass only when all are approved. Keep the filename match as a fast-path. Add `scripts/__tests__/preflight.test.mjs` fixtures: single named file, multi-context spec-header files, one-of-N-draft.
+
+**Acceptance.** A multi-context feature with all files approved passes; one draft file among them fails naming the file; legacy `<slug>.feature` naming still passes.
+
+---
+
+## FOLLOW-UP 21 — `check-invariants.mjs` INV-5 doesn't expand the compact `scenarios:scn-021+022` label form that the framework's own labels use  ·  **Severity: MEDIUM**
+
+**Problem.** The issue-file label parser (line ~68):
+```js
+const scns = [...t.matchAll(/scenarios:([a-z0-9+-]+)/gi)].flatMap((m) => m[1].match(/scn-\d+/g) || []);
+```
+On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` continuations are silently dropped. The compact form is what real GitHub labels use (50-char limit pressure; e.g. consumer labels `scenarios:scn-010+011+012+013+020` from slice 01). Result: INV-5 reports false "@release scns with no issue" orphans, and the consumer must hand-spell `scenarios:scn-021+scn-022+…` in the local `**Labels:**` line — an undocumented divergence between the GitHub label and the file line.
+
+**Evidence (live).** With the compact form, INV-5 flagged scn-022..038 as orphans while scn-021/026/031 (first of each label) were credited; spelling out `scn-` per token fixed it.
+
+**Verify:** `node -e 'console.log("scn-021+022".match(/scn-\d+/g))'` → `["scn-021"]`.
+
+**Fix.** Expand continuations in the parser: after capturing the token, also match `/(?:^|\+)(\d+)/g` and prefix `scn-` to bare numeric segments (or: normalize the token by replacing `+(?=\d)` with `+scn-` before the existing match). Pick ONE canonical documented form for the `**Labels:**` line (`/to-issues` Step 5/6 must emit it) and make the parser accept both. Fixture test: compact, spelled, and mixed forms each credit all scns.
+
+**Acceptance.** `scenarios:scn-021+022+023` credits 3 scenarios; INV-5 stops reporting false orphans on consumers using GitHub-compact labels; `/to-issues` docs name the canonical form.
+
+---
+
+## FOLLOW-UP 22 — Branch slug not sanitized: em-dash from the issue title lands in the git ref  ·  **Severity: LOW**
+
+**Problem.** `ralph-local.sh` line ~173 builds the slug with `tr ' ' '-' | tr -d ',' | tr '[:upper:]' '[:lower:]'` — non-ASCII passes through. An issue titled `02-stripe-connect-onboarding — Stripe Connect …` yields branch `agent/feature-02-stripe-connect-onboarding-—-stripe--14` (literal U+2014). Git accepts it, but it breaks naive tooling, shell-quoting habits, and the `agent/feature-<slug>-<NNN>` greppability the docs promise.
+
+**Verify:** `sed -n '173p' ralph-local.sh`; `git branch -a | grep -P '[^\x00-\x7F]'` on the consumer.
+
+**Fix.** Sanitize to the safe set and collapse: `... | iconv -f utf8 -t ascii//TRANSLIT 2>/dev/null | tr -c 'a-z0-9-' '-' | tr -s '-' | sed 's/^-//;s/-$//' | head -c 40`. Fixture test with an em-dash title.
+
+**Acceptance.** An em-dash/emoji title produces a `[a-z0-9-]`-only branch; ASCII titles unchanged.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.
@@ -273,5 +449,8 @@ grep -n "sonar-project.properties\|sonarcloud.properties" scripts/compose-sonar-
 3. **Items 4, 5, 6** — small, mechanical/decisions; batchable in an afternoon (still **separate PRs** — different concerns).
 4. **Item 3** (task_flow) + **Item 7** (CLAUDE.md) + **Item 8** (drift) — decisions; do once the maintainer rules on direction.
 5. ~~**Items 12 + 13** (consumer Sonar)~~ — ✅ **DONE via #59** (root engine in `VENDORED_EXCLUSIONS` + `--write` emits both `.sonarcloud.properties` and `sonar-project.properties`). FOLLOW-UP 10 was already merged (#54). **Remaining sliver:** wire `/setup`/adoption to call `compose-sonar-properties.mjs --write` so consumers get `.sonarcloud.properties` written automatically (otherwise they only inherit it by re-composing by hand).
+6. **Items 14–17 (Night Shift kill chain) — do these BEFORE anyone runs Ralph AFK again.** Each alone blocks a green slice forever: 15 + 16 first (both edit `skills/run-acceptance/SKILL.md` — still separate PRs, one per concern), then 14 (structured result contract in `ralph-local.sh`/`ralph-lib.sh` + the skill's output step — design it so 16's sanity check feeds it), then 17 (plan↔tdd channel alignment). Validation for all four exists on the consumer: belong-marketplace PR #17 + session log `14-20260603-191849.log` (8 iterations, green code, zero green registrations).
+7. **Items 18–19** (pre-flight + budget accounting) — make the loop's failures diagnosable and its budget contract real. 19 touches `ralph_call_claude_with_retry`, so land 14 first (same file region).
+8. **Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization) — small, mechanical, each with fixture tests; batchable in an afternoon (separate PRs).
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
