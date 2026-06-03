@@ -31,7 +31,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-pre.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js"
           }
         ]
       }
@@ -42,7 +42,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/hooks/webfetch-cache-post.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js"
           }
         ]
       },
@@ -51,7 +51,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/hooks/context-monitor.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js"
           }
         ]
       }
@@ -63,7 +63,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
 Then ensure each hook is executable:
 
 ```bash
-chmod +x hooks/*.js
+chmod +x .claude/hooks/*.js
 ```
 
 Restart Claude Code. The session-start log emits the active hook list; if a hook fails to load, the failure appears immediately in stderr.
