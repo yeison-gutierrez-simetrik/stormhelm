@@ -34,7 +34,7 @@ function walk(dir, acc = []) {
   if (!existsSync(dir)) return acc;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) { if (!['node_modules', '.git', 'task_flow'].includes(e.name)) walk(p, acc); }
+    if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walk(p, acc); }
     else if (e.name.endsWith('.md')) acc.push(p);
   }
   return acc;

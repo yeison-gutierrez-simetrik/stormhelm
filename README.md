@@ -384,6 +384,8 @@ stormhelm/
     ⭐ NEW skills added in this iteration
 ```
 
+> **Want to see a project that adopted Stormhelm?** This repo is its own living example — it manages itself with its own conventions (skills, `§N` rules, invariants, ADRs, traceability). The `skills/`, `agents/`, `hooks/`, and `docs/engineering/` directories above *are* the reference for "what an adopted project looks like", always current because CI gates keep them consistent. (An earlier static `task_flow/` sample was removed because a hand-frozen copy drifts from the live framework and can't be CI-checked; dogfooding is the example that can't go stale.)
+
 ## How a skill loads its rules (progressive disclosure)
 
 Skills do not read all 122 rules; they declare which files they need. Example excerpt from `grill-me/SKILL.md`:
