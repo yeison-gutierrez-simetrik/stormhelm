@@ -89,6 +89,13 @@ if [ -z "$ISSUE_NUM" ]; then
     exit 0
   fi
   echo "🤖 Queue mode (worker ${WORKER_ID}): $(echo "$READY" | tr '\n' ' ')"
+  # ⚠️ Order caveat: issues are processed in `gh issue list` order (created DESC),
+  # NOT slice-dependency order. If a dependent slice runs before its foundation
+  # lands, its gate/acceptance blocks → wasted iterations. Until dependency-aware
+  # ordering ships (the DAG already exists via group-slice-issues.mjs /
+  # parse-layers-affected.mjs), queue mode ASSUMES order-tolerant / independent
+  # slices — queue a dependent backlog and you may wake up to ralph-blocked issues.
+  echo "⚠️  Queue mode processes in gh default order (not dependency order) — it assumes independent/order-tolerant slices. For a foundation→dependents backlog, run the foundation issue(s) first by number." >&2
   queue_rc=0
   for n in $READY; do
     echo ""; echo "════════ Issue #$n ════════"
