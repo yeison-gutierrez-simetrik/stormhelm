@@ -204,6 +204,43 @@ ralph_scenario_failed() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# env_preflight
+#
+# Validate the EXECUTION ENVIRONMENT before iteration 1: a down Docker
+# daemon or placeholder secrets fail every iteration identically — no
+# code edit can fix them, so burning iterations on them is pure waste
+# (live: ~25 min / 3 iterations on a stopped daemon, fixed in seconds
+# once diagnosed).
+#
+# Checks:
+#   1. testcontainers declared (§31 test-real default) → docker daemon
+#      must answer. Heuristics: "@testcontainers/ in package.json (TS)
+#      or testcontainers in pyproject.toml / requirements*.txt (Python).
+#   2. RALPH_PREFLIGHT_CMD (consumer hook point): if set, must exit 0.
+#      Stack-specific checks (env-var sentinels, service health) belong
+#      there or in the stack capability — not hardcoded here.
+#
+# Prints an actionable message and returns 1 on the first failure;
+# returns 0 (silent) when the environment is ready.
+# ──────────────────────────────────────────────────────────────────────
+ralph_env_preflight() {
+  if grep -qs '"@testcontainers/' package.json \
+     || grep -qs 'testcontainers' pyproject.toml requirements.txt requirements-dev.txt 2>/dev/null; then
+    if ! docker info >/dev/null 2>&1; then
+      echo "❌ Docker daemon not running — the acceptance stack uses testcontainers (§31). Start Docker and relaunch."
+      return 1
+    fi
+  fi
+  if [ -n "${RALPH_PREFLIGHT_CMD:-}" ]; then
+    if ! eval "$RALPH_PREFLIGHT_CMD" >/dev/null 2>&1; then
+      echo "❌ RALPH_PREFLIGHT_CMD failed: ${RALPH_PREFLIGHT_CMD} — fix the environment and relaunch."
+      return 1
+    fi
+  fi
+  return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # file_mtime <path>
 #
 # Portable mtime-as-epoch (GNU stat on Linux, BSD stat on macOS).
@@ -842,6 +879,7 @@ iteration_end() { ralph_iteration_end "$@"; }
 scenario_passed() { ralph_scenario_passed "$@"; }
 scenario_failed() { ralph_scenario_failed "$@"; }
 file_mtime() { ralph_file_mtime "$@"; }
+env_preflight() { ralph_env_preflight "$@"; }
 acceptance_result_check() { ralph_acceptance_result_check "$@"; }
 log_scenarios_from_result() { ralph_log_scenarios_from_result "$@"; }
 git_action() { ralph_git_action "$@"; }

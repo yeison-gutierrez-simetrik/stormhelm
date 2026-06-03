@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -26,7 +26,7 @@ const TEMPLATES = join(here, '..', '..', 'templates');
 const MOCK_BIN = join(here, 'fixtures', 'ralph-mock-bin');
 
 // Make sure the mock executables are runnable even if the checkout dropped the bit.
-for (const m of ['gh', 'claude']) chmodSync(join(MOCK_BIN, m), 0o755);
+for (const m of ['gh', 'claude', 'docker']) chmodSync(join(MOCK_BIN, m), 0o755);
 
 // Stand up a throwaway consumer with the Ralph engine co-located at its root, a git
 // repo (the loop runs `git checkout -b`), and a session-log dir.
@@ -203,6 +203,41 @@ test('FU-14: failing result file → failure_reason recorded in iteration.comple
     assert.match(fail.details.reason, /exit_code=1: mock forced failure/);
     const scnFail = ev.find((e) => e.event === 'ralph.scenario.failed');
     assert.equal(scnFail?.details?.scenario, 'scn-001', 'per-scenario failure fed from the result file');
+  });
+});
+
+// ── FOLLOW-UP 18: environment pre-flight ──────────────────────────────────────
+
+// T13 — testcontainers declared + Docker down → exit BEFORE iteration 1, actionable
+// message, issue NOT labeled ralph-blocked (operator problem, not issue problem).
+test('FU-18: testcontainers + docker down → fail fast before iteration 1', () => {
+  withConsumer((dir) => {
+    writeFileSync(join(dir, 'package.json'), '{ "devDependencies": { "@testcontainers/postgresql": "^10.0.0" } }');
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_DOCKER_DOWN: '1' });
+    assert.notEqual(status, 0);
+    assert.match(out, /Docker daemon not running/);
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.preflight.failed'));
+    assert.ok(!names(ev).includes('ralph.iteration.started'), 'no iteration burned on an unfixable env');
+    assert.ok(!names(ev).includes('ralph.issue.blocked'), 'env failure must not ralph-block the issue');
+  });
+});
+
+// T14 — testcontainers declared + Docker healthy → unchanged happy path.
+test('FU-18: testcontainers + docker up → normal run', () => {
+  withConsumer((dir) => {
+    writeFileSync(join(dir, 'package.json'), '{ "devDependencies": { "@testcontainers/postgresql": "^10.0.0" } }');
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+  });
+});
+
+// T15 — RALPH_PREFLIGHT_CMD consumer hook: non-zero blocks the launch.
+test('FU-18: RALPH_PREFLIGHT_CMD failing → fail fast with the command named', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { RALPH_PREFLIGHT_CMD: 'test -f /nonexistent-sentinel' });
+    assert.notEqual(status, 0);
+    assert.match(out, /RALPH_PREFLIGHT_CMD failed/);
   });
 });
 

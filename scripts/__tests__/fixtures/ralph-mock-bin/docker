@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Mock `docker` for the Ralph loop test (env pre-flight, FOLLOW-UP 18).
+#   MOCK_DOCKER_DOWN  if set, `docker info` fails (daemon down); else healthy.
+if [ "${1:-}" = "info" ]; then
+  [ -n "${MOCK_DOCKER_DOWN:-}" ] && exit 1
+  exit 0
+fi
+exit 0
