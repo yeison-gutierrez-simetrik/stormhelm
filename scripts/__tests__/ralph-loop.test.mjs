@@ -270,6 +270,28 @@ test('FU-19: budget:1k label → budget_exceeded block path engages', () => {
   });
 });
 
+// ── FOLLOW-UP 22: branch slug sanitization ────────────────────────────────────
+
+// T18 — em-dash/accents/emoji in the issue title never reach the git ref.
+test('FU-22: non-ASCII title → [a-z0-9-]-only branch slug', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: '02-Stripe Connect — Onboarding, Sí! 🚀' });
+    assert.equal(status, 0);
+    const m = out.match(/on branch (\S+)/);
+    assert.ok(m, `branch line missing in: ${out}`);
+    assert.match(m[1], /^agent\/feature-[a-z0-9-]+-1$/, `non-sanitized branch: ${m[1]}`);
+    assert.ok(!/[^\x20-\x7E\n]/.test(m[1]), 'branch must be pure ASCII');
+  });
+});
+
+// T19 — plain ASCII titles keep their obvious slug shape.
+test('FU-22: ASCII title unchanged in spirit (lowercased, dashed)', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: 'Add Webhook Retry' });
+    assert.match(out, /on branch agent\/feature-add-webhook-retry-1/);
+  });
+});
+
 // T12 — unit coverage for ralph_acceptance_result_check: every rejection reason.
 test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran<expected; accepts green', () => {
   withConsumer((dir) => {

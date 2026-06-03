@@ -185,7 +185,22 @@ check_budget_or_block() {
 # ──────────────────────────────────────────────────────────────────────
 # Branch setup
 # ──────────────────────────────────────────────────────────────────────
-SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' | tr ' ' '-' | tr -d ',' | tr '[:upper:]' '[:lower:]' | head -c 40)
+# Sanitize the issue title into a [a-z0-9-]-only slug: non-ASCII (em-dash,
+# accents, emoji) passed straight through before and landed in the git ref
+# (e.g. a literal U+2014 in the branch name), breaking naive tooling and the
+# documented agent/feature-<slug>-<NNN> greppability. tr -c converts every
+# non-safe byte (incl. the newline) to '-', -s collapses runs, and the final
+# sed strips edge dashes AFTER head so truncation can't leave a trailing '-'.
+# NB: iconv exits non-zero on untransliterable bytes (e.g. emoji on BSD
+# iconv) while still emitting the transliterated prefix — '|| true' keeps
+# pipefail from killing the script and the partial output is exactly what
+# we want (the bad byte just disappears instead of becoming a dash).
+SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' \
+  | tr '[:upper:]' '[:lower:]' \
+  | { iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null || true; } \
+  | tr -c 'a-z0-9' '-' | tr -s '-' | head -c 40 | sed 's/^-//; s/-$//')
+# iconv missing/failing yields an empty slug — never an empty ref segment.
+[ -n "$SLUG" ] || SLUG="issue"
 BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
 
 if git checkout -b "$BRANCH" 2>/dev/null; then
