@@ -34,6 +34,13 @@ RALPH_WORKER_ID="${RALPH_WORKER_ID:-w1}"
 RALPH_ISSUE_NUMBER=""
 RALPH_ITERATION=0
 RALPH_TOKENS_CUMULATIVE=0
+RALPH_TOKENS_DELTA=0
+# Per-call token ledger. ralph_call_claude_with_retry runs inside $(…)
+# command substitutions — a SUBSHELL — so any global it sets dies with
+# the subshell and the parent's cumulative would stay 0 forever. The
+# function appends each call's tokens to this file instead; the parent
+# syncs from it (ralph_sync_tokens) before every budget decision.
+RALPH_TOKENS_FILE=""
 
 # ──────────────────────────────────────────────────────────────────────
 # init_session <issue_number>
@@ -54,9 +61,11 @@ ralph_init_session() {
 
   mkdir -p .planning/ralph-sessions
   RALPH_SESSION_LOG=".planning/ralph-sessions/${issue}-${timestamp}.log"
+  RALPH_TOKENS_FILE=".planning/ralph-sessions/${issue}-${timestamp}.tokens"
 
-  # Touch the file so subsequent log_event appends succeed even on first call
+  # Touch the files so subsequent appends succeed even on first call
   : > "$RALPH_SESSION_LOG"
+  : > "$RALPH_TOKENS_FILE"
 
   ralph_log_event "info" "ralph.session.started" \
     "{\"script_version\":\"1.0\",\"worker_id\":$(ralph_json_string "${RALPH_WORKER_ID:-w0}"),\"working_dir\":\"$(pwd)\"}"
@@ -139,6 +148,7 @@ ralph_log_event() {
       --arg worker "$RALPH_WORKER_ID" \
       --argjson issue "${RALPH_ISSUE_NUMBER:-0}" \
       --argjson iter "$RALPH_ITERATION" \
+      --argjson delta "${RALPH_TOKENS_DELTA:-0}" \
       --argjson cumulative "$RALPH_TOKENS_CUMULATIVE" \
       --argjson details "$details" \
       '{
@@ -149,18 +159,21 @@ ralph_log_event() {
         workerId: $worker,
         issueNumber: $issue,
         iteration: $iter,
-        tokensConsumedDelta: 0,
+        tokensConsumedDelta: $delta,
         tokensConsumedCumulative: $cumulative,
         details: $details
       }' 2>/dev/null); then
     echo "$line" >> "$RALPH_SESSION_LOG"
   else
     # Fallback: emit a line marking the malformed details so we have an audit trail.
-    printf '{"timestamp":"%s","level":"%s","event":"%s","sessionId":"%s","workerId":"%s","issueNumber":%s,"iteration":%d,"tokensConsumedDelta":0,"tokensConsumedCumulative":%d,"details":{"_malformed":true}}\n' \
+    printf '{"timestamp":"%s","level":"%s","event":"%s","sessionId":"%s","workerId":"%s","issueNumber":%s,"iteration":%d,"tokensConsumedDelta":%d,"tokensConsumedCumulative":%d,"details":{"_malformed":true}}\n' \
       "$timestamp" "$level" "$event" "$RALPH_SESSION_ID" "$RALPH_WORKER_ID" \
-      "${RALPH_ISSUE_NUMBER:-0}" "$RALPH_ITERATION" "$RALPH_TOKENS_CUMULATIVE" \
+      "${RALPH_ISSUE_NUMBER:-0}" "$RALPH_ITERATION" "${RALPH_TOKENS_DELTA:-0}" "$RALPH_TOKENS_CUMULATIVE" \
       >> "$RALPH_SESSION_LOG"
   fi
+  # The delta is consumed by exactly one event (the first one after the
+  # sync that produced it); later events report delta 0 until a new call.
+  RALPH_TOKENS_DELTA=0
 }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -611,14 +624,39 @@ ralph_add_tokens() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# sync_tokens
+#
+# Fold the per-call token ledger (RALPH_TOKENS_FILE, appended to by
+# ralph_call_claude_with_retry from inside its command-substitution
+# subshell) into the parent shell's RALPH_TOKENS_CUMULATIVE, recording
+# the increase as RALPH_TOKENS_DELTA for the next log_event. Idempotent
+# and tolerant: missing file or no growth → no-op.
+# ──────────────────────────────────────────────────────────────────────
+ralph_sync_tokens() {
+  if [ -z "$RALPH_TOKENS_FILE" ] || [ ! -f "$RALPH_TOKENS_FILE" ]; then
+    return 0
+  fi
+  local total
+  total=$(awk '{ s += $1 } END { print s + 0 }' "$RALPH_TOKENS_FILE" 2>/dev/null || echo 0)
+  if [[ "$total" =~ ^[0-9]+$ ]] && [ "$total" -gt "$RALPH_TOKENS_CUMULATIVE" ]; then
+    RALPH_TOKENS_DELTA=$(( total - RALPH_TOKENS_CUMULATIVE ))
+    RALPH_TOKENS_CUMULATIVE="$total"
+  fi
+  return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # check_budget <budget_tokens>
 #
 # Return 0 if cumulative <= budget, 1 if exceeded. Caller decides what
 # to do (typically: call ralph_block_issue with reason "budget-exceeded").
 # Budget 0 means "no budget configured" → always returns 0.
+# Syncs the token ledger first, so the decision always sees the latest
+# call's usage.
 # ──────────────────────────────────────────────────────────────────────
 ralph_check_budget() {
   local budget="${1:-0}"
+  ralph_sync_tokens
   if [ "$budget" -le 0 ]; then
     return 0
   fi
@@ -672,17 +710,29 @@ ralph_call_claude_with_retry() {
 
   while [ "$attempt" -le "$max_attempts" ]; do
     local output
-    # Run claude, capture stdout, redirect stderr to the temp file
-    if output=$(claude -p "$prompt" 2> "$stderr_file"); then
-      # Success — extract tokens (best-effort) and update cumulative
-      local combined tokens
-      combined="${output}
-$(cat "$stderr_file")"
-      tokens=$(ralph_extract_tokens_from_output "$combined")
+    # Run claude with JSON output: the result envelope carries usage data
+    # (plain-text output has none — token accounting reported 0 forever).
+    if output=$(claude -p "$prompt" --output-format json 2> "$stderr_file"); then
+      # Extract usage and append to the per-call ledger. This function
+      # runs inside $(…) subshells, so updating the parent's cumulative
+      # directly is impossible — the file is the channel (see sync_tokens).
+      local tokens result_text
+      tokens=$(ralph_extract_tokens_from_output "$output")
       if [ "$tokens" -gt 0 ]; then
-        ralph_add_tokens "$tokens"
+        ralph_add_tokens "$tokens"   # keeps non-subshell callers correct
+        if [ -n "$RALPH_TOKENS_FILE" ]; then
+          echo "$tokens" >> "$RALPH_TOKENS_FILE"
+        fi
       fi
-      printf '%s' "$output"
+      # Hand the caller the assistant's TEXT (transcript consumers parse
+      # prose/markers, not envelopes); fall back to raw output if the
+      # envelope shape is unexpected.
+      result_text=$(printf '%s' "$output" | jq -r '.result // empty' 2>/dev/null)
+      if [ -n "$result_text" ]; then
+        printf '%s' "$result_text"
+      else
+        printf '%s' "$output"
+      fi
       return 0
     fi
 
@@ -899,3 +949,4 @@ parse_budget_label() { ralph_parse_budget_label "$@"; }
 extract_tokens_from_output() { ralph_extract_tokens_from_output "$@"; }
 add_tokens() { ralph_add_tokens "$@"; }
 check_budget() { ralph_check_budget "$@"; }
+sync_tokens() { ralph_sync_tokens "$@"; }

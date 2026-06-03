@@ -241,6 +241,35 @@ test('FU-18: RALPH_PREFLIGHT_CMD failing → fail fast with the command named', 
   });
 });
 
+// ── FOLLOW-UP 19: real token accounting ───────────────────────────────────────
+
+// T16 — usage flows from the JSON envelope to the NDJSON: cumulative > 0
+// (was 0 across every event of every live iteration — the budget gate was dead).
+test('FU-19: token usage from --output-format json lands in the session log', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+    const ev = readEvents(dir, 1);
+    const maxCumulative = Math.max(...ev.map((e) => e.tokensConsumedCumulative));
+    assert.ok(maxCumulative >= 1540, `expected cumulative >= one call's usage, got ${maxCumulative}`);
+    assert.ok(ev.some((e) => e.tokensConsumedDelta > 0), 'at least one event carries a non-zero delta');
+  });
+});
+
+// T17 — a tiny budget label now actually engages the §63/§65 gate:
+// blocked with budget_exceeded (this path was unreachable before).
+test('FU-19: budget:1k label → budget_exceeded block path engages', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '5'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:1k' });
+    assert.notEqual(status, 0);
+    assert.match(out, /Budget exceeded/);
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.budget.exceeded'));
+    assert.equal(endStatus(ev), 'budget_exceeded');
+    assert.ok(names(ev).includes('ralph.issue.blocked'), 'budget exhaustion blocks the issue');
+  });
+});
+
 // T12 — unit coverage for ralph_acceptance_result_check: every rejection reason.
 test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran<expected; accepts green', () => {
   withConsumer((dir) => {
