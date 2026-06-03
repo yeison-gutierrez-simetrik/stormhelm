@@ -47,10 +47,55 @@ LAST_REVIEWER_SEVERITY=""
 
 # ──────────────────────────────────────────────────────────────────────
 # Argument parsing
+#   ./ralph-local.sh <issue> [max-iter]            positional (back-compat)
+#   ./ralph-local.sh <issue> --max-iterations N    override the iteration cap
+#   ./ralph-local.sh <issue> --worker-id ID        label this worker (parallel runs)
+#   ./ralph-local.sh                               QUEUE MODE — work the whole
+#                                                  open `ralph-ready` backlog
+# The flags match what README + §63/§107 already document; previously the script
+# only accepted positionals, so `--max-iterations`/`--worker-id` were silently
+# mis-parsed as the issue number.
 # ──────────────────────────────────────────────────────────────────────
-ISSUE_NUM="${1:?Uso: ./ralph-local.sh <issue-number> [max-iterations]}"
-MAX_ITER="${2:-30}"
+ISSUE_NUM=""
+MAX_ITER=""
+WORKER_ID="${RALPH_WORKER_ID:-w0}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --max-iterations) MAX_ITER="${2:?--max-iterations requires a value}"; shift 2 ;;
+    --max-iterations=*) MAX_ITER="${1#*=}"; shift ;;
+    --worker-id) WORKER_ID="${2:?--worker-id requires a value}"; shift 2 ;;
+    --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
+    --) shift; break ;;
+    -*) echo "❌ flag desconocido: $1" >&2; exit 2 ;;
+    *)
+      if [ -z "$ISSUE_NUM" ]; then ISSUE_NUM="$1"
+      elif [ -z "$MAX_ITER" ]; then MAX_ITER="$1"
+      else echo "❌ argumento inesperado: $1" >&2; exit 2; fi
+      shift ;;
+  esac
+done
+MAX_ITER="${MAX_ITER:-30}"
+export RALPH_WORKER_ID="$WORKER_ID"
 BRANCH_PREFIX="agent/feature"
+
+# Queue mode (§63/§107): no issue → process every OPEN `ralph-ready` issue in turn.
+# Each issue is run via a self-invocation, so the per-issue path is byte-identical
+# to a single-issue run; a blocked issue (exit≠0) does not stop the queue. This is
+# what makes the Night Shift "run it and walk away" against the whole backlog.
+if [ -z "$ISSUE_NUM" ]; then
+  READY=$(gh issue list --label ralph-ready --state open --json number --jq '.[].number' 2>/dev/null || true)
+  if [ -z "$READY" ]; then
+    echo "✅ No hay issues 'ralph-ready' abiertos. Nada que hacer."
+    exit 0
+  fi
+  echo "🤖 Queue mode (worker ${WORKER_ID}): $(echo "$READY" | tr '\n' ' ')"
+  queue_rc=0
+  for n in $READY; do
+    echo ""; echo "════════ Issue #$n ════════"
+    "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
+  done
+  exit "$queue_rc"
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # §63 label-contract validation (must run BEFORE init_session so we
@@ -298,5 +343,5 @@ ralph_block_issue "$ISSUE_NUM" \
   "$REVIEWER_SECTION" \
   "$BLOCKED_COMMENT_TEMPLATE"
 
-ralph_end_session "budget_exceeded" "max-iterations-reached"
+ralph_end_session "blocked" "max-iterations-reached"
 exit 1

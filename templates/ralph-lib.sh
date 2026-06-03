@@ -59,7 +59,7 @@ ralph_init_session() {
   : > "$RALPH_SESSION_LOG"
 
   ralph_log_event "info" "ralph.session.started" \
-    "{\"script_version\":\"1.0\",\"working_dir\":\"$(pwd)\"}"
+    "{\"script_version\":\"1.0\",\"worker_id\":$(ralph_json_string "${RALPH_WORKER_ID:-w0}"),\"working_dir\":\"$(pwd)\"}"
 }
 
 # ──────────────────────────────────────────────────────────────────────
