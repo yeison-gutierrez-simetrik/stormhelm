@@ -41,7 +41,14 @@ A spec says "what." A scenario says "observable result." A plan says **exactly w
 
 ## Outputs
 
-- A plan section added to the issue body (via `gh issue comment` or by editing the issue body).
+- A plan section added to the issue — **initial plan in the issue BODY
+  (`gh issue edit --body`); amendments as COMMENTS (`gh issue comment`).**
+  This is a contract shared with `/tdd` and the Ralph loop: implementers read
+  body + comments (`gh issue view <N>` **and** `gh issue view <N> --comments` —
+  the former omits comments, the latter omits the body). Keeping the initial
+  plan in the body makes the issue self-contained; comments are the auditable
+  amendment trail. Never post the *only* copy of the plan somewhere
+  implementers are not contracted to read.
 - The plan template (see below).
 - Returned to the workflow for `/tdd` consumption.
 
@@ -132,7 +139,7 @@ If schema changes:
 
 ### Step 6 — Write the plan
 
-Append to the issue body (or as comment):
+Append to the issue **body** (amendments to an existing plan go as comments — see Outputs):
 
 ```markdown
 ## Plan
@@ -176,7 +183,9 @@ Append to the issue body (or as comment):
 
 ### Step 7 — Save and return
 
-Save plan to issue (via `gh issue edit --body` or `gh issue comment`). Return path to workflow.
+Save the plan to the issue: **initial plan → `gh issue edit --body`; amendment
+to an already-planned issue → `gh issue comment`** (the channel contract in
+Outputs). Return path to workflow.
 
 ## Integration with the framework
 

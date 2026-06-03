@@ -38,7 +38,20 @@ TDD is the only reliable way to produce code that matches the spec without drift
 
 ## Inputs
 
-- The issue (from `/to-issues`) with its plan (from `/plan`).
+- The issue (from `/to-issues`) with its plan (from `/plan`). **Read the FULL
+  issue — body AND comments:**
+
+  ```bash
+  gh issue view <N>                # title, labels, body
+  gh issue view <N> --comments     # the comment thread — NOT included above
+  ```
+
+  `/plan` may post the plan — and any **mid-flight amendments** — as issue
+  **comments**, and `gh issue view <N>` alone does **not** show them (nor does
+  `--comments` show the body — the two calls are complementary, not
+  alternatives). Skipping the comments means implementing against a stale or
+  missing plan: on the first live AFK run a plan amendment posted as a comment
+  was invisible to the agent for 5 straight iterations.
 - The scenarios it covers (`features/<context>/*.feature`).
 - The active capability stack.
 - `docs/CONTEXT.md`.

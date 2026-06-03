@@ -208,7 +208,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   # rate-limit paths below were unreachable and a CLI failure took the
   # loop down without marking the issue ralph-blocked.
   TDD_RC=0
-  TDD_OUT=$(ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the issue body, the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." 2>&1) || TDD_RC=$?
+  TDD_OUT=$(ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments) — the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." 2>&1) || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
