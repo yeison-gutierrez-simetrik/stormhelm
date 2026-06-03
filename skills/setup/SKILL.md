@@ -331,6 +331,18 @@ cp "$STORMHELM_PATH"/hooks/*.js  .claude/hooks/
 cp "$STORMHELM_PATH/hooks/README.md" .claude/hooks/README.md   # install + per-hook config reference
 chmod +x .claude/hooks/*.js
 
+# Provenance stamp (cheap, optional): record which framework commit each copied
+# script/hook came from, so a later re-sync (see "Re-running /setup") can tell what
+# is stale without a live link to the framework. Inserted after a shebang if present,
+# else at the top. awk is portable (the sed -i flag differs across macOS/Linux). The
+# rule drops any pre-existing `// stormhelm:` line first, so it is **idempotent** —
+# safe to re-run on already-stamped files (a re-sync re-copies pristine files anyway).
+SH="$(git -C "$STORMHELM_PATH" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+for f in scripts/*.mjs .claude/hooks/*.js; do
+  awk -v s="// stormhelm: $SH" '/^\/\/ stormhelm:/{next} NR==1&&/^#!/{print;print s;st=1;next} !st{print s;st=1} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+done
+chmod +x .claude/hooks/*.js   # re-assert after rewrite
+
 # .gitignore additions for ephemeral directories
 cat >> .gitignore <<'EOF'
 
@@ -460,6 +472,21 @@ Choose:
   ○ Diff (show what would change, do not modify)
   ○ Cancel
 ```
+
+### Re-syncing copied framework artifacts
+
+The framework is adopted by **copying** files (README Phase 0 + the copy step above): `.claude/skills/`, `.claude/agents/`, `.claude/hooks/`, `scripts/`, and `docs/engineering/`. Those copies **drift** as the upstream framework evolves — there is no live link, and post-adoption the consumer no longer has `$STORMHELM_PATH` (it was a throwaway clone). The provenance stamp (`// stormhelm: <sha>`) in each copied script/hook records the version it came from. To refresh an adopted project to a newer framework version:
+
+1. **Re-clone the framework** at the target version: `git clone … /tmp/stormhelm` (set `STORMHELM_PATH=/tmp/stormhelm`).
+2. **Overwrite the framework-owned artifacts only:**
+   - `.claude/skills/`, `.claude/agents/`, `.claude/hooks/` (+ `hooks/README.md`)
+   - the consumer-runtime `scripts/` set (the `for s in …` list above) — re-stamped automatically
+   - `docs/engineering/` (the `§N` rules), then re-run the AGENTS.md generation (it prompts before overwriting your personalized index).
+3. **Never touch product-owned artifacts** — these are yours, the framework does not own them:
+   `docs/constitution.md`, `docs/CONTEXT.md`, `docs/slos.md`, `docs/specs/`, `docs/adr/`, `docs/decisions/`, `docs/audit/`, `features/`, `issues/`, `src/`, and your `.claude/settings.json` customizations.
+4. **Verify:** `node scripts/check-invariants.mjs` + your test suite still pass; the stamps now show the new `<sha>`.
+
+The split **is** the rule: *framework-owned → overwrite on re-sync; product-owned → never touched.* (A `/setup --resync` flag that automates steps 2-3 with exactly this allow/deny split is a candidate; until it ships, this is the manual procedure — the same discipline applied by hand in real adoptions.)
 
 ## Non-destructive
 
