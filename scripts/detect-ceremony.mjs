@@ -21,6 +21,13 @@
 // deliberately simple; over-classification is safe (it only adds ceremony, which a
 // human can downgrade via an audited label flip — never auto-degraded, ADR safeguard 3).
 //
+// LAYOUT ASSUMPTION: context detection assumes the §3 layer-first hexagonal layout
+// (`src/<layer>/<ctx>/…`, layers = KNOWN_LAYERS below). The MODULE count — the primary
+// §107 trigger — is layout-independent and always works. Only cross-context detection is
+// layout-sensitive: a project that nests differently (e.g. `src/features/<ctx>`, or no
+// `src/` prefix) UNDER-detects cross-context — safe by design (conservative + one-way
+// escalation), but set `feature:cross-context` by hand if your layout diverges.
+//
 // Usage:  node scripts/detect-ceremony.mjs <issue1>.md <issue2>.md ...
 // Output: JSON { modules, module_count, contexts, context_count, labels }
 // Zero external deps beyond the sibling parser. Exit 0 on success; 2 on usage error.
