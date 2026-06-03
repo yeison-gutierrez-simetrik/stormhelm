@@ -144,6 +144,21 @@ ralph_log_event "info" "ralph.contract.validated" \
   "{\"scenarios\":$(ralph_json_string "$SCENARIOS"),\"budget\":$(ralph_json_string "$BUDGET"),\"budget_tokens\":${BUDGET_TOKENS},\"max_iterations\":${MAX_ITER}}"
 
 # ──────────────────────────────────────────────────────────────────────
+# Environment pre-flight — fail fast BEFORE iteration 1. An environment
+# failure (Docker daemon down, placeholder secrets) fails every iteration
+# identically and no code edit can fix it. This is an OPERATOR problem,
+# not an issue problem: exit without labeling ralph-blocked so the issue
+# stays ralph-ready for the relaunch.
+# ──────────────────────────────────────────────────────────────────────
+if ! PREFLIGHT_MSG=$(ralph_env_preflight); then
+  echo "$PREFLIGHT_MSG" >&2
+  ralph_log_event "error" "ralph.preflight.failed" \
+    "{\"reason\":$(ralph_json_string "$PREFLIGHT_MSG")}"
+  ralph_end_session "blocked" "env-preflight-failed"
+  exit 1
+fi
+
+# ──────────────────────────────────────────────────────────────────────
 # Helper: after each successful claude call, check if we've exceeded
 # the issue's budget. If yes, block the issue and exit cleanly.
 # ──────────────────────────────────────────────────────────────────────
