@@ -171,6 +171,9 @@ function emit(merged, capNames) {
     lines.push('# Includes framework-vendored dirs (scripts/**, .claude/**) so SonarCloud');
     lines.push('# does not flag copied framework infra as product defects (whole-repo Automatic');
     lines.push('# Analysis ignores sonar.sources). Plus any active capability exclusions.');
+    lines.push('# NOTE: scripts/** is a BLANKET exclusion — keep product code in src/, never under');
+    lines.push('# scripts/ (it would be silently un-analyzed). Re-run this composer after a framework');
+    lines.push('# re-sync so an existing sonar-project.properties inherits these exclusions.');
     lines.push(`sonar.exclusions=${merged.exclusions.join(',')}`);
   }
   return lines.join('\n') + '\n';
