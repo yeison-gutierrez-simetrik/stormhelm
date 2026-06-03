@@ -25,7 +25,7 @@ Run from your project root (a freshly `/setup`-ed project for the first test, th
 
 ### Stormhelm scaffolding
 
-- [ ] **`.claude/settings.json` registers `git-guardrails`.** Open the file and confirm a `PreToolUse` entry with `matcher: "Bash"` pointing at `$CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js`. If missing, copy from `templates/claude-config/settings.json.tmpl`.
+- [ ] **`.claude/settings.json` registers `git-guardrails`.** Open the file and confirm a `PreToolUse` entry with `matcher: "Bash"` pointing at `$CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js`. If missing, re-run `/setup` — it writes that `PreToolUse` entry (see `skills/setup`, §113 hook wiring).
 - [ ] **Hook is executable.** `ls -l .claude/hooks/git-guardrails.js` shows execute bits.
 - [ ] **`ralph-local.sh` is executable.** `ls -l ralph-local.sh` (project root; `/setup` delivers it there beside `ralph-lib.sh`).
 - [ ] **`ralph-lib.sh` is in the same directory** as `ralph-local.sh`.
