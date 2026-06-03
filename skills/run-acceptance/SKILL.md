@@ -67,13 +67,40 @@ If any check exits non-zero, stop and report it — do not start the workflow.
 - Verify the issue's `scenarios:scn-NNN` labels exist.
 - Verify the corresponding `.feature` files exist and are unchanged from the approved versions (§58 — agent-modified `.feature` files fail this check).
 
-### Step 2 — Run @smoke scenarios (always)
+### Step 2 — Run @smoke scenarios (scoped to delivered + this-slice work)
+
+> **Why scoped, not global?** In a slice-group (§30), sibling slices' `.feature`
+> files are approved and committed **before** implementation — their step
+> definitions do not exist yet *by design* (§61). A global `@smoke` run reports
+> those sibling scenarios as `undefined` → non-zero exit → this gate would block
+> every slice until the **whole group** is implemented. Exclude scenarios owned
+> by **other open issues**; everything already delivered (closed issues) and
+> everything owned by **this** issue stays in scope.
 
 ```bash
-$BDD_RUNNER --tags=@smoke
+# ISSUE_NUM = the issue being gated.
+# Scenarios owned by OTHER open issues = siblings not yet implemented (§61).
+# Handles both label forms: scenarios:scn-021,scn-022 and scenarios:scn-021+022.
+SIBLING_SCNS=$(gh issue list --state open --json number,labels \
+  --jq "[.[] | select(.number != ${ISSUE_NUM}) | .labels[].name | select(startswith(\"scenarios:\"))] | join(\",\")" \
+  | tr ',+' '\n' | sed -E 's/^scenarios://; s/^scn-//; /^$/d; s/^/scn-/' \
+  | grep -E '^scn-[0-9]+$' | sort -u)
+
+if [ -n "$SIBLING_SCNS" ]; then
+  EXCLUDE=$(echo "$SIBLING_SCNS" | sed 's/^/@/' | tr '\n' '|' | sed 's/|$//; s/|/ or /g')
+  $BDD_RUNNER --tags "@smoke and not (${EXCLUDE})"
+else
+  $BDD_RUNNER --tags=@smoke
+fi
 ```
 
-If any `@smoke` scenario fails → **BLOCK**, return immediately. No point in running heavier gates.
+The tag expression is the standard cucumber tag-expression syntax (cucumber-js,
+behave and most Gherkin runners accept it); adapt the flag spelling if the
+active capability's runner differs.
+
+- If any **selected** `@smoke` scenario fails → **BLOCK**, return immediately. No point in running heavier gates.
+- An **empty selection is legitimate here** (early in a slice-group every `@smoke` scenario may belong to open siblings) — treat as pass and record "0 selected, N excluded (§61)" in the report. Contrast with Step 3, where an empty selection always means the filter is wrong.
+- A scenario owned by **this** issue is never excluded — if its steps are undefined, that is a real failure (the slice is missing step definitions), not a §61 exemption.
 
 ### Step 3 — Run @release scenarios for this slice
 
@@ -193,7 +220,7 @@ The reviewer's findings are appended to the acceptance report.
 
 | Gate | Result | Detail |
 |---|---|---|
-| @smoke scenarios | ✅ 12/12 | |
+| @smoke scenarios (scoped, §61) | ✅ 12/12 | 3 sibling-owned scn excluded |
 | @release scenarios (this slice) | ✅ 2/2 | scn-042, scn-043 passed |
 | Visual gate (§104) | ✅ | 3 viewports, dark mode, a11y tree clean |
 | Schemathesis (§105) | ⏭️ N/A | no public API in this slice |
