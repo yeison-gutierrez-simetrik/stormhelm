@@ -121,8 +121,17 @@ function collectActive(roots) {
   return order;
 }
 
+// Framework-vendored directories every consumer copies in via adoption + /setup:
+// the consumer-runtime scripts/ and the whole .claude/ tree (skills, agents, hooks).
+// These are framework infra, NOT product code — exclude them so a consumer's
+// SonarCloud gate (especially Automatic Analysis, which ignores `sonar.sources=src`
+// and scans the whole repo) doesn't flag framework code (execSync/RegExp/createHash
+// hotspots in the shipped scripts + hooks) as product defects. Standing exclusion for
+// every project, not capability-derived. See FOLLOW-UP 10.
+const VENDORED_EXCLUSIONS = ['scripts/**', '.claude/**'];
+
 function merge(caps) {
-  const out = { test_inclusions: [], coverage_exclusions: [], exclusions: [] };
+  const out = { test_inclusions: [], coverage_exclusions: [], exclusions: [...VENDORED_EXCLUSIONS] };
   for (const c of caps) {
     const s = c.frontmatter.sonar || {};
     for (const k of ['test_inclusions', 'coverage_exclusions', 'exclusions']) {
@@ -159,6 +168,12 @@ function emit(merged, capNames) {
     lines.push(`sonar.coverage.exclusions=${merged.coverage_exclusions.join(',')}`);
   }
   if (merged.exclusions.length) {
+    lines.push('# Includes framework-vendored dirs (scripts/**, .claude/**) so SonarCloud');
+    lines.push('# does not flag copied framework infra as product defects (whole-repo Automatic');
+    lines.push('# Analysis ignores sonar.sources). Plus any active capability exclusions.');
+    lines.push('# NOTE: scripts/** is a BLANKET exclusion — keep product code in src/, never under');
+    lines.push('# scripts/ (it would be silently un-analyzed). Re-run this composer after a framework');
+    lines.push('# re-sync so an existing sonar-project.properties inherits these exclusions.');
     lines.push(`sonar.exclusions=${merged.exclusions.join(',')}`);
   }
   return lines.join('\n') + '\n';
