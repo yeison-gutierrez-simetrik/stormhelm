@@ -2,7 +2,7 @@
 
 **Prerequisite:** you are on your Mac with `gh` authenticated against `yeison-gutierrez-simetrik/stormhelm`. The 7 branches and the backup branch already exist locally — verify with `git branch | grep -E 'feat/|docs/|backup/'`.
 
-The 7 PRs are independent except for two known auto-merge cases (noted below). Push order does not matter for git, but the recommended merge order in `.planning/improvements/consolidated-roadmap-2026-06.md` does matter for the framework's logical evolution.
+The 7 PRs are independent except for two known auto-merge cases (noted below). Push order does not matter for git, but the merge order does matter for the framework's logical evolution. (Historical note: these 7 PRs have all since merged.)
 
 ## Sanity check before pushing
 
