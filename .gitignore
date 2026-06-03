@@ -39,5 +39,10 @@ coverage/
 test-run-feature/
 test-run-feature-2/
 
+# Ephemeral Ralph (Night Shift) session logs — written by ralph-lib.sh at runtime.
+# .planning/ tracks dry-runs/, pr-bodies/, handoff/ deliberately; these logs are NOT
+# framework content and must never be committed (they also embed local working paths).
+.planning/ralph-sessions/
+
 # Contributor-local comparative analysis (not part of the shipped framework)
 Analisis-Comparativo-Frameworks-AI-Development.md
