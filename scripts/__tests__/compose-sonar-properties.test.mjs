@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, copyFileSync, rmSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -65,6 +65,26 @@ test('a capability that declares scripts/** itself is deduped, not duplicated', 
   const line = exclusionsLine(compose('cap-dup'));
   assert.equal(line, `sonar.exclusions=${VENDORED},src/**/foo/**`);
   assert.equal((line.match(/scripts\/\*\*/g) || []).length, 1, 'scripts/** must appear exactly once');
+});
+
+test('--write emits BOTH .sonarcloud.properties and sonar-project.properties (FOLLOW-UP 13)', () => {
+  // Automatic Analysis reads .sonarcloud.properties (not sonar-project.properties), so
+  // --write must produce both, each carrying the vendored exclusions.
+  const dir = mkdtempSync(join(tmpdir(), 'sonar-write-'));
+  try {
+    const capDst = join(dir, 'docs', 'engineering', 'capabilities', 'cap-plain');
+    mkdirSync(capDst, { recursive: true });
+    copyFileSync(join(FIXTURE_ROOT, 'docs/engineering/capabilities/cap-plain/CAPABILITY.md'), join(capDst, 'CAPABILITY.md'));
+    const r = spawnSync('node', [SCRIPT, '--write', 'cap-plain'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    for (const f of ['.sonarcloud.properties', 'sonar-project.properties']) {
+      assert.ok(existsSync(join(dir, f)), `${f} must be written`);
+      const line = readFileSync(join(dir, f), 'utf8').split('\n').find((l) => l.startsWith('sonar.exclusions='));
+      assert.equal(line, `sonar.exclusions=${VENDORED}`, `${f} must carry the full vendored exclusion set`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('--check round-trips: composing then --check against that output exits 0', () => {
