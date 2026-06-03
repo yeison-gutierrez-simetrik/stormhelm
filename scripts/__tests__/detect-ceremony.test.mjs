@@ -21,9 +21,11 @@ test('single module → feature:single-module, no cross-context', () => {
   assert.equal(r.context_count, 1);
 });
 
-test('>=3 modules (one context) → multi-module via module count, NOT cross-context', () => {
-  // 3 distinct modules under non-layer dirs → no contexts counted.
-  const r = detectCeremony([rec(['src/core/a.ts', 'src/core/b.ts', 'src/lib/c.ts'])]);
+test('>=3 module dirs under non-layer roots → multi-module via module count, NOT cross-context', () => {
+  // Directory-form entries, exactly what parse-layers-affected emits (it groups
+  // files to their src/<layer>/<ctx> dir). None of these roots is a known layer,
+  // so no contexts are counted — multi-module is driven purely by the module count.
+  const r = detectCeremony([rec(['src/core', 'src/lib', 'src/api'])]);
   assert.deepEqual(r.labels, ['feature:multi-module']);
   assert.equal(r.module_count, 3);
   assert.equal(r.context_count, 0);
