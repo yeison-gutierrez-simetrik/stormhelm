@@ -27,7 +27,7 @@ Run from your project root (a freshly `/setup`-ed project for the first test, th
 
 - [ ] **`.claude/settings.json` registers `git-guardrails`.** Open the file and confirm a `PreToolUse` entry with `matcher: "Bash"` pointing at `$CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js`. If missing, copy from `templates/claude-config/settings.json.tmpl`.
 - [ ] **Hook is executable.** `ls -l .claude/hooks/git-guardrails.js` shows execute bits.
-- [ ] **`templates/ralph-local.sh` is executable.** `ls -l templates/ralph-local.sh`.
+- [ ] **`ralph-local.sh` is executable.** `ls -l ralph-local.sh` (project root; `/setup` delivers it there beside `ralph-lib.sh`).
 - [ ] **`ralph-lib.sh` is in the same directory** as `ralph-local.sh`.
 - [ ] **`ralph-blocked-comment.md.tmpl` is in the same directory.**
 - [ ] **`.planning/ralph-sessions/` directory exists** (or `.planning/` is writable so the script can create it).
@@ -49,7 +49,7 @@ echo "exit: $?"   # expect 2
 
 ```bash
 # Lib sources cleanly
-bash -c 'source templates/ralph-lib.sh && type ralph_init_session'
+bash -c 'source ralph-lib.sh && type ralph_init_session'
 # expect: "ralph_init_session is a function"
 ```
 
@@ -134,7 +134,7 @@ git status                # nothing to commit
 git branch                # no leftover agent/* branches
 
 # Run Ralph against the canary
-./templates/ralph-local.sh NNN 5
+./ralph-local.sh NNN 5
 ```
 
 ### Terminal 2: tail the session log
@@ -238,7 +238,7 @@ Read Terminal 1's stdout carefully and the session log. Common causes:
 | Symptom | Action |
 |---|---|
 | "❌ Issue #N no existe o gh CLI no está autenticado" | Re-run `gh auth login` |
-| "❌ ralph-lib.sh no encontrado" | Confirm `templates/ralph-lib.sh` is present beside the script |
+| "❌ ralph-lib.sh no encontrado" | Confirm `ralph-lib.sh` is present beside `ralph-local.sh` (both at project root; re-run `/setup` if missing) |
 | "claude: command not found" inside iteration | Install/relink `claude` CLI |
 | Bash syntax error / unexpected token | Bash version too old; install Bash ≥ 4 |
 | Hook returned 2 on a non-destructive command (false positive) | Edit `hooks/git-guardrails.js` regex; file an issue |
