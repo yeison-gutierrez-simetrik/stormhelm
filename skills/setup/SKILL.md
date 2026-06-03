@@ -334,10 +334,12 @@ chmod +x .claude/hooks/*.js
 # Provenance stamp (cheap, optional): record which framework commit each copied
 # script/hook came from, so a later re-sync (see "Re-running /setup") can tell what
 # is stale without a live link to the framework. Inserted after a shebang if present,
-# else at the top. awk is portable (the sed -i flag differs across macOS/Linux).
+# else at the top. awk is portable (the sed -i flag differs across macOS/Linux). The
+# rule drops any pre-existing `// stormhelm:` line first, so it is **idempotent** —
+# safe to re-run on already-stamped files (a re-sync re-copies pristine files anyway).
 SH="$(git -C "$STORMHELM_PATH" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 for f in scripts/*.mjs .claude/hooks/*.js; do
-  awk -v s="// stormhelm: $SH" 'NR==1 && /^#!/ {print; print s; next} NR==1 {print s} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+  awk -v s="// stormhelm: $SH" '/^\/\/ stormhelm:/{next} NR==1&&/^#!/{print;print s;st=1;next} !st{print s;st=1} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 done
 chmod +x .claude/hooks/*.js   # re-assert after rewrite
 
