@@ -188,14 +188,27 @@ echo "   Budget: $BUDGET, Max iterations: $MAX_ITER"
 # ──────────────────────────────────────────────────────────────────────
 # Main loop
 # ──────────────────────────────────────────────────────────────────────
+# Structured acceptance result channel (§66): /run-acceptance MUST write
+# this file as its last step; the loop reads it with jq. Grepping the
+# session's prose for "exit code: 0" is forbidden — phrasing drift read
+# green runs as failures for 8 straight iterations on the first live
+# consumer run. Per-issue filename so parallel workers don't race.
+ACCEPT_RESULT_FILE=".planning/acceptance/issue-${ISSUE_NUM}-result.json"
+mkdir -p .planning/acceptance
+
 for i in $(seq 1 "$MAX_ITER"); do
   echo ""
   echo "=== Iteración $i de $MAX_ITER ==="
 
   ralph_iteration_start "tdd"
+  ITER_EPOCH=$(date +%s)   # staleness floor for this iteration's result file
 
-  TDD_OUT=$(ralph_call_claude_with_retry "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice." 2>&1)
-  TDD_RC=$?
+  # NOTE the `|| RC=$?` idiom: under `set -e`, a bare VAR=$(cmd) with a
+  # non-zero cmd kills the whole script BEFORE the rc check — the 124
+  # rate-limit paths below were unreachable and a CLI failure took the
+  # loop down without marking the issue ralph-blocked.
+  TDD_RC=0
+  TDD_OUT=$(ralph_call_claude_with_retry "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice." 2>&1) || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -219,8 +232,8 @@ for i in $(seq 1 "$MAX_ITER"); do
 
   check_budget_or_block "tdd"
 
-  ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance para los scn-* del issue #$ISSUE_NUM ($SCENARIOS). Reporta exit code." 2>&1)
-  ACCEPTANCE_RC=$?
+  ACCEPTANCE_RC=0
+  ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason." 2>&1) || ACCEPTANCE_RC=$?
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
@@ -238,13 +251,15 @@ for i in $(seq 1 "$MAX_ITER"); do
 
   check_budget_or_block "run-acceptance"
 
-  if echo "$ACCEPTANCE_OUT" | grep -q "exit code: 0"; then
+  # Green signal = the structured result file, validated by jq (§66):
+  # exists + valid JSON + fresh (this iteration) + right issue +
+  # ran >= expected + exit_code == 0. Never the session's prose.
+  if ACCEPT_STATUS=$(ralph_acceptance_result_check "$ACCEPT_RESULT_FILE" "$ISSUE_NUM" "$ITER_EPOCH"); then
     ralph_iteration_end "green"
 
-    # All scenarios reported as passing — emit one event per
-    for scn in $(echo "$SCENARIOS" | tr ',' ' '); do
-      ralph_scenario_passed "$scn"
-    done
+    # Per-scenario truth from the result file's scenarios{} map
+    # (NOT blanket-passing every labeled scenario).
+    ralph_log_scenarios_from_result "$ACCEPT_RESULT_FILE" "$SCENARIOS"
 
     # ──────────────────────────────────────────────────────────────
     # §66 — Invoke reviewer agent on the diff BEFORE opening PR.
@@ -328,8 +343,17 @@ EOF
     fi
   fi
 
-  ralph_iteration_end "acceptance-failing"
-  echo "⚠️  Iteración $i no logró green. Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuando…"
+  # Not green — ACCEPT_STATUS carries the machine-greppable reason
+  # (result-file-missing / -stale / exit_code=N: <failure_reason> / …),
+  # so a failing run is diagnosable from the NDJSON alone. Per-scenario
+  # events are fed only when the file is fresh and for THIS issue (a
+  # stale or foreign file must not pollute the scenario summary).
+  case "$ACCEPT_STATUS" in
+    exit_code=*|ran-below-expected*)
+      ralph_log_scenarios_from_result "$ACCEPT_RESULT_FILE" "$SCENARIOS" ;;
+  esac
+  ralph_iteration_end "acceptance-failing" "$ACCEPT_STATUS"
+  echo "⚠️  Iteration $i did not reach green (${ACCEPT_STATUS}). Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuing…"
   ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
 done
 

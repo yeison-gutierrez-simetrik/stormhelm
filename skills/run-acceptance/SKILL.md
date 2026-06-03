@@ -42,6 +42,7 @@ The gate is **multi-layered**. Any layer that fails blocks merge.
 ## Outputs
 
 - A structured report saved to `.planning/acceptance/<slug>-<YYYYMMDD>.md`.
+- **The machine-readable result file `.planning/acceptance/issue-<N>-result.json` (MANDATORY — see Step 10).** This is the ONLY green/fail signal automation (the Ralph loop) reads; prose summaries are for humans.
 - Exit code: 0 if all gates pass, non-zero if any fail.
 - A summary returned to the workflow.
 - Reviewer agent invocation at the end (always — passing or failing).
@@ -263,7 +264,43 @@ OR
 🛑 BLOCKED (gate failures listed above must be resolved)
 ```
 
-### Step 10 — Return
+### Step 10 — Write the machine-readable result (MANDATORY, always — pass or fail)
+
+This is an **output contract, not a courtesy**: the Ralph loop (and any other
+automation) decides green/fail by reading this file with `jq` — it never greps
+your prose. Skipping this step makes a green run register as a failure
+(`result-file-missing`). Write it as the **last** action of the skill, after
+the reviewer invocation, regardless of outcome:
+
+```bash
+mkdir -p .planning/acceptance
+cat > .planning/acceptance/issue-${ISSUE_NUM}-result.json <<EOF
+{
+  "issue": ${ISSUE_NUM},
+  "exit_code": 0,
+  "scenarios": { "scn-042": "passed", "scn-043": "passed" },
+  "ran": 2,
+  "expected": 2,
+  "gates": { "smoke": "pass", "slice_scenarios": "pass", "visual": "n/a",
+             "contract": "n/a", "stubs": "pass", "slo": "n/a",
+             "reviewer": "should-fix" },
+  "failure_reason": null
+}
+EOF
+```
+
+Field rules:
+- `issue` — the issue number being gated (consumers validate it; a result for another issue is rejected).
+- `exit_code` — `0` **only** if every gate passed AND `ran == expected` (Step 3's sanity check). Anything else → non-zero.
+- `scenarios` — one entry per `@scn-NNN` from the issue's labels, value `"passed"` or `"failed: <one-line reason>"`. Omit a scenario only if it was never attempted.
+- `ran` / `expected` — scenario counts from Step 3. `ran < expected` means the tag filter was wrong; consumers treat it as failure even if `exit_code` says 0.
+- `gates` — per-gate `"pass"` / `"fail"` / `"n/a"`; `reviewer` carries the severity (`clean` / `suggestion` / `should-fix` / `blocking`).
+- `failure_reason` — `null` on success; on failure, a **single actionable line** (this lands in the session NDJSON and is often the only forensic trace).
+
+The filename is **per-issue** (`issue-<N>-result.json`) so parallel workers
+never race on a shared file.
+
+### Step 11 — Return
 
 If all gates pass with no blocking reviewer findings → exit 0, workflow continues.
 If any gate fails or reviewer found 🛑 → exit non-zero, workflow returns to `/tdd` (one extra iteration allowed) or marks issue `ralph-blocked`.
@@ -280,5 +317,6 @@ If any gate fails or reviewer found 🛑 → exit non-zero, workflow returns to 
 
 - Modify `.feature` files (§58 — read-only for agents).
 - Skip a sub-gate to "save time."
+- Skip Step 10's result file, or report the outcome **only** in prose — automation reads the file, not the phrasing.
 - Approve a PR (only humans merge per §67).
 - Re-run if previous run blocked (workflow returns to `/tdd` first).

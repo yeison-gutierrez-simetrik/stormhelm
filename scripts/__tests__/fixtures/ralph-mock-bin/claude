@@ -1,13 +1,32 @@
 #!/usr/bin/env bash
 # Mock `claude` for the Ralph loop test. `claude -p "<prompt>"` — prompt is the last arg.
-#   MOCK_ACCEPT      stdout fragment for /run-acceptance (default "exit code: 0" → green)
-#   MOCK_REVIEW      stdout for /code-review (default clean+suggestion; set "🛑 …" to force blocking)
-#   MOCK_FAIL_ISSUE  if set, /run-acceptance for that issue # returns "exit code: 1" (queue blocking case)
+#   MOCK_ACCEPT          legacy knob: anything other than "exit code: 0" → failing result
+#   MOCK_REVIEW          stdout for /code-review (default clean+suggestion; set "🛑 …" to force blocking)
+#   MOCK_FAIL_ISSUE      if set, /run-acceptance for that issue # writes a FAILING result file
+#   MOCK_NO_RESULT_FILE  if set, /run-acceptance does NOT write the result file (contract-violation path)
+#
+# Since FOLLOW-UP 14 the loop's green signal is the structured result file
+# (.planning/acceptance/issue-<N>-result.json), not prose — the mock honors
+# that contract; the prose lines remain only as transcript realism.
 prompt=""; for a in "$@"; do prompt="$a"; done
 if echo "$prompt" | grep -q "/tdd"; then echo "advanced one slice; unit tests green"; exit 0; fi
 if echo "$prompt" | grep -q "/run-acceptance"; then
-  if [ -n "${MOCK_FAIL_ISSUE:-}" ] && echo "$prompt" | grep -qE "#${MOCK_FAIL_ISSUE}([^0-9]|$)"; then echo "ran scenarios. exit code: 1"; exit 0; fi
-  echo "ran scenarios. ${MOCK_ACCEPT:-exit code: 0}"; exit 0
+  issue=$(echo "$prompt" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+  green=1
+  if [ -n "${MOCK_FAIL_ISSUE:-}" ] && [ "$issue" = "${MOCK_FAIL_ISSUE}" ]; then green=0; fi
+  if [ -n "${MOCK_ACCEPT:-}" ] && [ "${MOCK_ACCEPT}" != "exit code: 0" ]; then green=0; fi
+  if [ -z "${MOCK_NO_RESULT_FILE:-}" ]; then
+    mkdir -p .planning/acceptance
+    if [ "$green" = "1" ]; then
+      printf '{ "issue": %s, "exit_code": 0, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "gates": { "smoke": "pass", "slice_scenarios": "pass" }, "failure_reason": null }\n' "$issue" \
+        > ".planning/acceptance/issue-${issue}-result.json"
+    else
+      printf '{ "issue": %s, "exit_code": 1, "scenarios": { "scn-001": "failed: step assertion" }, "ran": 1, "expected": 1, "gates": { "smoke": "fail" }, "failure_reason": "mock forced failure" }\n' "$issue" \
+        > ".planning/acceptance/issue-${issue}-result.json"
+    fi
+  fi
+  if [ "$green" = "1" ]; then echo "ran scenarios. all gates green"; else echo "ran scenarios. smoke gate failed"; fi
+  exit 0
 fi
 if echo "$prompt" | grep -q "/code-review"; then echo "${MOCK_REVIEW:-Reviewed diff. No blocking issues. 💡 minor: extract a helper.}"; exit 0; fi
 echo "ok"; exit 0
