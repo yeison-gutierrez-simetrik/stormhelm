@@ -117,6 +117,7 @@ Stormhelm evolves through an iterative dialogue with the projects that adopt it.
 - **What Stormhelm is, for new users:** `README.md`.
 - **How the workflow runs:** `docs/WORKFLOWS-GUIDE.md`.
 - **Rule details:** `docs/engineering/AGENTS.md` (index) → `docs/engineering/core/<N>-<topic>.md`.
+- **Maintaining the framework itself:** `docs/maintaining-stormhelm.md` (self-verification gate, the `skills-internal/` framework-self skills, the framework-self vs shipped-artifact boundary).
 - **Architecture decisions:** `docs/adr/*.md`.
 - **Current planning state:** the most recent `.planning/handoff/*.md`, plus open PRs (`gh pr list`) and recent merges (`git log --merges main`).
 - **Session-to-session handoffs:** `.planning/handoff/<date>-from-<source>.md` (read the most recent).
