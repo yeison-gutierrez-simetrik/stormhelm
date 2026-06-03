@@ -12,7 +12,7 @@
 
 ## Phase 0 — Pre-flight checklist (15 min)
 
-Run from the project root (`task_flow/` for the first test, or your real project once `task_flow/` passes).
+Run from your project root (a freshly `/setup`-ed project for the first test, then your real project once that passes).
 
 ### Environment
 
