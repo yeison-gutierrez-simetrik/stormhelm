@@ -29,19 +29,34 @@ const fail = (msg, fix) => {
 };
 const ok = (msg) => { console.log(`✅ ${msg}`); process.exit(0); };
 
-function findFeature(slug) {
+// Resolve a slug to its feature file(s) by CONTENT, not just filename:
+// /to-scenarios names outputs features/<context>/<topic>.feature and a
+// multi-context feature produces N files — none necessarily named after
+// the slug. A file belongs to the slug iff any of (FW: FOLLOW-UP 20):
+//   1. it is literally named <slug>.feature           (legacy fast-path)
+//   2. its header says `# spec: docs/specs/<slug>.md` (canonical, see
+//      skills/to-scenarios/references/feature-file-format.md)
+//   3. it carries the `@feature:<slug>` tag           (same template)
+function findFeatures(slug) {
   const root = 'features';
-  if (!existsSync(root)) return null;
+  if (!existsSync(root)) return [];
+  const matches = [];
   const stack = [root];
   while (stack.length) {
     const d = stack.pop();
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name);
-      if (e.isDirectory()) stack.push(p);
-      else if (e.name === `${slug}.feature`) return p;
+      if (e.isDirectory()) { stack.push(p); continue; }
+      if (!e.name.endsWith('.feature')) continue;
+      if (e.name === `${slug}.feature`) { matches.push(p); continue; }
+      const text = readFileSync(p, 'utf8');
+      const spec = text.match(/^#\s*spec:\s*(\S+)/im)?.[1];
+      if (spec === `docs/specs/${slug}.md` || new RegExp(`^@feature:${slug}\\s*$`, 'm').test(text)) {
+        matches.push(p);
+      }
     }
   }
-  return null;
+  return matches;
 }
 // approval status lives in a `# status: <state>` Gherkin comment (NOT YAML —
 // Gherkin has no frontmatter). See §58.
@@ -65,13 +80,18 @@ switch (check) {
   }
   case 'feature-approved': {
     if (!arg) fail('missing <feature-slug>.', 'node scripts/preflight.mjs feature-approved <slug>');
-    const f = findFeature(arg);
-    if (!f) fail(`no features/**/${arg}.feature found.`, 'run /to-scenarios for this feature first.');
-    const s = featureStatus(f);
-    if (s !== 'approved')
-      fail(`feature '${arg}' is '${s ?? 'unmarked'}', not 'approved' (${f}).`,
+    const files = findFeatures(arg);
+    if (!files.length)
+      fail(`no feature files for '${arg}' found (no features/**/${arg}.feature, no '# spec: docs/specs/${arg}.md' header, no '@feature:${arg}' tag).`,
+        'run /to-scenarios for this feature first.');
+    // A multi-context feature is approved only when EVERY one of its files is.
+    const offenders = files
+      .map((f) => [f, featureStatus(f)])
+      .filter(([, s]) => s !== 'approved');
+    if (offenders.length)
+      fail(`feature '${arg}' has ${offenders.length} non-approved file(s): ${offenders.map(([f, s]) => `${f} ('${s ?? 'unmarked'}')`).join(', ')}.`,
         'complete /clarify and HUMAN CHECKPOINT 1 of /feature; the skill flips `# status:` to approved (§58).');
-    ok(`feature '${arg}' is approved.`);
+    ok(`feature '${arg}' is approved (${files.length} file(s): ${files.join(', ')}).`);
     break;
   }
   case 'slice-implemented': {
