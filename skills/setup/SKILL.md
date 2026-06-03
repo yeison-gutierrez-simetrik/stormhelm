@@ -369,6 +369,31 @@ EOF
 
 This ensures every downstream skill's `mkdir -p` is defensive but not required for first-time correctness.
 
+### Sonar quality-gate config — compose AND write both files
+
+Run the composer in `--write` mode with the active capabilities so the consumer
+actually receives the composed files (copying the script alone composes nothing):
+
+```bash
+node scripts/compose-sonar-properties.mjs --write <active-capability> [capability ...]
+# e.g.: node scripts/compose-sonar-properties.mjs --write typescript typescript-hono
+```
+
+`--write` emits **both** targets, and the distinction matters:
+
+- **`.sonarcloud.properties`** — read by SonarCloud **Automatic Analysis** (the
+  GitHub-App default: no CI workflow). Automatic Analysis **ignores
+  `sonar-project.properties` entirely**, so without this file the composed
+  scope and `VENDORED_EXCLUSIONS` (`scripts/**`, `.claude/**`, the root Night
+  Shift engine files) are a no-op — proven live: a re-sync PR touching **zero**
+  `src/` files failed a consumer's gate on vendored framework code.
+- **`sonar-project.properties`** — read by the CI-based scanner only.
+
+Emitting both is harmless (each reader ignores the other's file) and keeps the
+exclusions effective whichever analysis mode the consumer runs — including a
+later switch between modes. Re-run the same command after every re-sync that
+changes capabilities or `VENDORED_EXCLUSIONS`.
+
 ### `ralph-local.sh`
 
 Delivered to the **project root** alongside its engine `ralph-lib.sh` and `ralph-blocked-comment.md.tmpl` (the copy step above) — all three must stay co-located; `ralph-local.sh` sources the lib and renders the template by `SCRIPT_DIR`. The wizard tailors the test-command block to the stack. For TypeScript + Hono + Drizzle + Zod, the script includes:
@@ -449,8 +474,9 @@ After generation, the skill runs a self-check:
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
-6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh no encontrado" and the autonomous Night Shift never runs.
-7. Print a summary:
+6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
+7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
+8. Print a summary:
 
 ```
 ✅ Stormhelm configured for <ProjectName>
