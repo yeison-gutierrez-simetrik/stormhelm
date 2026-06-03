@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Mock `claude` for the Ralph loop test. `claude -p "<prompt>"` — prompt is the last arg.
+#   MOCK_ACCEPT      stdout fragment for /run-acceptance (default "exit code: 0" → green)
+#   MOCK_REVIEW      stdout for /code-review (default clean+suggestion; set "🛑 …" to force blocking)
+#   MOCK_FAIL_ISSUE  if set, /run-acceptance for that issue # returns "exit code: 1" (queue blocking case)
+prompt=""; for a in "$@"; do prompt="$a"; done
+if echo "$prompt" | grep -q "/tdd"; then echo "advanced one slice; unit tests green"; exit 0; fi
+if echo "$prompt" | grep -q "/run-acceptance"; then
+  if [ -n "${MOCK_FAIL_ISSUE:-}" ] && echo "$prompt" | grep -qE "#${MOCK_FAIL_ISSUE}([^0-9]|$)"; then echo "ran scenarios. exit code: 1"; exit 0; fi
+  echo "ran scenarios. ${MOCK_ACCEPT:-exit code: 0}"; exit 0
+fi
+if echo "$prompt" | grep -q "/code-review"; then echo "${MOCK_REVIEW:-Reviewed diff. No blocking issues. 💡 minor: extract a helper.}"; exit 0; fi
+echo "ok"; exit 0

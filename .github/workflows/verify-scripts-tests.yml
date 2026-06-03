@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - 'scripts/**'
+      - 'templates/**'           # the Ralph Night Shift engine — covered by ralph-loop.test.mjs
       - 'docs/engineering/capabilities/**'
       - '.github/workflows/verify-scripts-tests.yml'
   push:
