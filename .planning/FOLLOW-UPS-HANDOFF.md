@@ -442,6 +442,16 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 
 ---
 
+## FOLLOW-UP 23 — `ralph_render_blocked_comment` leaves placeholders unrendered on macOS (BSD awk)  ·  **Severity: LOW**
+
+> ✅ **RESOLVED by #75** (2026-06-03) — found while debugging FOLLOW-UP 19, fixed immediately. Kept as the record.
+
+**Problem.** The template substitution used `awk -v v="$value"`. BSD awk hard-errors `newline in string` on multiline values — and every real substitution is multiline (`scenario_results`, `last_actions`, `reviewer_section`) — so on macOS the `ralph-blocked` comment posted with raw `{placeholders}`. `-v` also escape-processes backslashes, mangling reviewer output containing `\n` even on GNU awk.
+
+**Fix.** Values passed via `ENVIRON[]` (no escape processing, newline-safe on both awks). Test pins: multiline rendering, literal backslashes, no surviving placeholder, no `newline in string` on stderr.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.

@@ -302,6 +302,32 @@ test('FU-21: ralph_expand_scns expands every wild label form', () => {
   assert.equal(r.stdout.trim(), 'scn-021 scn-022 scn-030 scn-031');
 });
 
+// ── render_blocked_comment: multiline substitution (found during FU-19) ───────
+
+// T21 — multiline values (every real substitution: scenario_results,
+// last_actions, reviewer_section) must render. `awk -v` errors "newline in
+// string" on BSD awk and escape-processes backslashes — placeholders were left
+// unrendered on macOS.
+test('render_blocked_comment substitutes multiline values and leaves no placeholder', () => {
+  withConsumer((dir) => {
+    const tpl = join(dir, 'tpl.md');
+    writeFileSync(tpl, '## Scenarios\n{scenario_results}\n## Reviewer\n{reviewer_section}\n');
+    const r = spawnSync('bash', ['-c', [
+      `source "${join(TEMPLATES, 'ralph-lib.sh')}"`,
+      `ralph_render_blocked_comment "${tpl}" \\`,
+      `  scenario_results "- ✅ scn-001 — passed\n- 🛑 scn-002 — failed" \\`,
+      `  reviewer_section "line1 \\n is literal\nline2"`,
+    ].join('\n')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /scn-001 — passed/);
+    assert.match(r.stdout, /scn-002 — failed/);
+    assert.match(r.stdout, /line2/);
+    assert.match(r.stdout, /line1 \\n is literal/, 'backslash sequences must stay literal (no -v escape processing)');
+    assert.doesNotMatch(r.stdout, /\{scenario_results\}|\{reviewer_section\}/, 'no placeholder may survive');
+    assert.doesNotMatch(r.stderr, /newline in string/, 'BSD awk must not reject multiline values');
+  });
+});
+
 // T12 — unit coverage for ralph_acceptance_result_check: every rejection reason.
 test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran<expected; accepts green', () => {
   withConsumer((dir) => {

@@ -868,14 +868,18 @@ ralph_render_blocked_comment() {
   local content
   content=$(cat "$template")
 
-  # Process key/value pairs from remaining args
+  # Process key/value pairs from remaining args.
+  # Values are passed via ENVIRON, NOT `awk -v`: -v processes backslash
+  # escapes (mangling reviewer output containing \n etc.) and BSD awk
+  # hard-errors "newline in string" on multiline values — which every
+  # real substitution here is (scenario_results, last_actions,
+  # reviewer_section), leaving {placeholders} unrendered on macOS.
   while [ "$#" -gt 1 ]; do
     local key="$1"
     local value="$2"
     shift 2
-    # Use awk for safe literal replacement (no regex interpretation in value)
-    content=$(printf '%s' "$content" | awk -v k="{${key}}" -v v="$value" '
-      BEGIN { RS="\0"; ORS="" }
+    content=$(printf '%s' "$content" | RALPH_TPL_KEY="{${key}}" RALPH_TPL_VAL="$value" awk '
+      BEGIN { RS="\0"; ORS=""; k = ENVIRON["RALPH_TPL_KEY"]; v = ENVIRON["RALPH_TPL_VAL"] }
       {
         s = $0
         n = index(s, k)
