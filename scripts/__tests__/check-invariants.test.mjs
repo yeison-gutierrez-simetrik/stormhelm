@@ -137,3 +137,42 @@ test('INV-6 does NOT escalate a single-module slice of 3 flat files in one layer
   assert.equal(status, 0, '3 flat files under one layer = 1 module, not a multi-module escalation');
   assert.match(out, /✅ INV-6 .*single-module issue\(s\) match/);
 });
+
+// --- FOLLOW-UP 21: the scenarios:* label parser must expand every wild form ---
+
+// Move both @release scns onto ONE issue using each label form; pre-fix, the
+// bare `+022`-style continuation was dropped → scn-002 reported as an INV-5
+// orphan while only the first token was credited.
+const relabelScns = (form) => (dir) => {
+  const p1 = join(dir, 'issues/001-auth.md');
+  writeFileSync(p1, readFileSync(p1, 'utf8').replace('`scenarios:scn-001`', `\`${form}\``));
+  const p2 = join(dir, 'issues/002-list.md');
+  writeFileSync(p2, readFileSync(p2, 'utf8').replace(' `scenarios:scn-002`', ''));
+};
+
+test('INV-5 credits every scn in the GitHub-compact form scenarios:scn-001+002', () => {
+  const { status, out } = runMutated(relabelScns('scenarios:scn-001+002'));
+  assert.equal(status, 0, `compact continuations must be credited, not dropped:\n${out}`);
+  assert.match(out, /INV-5 §59: 2 @release scns mapped/);
+});
+
+test('INV-5 credits the spelled form scenarios:scn-001+scn-002', () => {
+  const { status, out } = runMutated(relabelScns('scenarios:scn-001+scn-002'));
+  assert.equal(status, 0, out);
+  assert.match(out, /INV-5 §59: 2 @release scns mapped/);
+});
+
+test('INV-5 credits the comma form scenarios:scn-001,scn-002', () => {
+  const { status, out } = runMutated(relabelScns('scenarios:scn-001,scn-002'));
+  assert.equal(status, 0, out);
+  assert.match(out, /INV-5 §59: 2 @release scns mapped/);
+});
+
+test('INV-5 still reports a real orphan (a scn no label form mentions)', () => {
+  const { status, out } = runMutated((dir) => {
+    const p2 = join(dir, 'issues/002-list.md');
+    writeFileSync(p2, readFileSync(p2, 'utf8').replace(' `scenarios:scn-002`', ''));
+  });
+  assert.equal(status, 1, 'dropping the only reference to scn-002 must fail INV-5');
+  assert.match(out, /❌ INV-5.*scn-002/);
+});

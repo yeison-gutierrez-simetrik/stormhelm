@@ -352,25 +352,41 @@ ralph_acceptance_result_check() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# expand_scns <label_value>
+#
+# Normalize a scenarios:* label VALUE to space-separated scn-NNN tokens.
+# Accepts every form the label takes in the wild: GitHub-compact
+# `scn-021+022` (the canonical — 50-char label limit), spelled
+# `scn-021+scn-022`, and comma `scn-021,scn-022`.
+#   ralph_expand_scns "scn-021+022,scn-030" → "scn-021 scn-022 scn-030"
+# ──────────────────────────────────────────────────────────────────────
+ralph_expand_scns() {
+  local out="" scn
+  for scn in $(echo "${1:-}" | tr ',+' ' '); do
+    case "$scn" in
+      scn-*) : ;;
+      *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
+    esac
+    out="${out}${out:+ }${scn}"
+  done
+  echo "$out"
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # log_scenarios_from_result <file> <expected_scenarios>
 #
 # Emit ralph.scenario.passed / ralph.scenario.failed per scenario from
 # the result file's scenarios{} map — per-scenario TRUTH, instead of
 # blanket-marking every labeled scenario as passed on a green run.
-# `expected_scenarios` is the scenarios:* label value; both the plain
-# (scn-021,scn-022) and GitHub-compact (scn-021+022) forms are accepted.
-# A scenario absent from the map is left un-logged → the blocked-comment
-# summary reports it as "not attempted".
+# `expected_scenarios` is the scenarios:* label value (any form —
+# see expand_scns). A scenario absent from the map is left un-logged →
+# the blocked-comment summary reports it as "not attempted".
 # ──────────────────────────────────────────────────────────────────────
 ralph_log_scenarios_from_result() {
   local file="${1:?ralph_log_scenarios_from_result requires <file>}"
   local expected="${2:-}"
   local scn status
-  for scn in $(echo "$expected" | tr ',+' ' '); do
-    case "$scn" in
-      scn-*) : ;;
-      *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
-    esac
+  for scn in $(ralph_expand_scns "$expected"); do
     status=$(jq -r --arg s "$scn" '.scenarios[$s] // "missing"' "$file" 2>/dev/null || echo "missing")
     case "$status" in
       passed) ralph_scenario_passed "$scn" ;;
@@ -813,7 +829,8 @@ ralph_summarize_scenarios() {
   passed=$(jq -r 'select(.event == "ralph.scenario.passed") | .details.scenario' "$log" 2>/dev/null | sort -u)
   failed=$(jq -r 'select(.event == "ralph.scenario.failed") | .details.scenario' "$log" 2>/dev/null | sort -u)
 
-  for scn in $(echo "$expected" | tr ',' ' '); do
+  local scn
+  for scn in $(ralph_expand_scns "$expected"); do
     if echo "$passed" | grep -qx "$scn"; then
       echo "- ✅ \`${scn}\` — passed"
     elif echo "$failed" | grep -qx "$scn"; then
@@ -932,6 +949,7 @@ file_mtime() { ralph_file_mtime "$@"; }
 env_preflight() { ralph_env_preflight "$@"; }
 acceptance_result_check() { ralph_acceptance_result_check "$@"; }
 log_scenarios_from_result() { ralph_log_scenarios_from_result "$@"; }
+expand_scns() { ralph_expand_scns "$@"; }
 git_action() { ralph_git_action "$@"; }
 budget_checkpoint() { ralph_budget_checkpoint "$@"; }
 error_tool() { ralph_error_tool "$@"; }

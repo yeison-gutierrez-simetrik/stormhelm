@@ -40,7 +40,7 @@ For multi-module features (detected when the spec spans 3+ modules or 2+ bounded
 
 - N GitHub issues created via `gh issue create`, each:
   - Body following the template below.
-  - Labels: `ralph-ready` (if applicable), `shift:afk|hitl|hybrid`, `scenarios:scn-NNN,scn-MMM`, `budget:NNk`, `severity:p2` (greenfield default), `require-human-review` (if sensitive).
+  - Labels: `ralph-ready` (if applicable), `shift:afk|hitl|hybrid`, `scenarios:scn-NNN+MMM` (canonical compact form — see Step 6), `budget:NNk`, `severity:p2` (greenfield default), `require-human-review` (if sensitive).
 - For multi-module: `features/<context>/contracts/<module>/` with `api-contracts.ts`, `openapi-spec.yaml`, `mocks.ts`, `architecture.md` skeletons (§103).
 - A summary returned to the workflow.
 
@@ -162,7 +162,7 @@ Use coarse buckets (50k, 80k, 100k, 150k, 200k). Round up.
 ```markdown
 # Issue NNN — <slice title>
 
-**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+scn-043` `budget:50k` `severity:p2`
+**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+043` `budget:50k` `severity:p2`
 
 ## Scenarios covered
 - scn-042, scn-043 (see `features/listings/listing-publication.feature`)
@@ -217,8 +217,18 @@ For each slice:
 gh issue create \
   --title "<slug> — <slice title>" \
   --body "$(cat <generated-body>)" \
-  --label "ralph-ready,shift:afk,scenarios:scn-042+scn-043,budget:50k,severity:p2,slice-group:<slug>"
+  --label "ralph-ready,shift:afk,scenarios:scn-042+043,budget:50k,severity:p2,slice-group:<slug>"
 ```
+
+> **Canonical `scenarios:` label form: `scenarios:scn-042+043`** — the first
+> token carries the `scn-` prefix, `+`-joined continuations are bare numbers.
+> GitHub's 50-char label limit is the binding constraint (spelling `scn-` per
+> token overflows real slices, e.g. `scenarios:scn-010+011+012+013+020`).
+> Consumers of the label (`check-invariants.mjs` INV-5, `ralph-lib.sh`
+> `expand_scns`, `/run-acceptance`) also accept the spelled
+> (`scn-042+scn-043`) and comma (`scn-042,scn-043`) forms, but emit the
+> canonical compact form here and in the file's `**Labels:**` line — same
+> string in both places.
 
 If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms. Omit `slice-group:<slug>` for standalone issues (singletons).
 
