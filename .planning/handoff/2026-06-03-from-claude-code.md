@@ -1,12 +1,12 @@
 # Session handoff — Claude Code (2026-06-03)
 
-> Read after `CLAUDE.md`. Closes the FOLLOW-UPS-HANDOFF (8 items) **and** the ADOPTION-COPY-LIST-BRIEF (FOLLOW-UP 9). All work merged to `main`; no open PRs.
+> Read after `CLAUDE.md`. Closes the FOLLOW-UPS-HANDOFF (**10 items**) and the ADOPTION-COPY-LIST-BRIEF (FOLLOW-UP 9). All work merged to `main`; no open PRs.
 
 ## TL;DR
 
-- **14 PRs merged this window (#39–#52).** Two tracks: (1) ADR-0002 implementation (PR-M/N/O) + a parser fix it exposed; (2) the framework-consistency / adoption-copy-list cleanup (FOLLOW-UPs 1–9).
-- **`main` is green:** `check-framework-metadata` ✅, `check-invariants` ✅, `sync-closed-sets --check` ✅, `node --test scripts/__tests__/*.test.mjs` ✅ **30/30**.
-- **No known open follow-ups.** Both working briefs in `.planning/` (`FOLLOW-UPS-HANDOFF.md`, `ADOPTION-COPY-LIST-BRIEF.md`) are fully addressed — safe to consider closed/archived.
+- **16 PRs merged this window (#39–#54).** Two tracks: (1) ADR-0002 implementation (PR-M/N/O) + a parser fix it exposed; (2) the framework-consistency / adoption-copy-list cleanup (FOLLOW-UPs **1–10**).
+- **`main` is green:** `check-framework-metadata` ✅, `check-invariants` ✅, `sync-closed-sets --check` ✅, `node --test scripts/__tests__/*.test.mjs` ✅ **35/35**.
+- **No known open follow-ups.** All 10 items of `FOLLOW-UPS-HANDOFF.md` + the `ADOPTION-COPY-LIST-BRIEF.md` are fully addressed — both working briefs safe to archive/delete.
 
 ## Merged in this window
 
@@ -25,7 +25,9 @@
 | #49 | document the detector's assumed `src/<layer>/<ctx>` layout |
 | #50 | **§123** — number the cumulative-vs-stacked PR convention (+ count sync) |
 | #51 | document `/setup` re-sync procedure + cheap provenance stamp |
-| #52 | move framework-self skill to `skills-internal/` + framework-maint docs out of shipped `AGENTS.md` |
+| #52 | move framework-self skill to `skills-internal/` + framework-maint docs out of shipped `AGENTS.md` (FOLLOW-UP 9 facets B+C) |
+| #53 | track `.planning/handoff/` + `pr-bodies/` so the convention holds |
+| #54 | exclude framework-vendored `scripts/**`,`.claude/**` from the composed Sonar gate + composer test (FOLLOW-UP 10) |
 
 ## State changes a future session must know
 
@@ -36,6 +38,8 @@
 - **`/setup` copies** consumer-runtime `scripts/` (7) + the 5 hooks + a `// stormhelm: <sha>` provenance stamp; **never** `check-framework-metadata.mjs` (framework-self).
 - **`CLAUDE.md` is tracked** (genericized — no `belong-marketplace` coupling, no dangling refs).
 - **`task_flow/` is gone.** The repo dogfoods itself as the adoption example.
+- **The composed Sonar gate excludes vendored framework dirs** (`scripts/**`, `.claude/**`) — `compose-sonar-properties.mjs` always emits them so a consumer's SonarCloud doesn't flag copied framework infra as product defects (covered by a new composer test; suite is **35/35**).
+- **`.planning/handoff/` + `pr-bodies/` are now tracked** (#53) — reality matches CLAUDE.md. Agnosticism note: the `belong-marketplace` mentions that remain live only in internal `.planning/` working records (historical pr-bodies + the cowork handoff), never in shipped/root artifacts — validated clean.
 
 ## Conventions reinforced (lessons from this window)
 
@@ -47,7 +51,8 @@
 ## Open questions / not done
 
 - None blocking. The two non-blocking judgement calls from the prior (cowork) handoff are resolved: `task_flow/` fate (deleted, #47); review-budget defaults rode in with PR-Group earlier.
-- Optional housekeeping: the two working briefs (`.planning/FOLLOW-UPS-HANDOFF.md`, `.planning/ADOPTION-COPY-LIST-BRIEF.md`) are done — archive or delete at will. `.planning/handoff/` + `pr-bodies/` are still **untracked** locally despite CLAUDE.md calling them "tracked" (see [[stormhelm-planning-layer-gaps]] in agent memory) — track them if you want the convention to hold.
+- Optional housekeeping: the two working briefs (`.planning/FOLLOW-UPS-HANDOFF.md`, `.planning/ADOPTION-COPY-LIST-BRIEF.md`) are done — archive or delete at will. (`.planning/handoff/` + `pr-bodies/` are now tracked — #53 — so the CLAUDE.md "tracked" claim now holds.)
+- Optional, deferred by decision: a stricter agnosticism pass could genericize the `belong-marketplace` mentions in the tracked internal `.planning/` records (handoffs/pr-bodies). Validated as **not required** — shipped/root surface is clean; internal historical records are below the agnosticism bar. Left as-is to avoid distorting the record.
 
 ## Quick orientation
 
@@ -56,5 +61,5 @@ git checkout main && git pull --ff-only
 node scripts/check-framework-metadata.mjs && node scripts/check-invariants.mjs && node scripts/sync-closed-sets.mjs --check
 node --test scripts/__tests__/*.test.mjs
 gh pr list --state open            # empty as of this handoff
-git log --oneline --merges main -16
+git log --oneline --merges main -19   # this window = #39–#54
 ```
