@@ -10,7 +10,7 @@ The name combines two ideas: the **helm** — the wheel that keeps a ship on cou
 
 ## TL;DR — what you get
 
-- **32 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, `/verify-framework-consistency`, …) that drive a disciplined workflow inside Claude Code.
+- **31 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, …) that drive a disciplined workflow inside Claude Code. *(Plus one framework-self skill, `/verify-framework-consistency`, in `skills-internal/` — used to maintain Stormhelm itself, not shipped to adopting projects.)*
 - **123 numbered rules** (`§1 – §123`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
 - **A sub-agent** (`reviewer`) that audits diffs in a fresh context and cites rule numbers in its findings.
 - **Five Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, block destructive shell commands via `git-guardrails.js` (§68), and warn on closed-set/doc drift via `closed-set-check.js` (§36).
@@ -317,6 +317,7 @@ stormhelm/
 │   │       └── python-fastapi/
 │   │           └── 09-stack-conventions.md        # §38-py, §39-py, §40-py, §41-py, §42-py, §43-py, §44-py
 ├── docs/
+│   ├── maintaining-stormhelm.md                   # framework-internal: self-verification + framework-self vs shipped boundary
 │   ├── runbooks/
 │   │   └── ralph-first-overnight-canary.md        # first-overnight Ralph procedure
 │   ├── specs/
@@ -337,7 +338,7 @@ stormhelm/
 │   └── closed-set-check.js                         # PostToolUse(Write|Edit) — §36 closed-set/doc drift
 ├── agents/
 │   └── reviewer.md                                # Independent code review sub-agent — §114
-└── skills/
+├── skills/                                     # consumer-facing, invokable — adoption copies this wholesale
     # === Framework & onboarding ===
     ├── setup/                                     # /setup — configure Stormhelm for your project
     ├── onboard/                                   # /onboard — orient new developers
@@ -382,6 +383,8 @@ stormhelm/
     # === Routing ===
     ├── triage/                                    # /triage — classify and label incoming issues
     ⭐ NEW skills added in this iteration
+└── skills-internal/                            # framework-self skills — NOT shipped to consumers
+    └── verify-framework-consistency/           # /verify-framework-consistency — meta count/ref gate
 ```
 
 > **Want to see a project that adopted Stormhelm?** This repo is its own living example — it manages itself with its own conventions (skills, `§N` rules, invariants, ADRs, traceability). The `skills/`, `agents/`, `hooks/`, and `docs/engineering/` directories above *are* the reference for "what an adopted project looks like", always current because CI gates keep them consistent. (An earlier static `task_flow/` sample was removed because a hand-frozen copy drifts from the live framework and can't be CI-checked; dogfooding is the example that can't go stale.)

@@ -41,8 +41,15 @@ function walk(dir, acc = []) {
 }
 
 // --- actuals from the filesystem -------------------------------------------
+// `skills/` holds consumer-facing (invokable) skills — adoption copies this tree
+// wholesale, so the "N invokable skills" cardinality counts ONLY these.
+// `skills-internal/` holds framework-self skills (e.g. verify-framework-consistency)
+// that maintain Stormhelm itself and are NOT shipped to consumers. They are excluded
+// from the count, but included in the resolution set so /skill links to them in
+// framework docs still resolve (and their §refs are still validated below).
 const skills = ls('skills', /.+/).filter((d) => existsSync(join('skills', d, 'SKILL.md')));
-const skillSet = new Set(skills);
+const internalSkills = ls('skills-internal', /.+/).filter((d) => existsSync(join('skills-internal', d, 'SKILL.md')));
+const skillSet = new Set([...skills, ...internalSkills]);
 const ruleHeader = /^#{2,4}\s+§(\d+)(-py)?\b/gm;
 const defined = new Set();
 for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/capabilities')])
@@ -60,7 +67,7 @@ const A = {
   totalRules: Math.max(...[...defined].filter((r) => !r.endsWith('-py')).map(Number)),
   featureSteps: (readFileSync('skills/feature/SKILL.md', 'utf8').match(/^#{2,4}\s+Step\s+\d+\b/gm) || []).length,
 };
-console.log('Derived actuals:', JSON.stringify(A));
+console.log('Derived actuals:', JSON.stringify(A), `(+${internalSkills.length} framework-self skill(s) in skills-internal/, not shipped)`);
 
 // --- canonical claim patterns (precise; capture group 1 = the number) ------
 const W = '(\\d+|one|two|three|four|five|six|seven|eight|nine|ten)';
@@ -85,7 +92,7 @@ const footerLbl = ['rules', 'skills', 'agents', 'hooks', 'steps'];
 
 const docs = [
   ...(existsSync('README.md') ? ['README.md'] : []),
-  ...walk('docs'), ...walk('skills'), ...walk('agents'),
+  ...walk('docs'), ...walk('skills'), ...walk('skills-internal'), ...walk('agents'),
   ...(existsSync('hooks/README.md') ? ['hooks/README.md'] : []),
 ].filter((f) => !/Analisis-Comparativo/.test(f));
 

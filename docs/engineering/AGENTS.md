@@ -363,17 +363,3 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 ## Total rule count
 
 **§1 – §123** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.
-
----
-
-## Framework self-verification
-
-The counts above — and skill/hook/agent/file/step counts, plus `§N` and `/skill`
-references across the docs — are **verified mechanically**, not maintained by hand.
-`scripts/check-framework-metadata.mjs` derives the truth from the filesystem and
-fails if the canonical prose disagrees; it runs in CI on every PR
-(`.github/workflows/verify-framework-metadata.yml`) and locally via the
-`/verify-framework-consistency` skill. This is the framework-level counterpart to
-`/check-consistency` (which audits a *project's* artifacts). When you add a skill,
-hook, rule, or rule file, the gate forces the matching count update — the failure
-mode that produced the count-only PRs #7 and #8.
