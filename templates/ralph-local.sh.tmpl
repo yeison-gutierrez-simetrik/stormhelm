@@ -1,12 +1,12 @@
 #!/bin/bash
-# Ralph local AFK loop — bootstrap por /setup
+# Ralph local AFK loop — bootstrapped by /setup
 #
-# Uso:
+# Usage:
 #   ./templates/ralph-local.sh <issue-number> [max-iterations]
 #
-# Lee el issue de GitHub, ejecuta /tdd + /run-acceptance hasta
-# que todos los @release pasen, o hasta agotar el budget. Antes de
-# abrir el PR draft invoca al reviewer agent y embebe su reporte.
+# Reads the GitHub issue, runs /tdd + /run-acceptance until every
+# @release scenario passes or the budget is exhausted. Before opening
+# the draft PR it invokes the reviewer agent and embeds its report.
 #
 # Implementa: §63 (label gate), §65 (max-iterations), §66 (reviewer
 #             pre-PR + retry on blocking), §67 (draft PR),
@@ -27,13 +27,13 @@ RALPH_LIB="${SCRIPT_DIR}/ralph-lib.sh"
 BLOCKED_COMMENT_TEMPLATE="${SCRIPT_DIR}/ralph-blocked-comment.md.tmpl"
 
 if [ ! -f "$RALPH_LIB" ]; then
-  echo "❌ ralph-lib.sh no encontrado en ${SCRIPT_DIR}" >&2
-  echo "   Esperado: $RALPH_LIB" >&2
+  echo "❌ ralph-lib.sh not found in ${SCRIPT_DIR}" >&2
+  echo "   Expected: $RALPH_LIB" >&2
   exit 1
 fi
 
 if [ ! -f "$BLOCKED_COMMENT_TEMPLATE" ]; then
-  echo "❌ ralph-blocked-comment.md.tmpl no encontrado en ${SCRIPT_DIR}" >&2
+  echo "❌ ralph-blocked-comment.md.tmpl not found in ${SCRIPT_DIR}" >&2
   exit 1
 fi
 
@@ -66,11 +66,11 @@ while [ "$#" -gt 0 ]; do
     --worker-id) WORKER_ID="${2:?--worker-id requires a value}"; shift 2 ;;
     --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
     --) shift; break ;;
-    -*) echo "❌ flag desconocido: $1" >&2; exit 2 ;;
+    -*) echo "❌ unknown flag: $1" >&2; exit 2 ;;
     *)
       if [ -z "$ISSUE_NUM" ]; then ISSUE_NUM="$1"
       elif [ -z "$MAX_ITER" ]; then MAX_ITER="$1"
-      else echo "❌ argumento inesperado: $1" >&2; exit 2; fi
+      else echo "❌ unexpected argument: $1" >&2; exit 2; fi
       shift ;;
   esac
 done
@@ -85,7 +85,7 @@ BRANCH_PREFIX="agent/feature"
 if [ -z "$ISSUE_NUM" ]; then
   READY=$(gh issue list --label ralph-ready --state open --json number --jq '.[].number' 2>/dev/null || true)
   if [ -z "$READY" ]; then
-    echo "✅ No hay issues 'ralph-ready' abiertos. Nada que hacer."
+    echo "✅ No open 'ralph-ready' issues. Nothing to do."
     exit 0
   fi
   echo "🤖 Queue mode (worker ${WORKER_ID}): $(echo "$READY" | tr '\n' ' ')"
@@ -111,22 +111,22 @@ fi
 LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
 
 if [ -z "$LABELS" ]; then
-  echo "❌ Issue #$ISSUE_NUM no existe o gh CLI no está autenticado" >&2
+  echo "❌ Issue #$ISSUE_NUM does not exist or gh CLI is not authenticated" >&2
   exit 1
 fi
 
 if ! ralph_has_label "$LABELS" "ralph-ready"; then
-  echo "❌ Issue #$ISSUE_NUM no tiene label 'ralph-ready' (§63)" >&2
+  echo "❌ Issue #$ISSUE_NUM is missing label 'ralph-ready' (§63)" >&2
   exit 1
 fi
 
 if ! echo "$LABELS" | grep -qE "^scenarios:"; then
-  echo "❌ Issue #$ISSUE_NUM no tiene label 'scenarios:scn-*' (§63 obligatorio)" >&2
+  echo "❌ Issue #$ISSUE_NUM is missing label 'scenarios:scn-*' (§63 mandatory)" >&2
   exit 1
 fi
 
 if ! echo "$LABELS" | grep -qE "^budget:"; then
-  echo "❌ Issue #$ISSUE_NUM no tiene label 'budget:NNk' (§63 obligatorio)" >&2
+  echo "❌ Issue #$ISSUE_NUM is missing label 'budget:NNk' (§63 mandatory)" >&2
   exit 1
 fi
 
@@ -180,7 +180,7 @@ else
   ralph_git_action "checkout-existing" "success" "git checkout $BRANCH"
 fi
 
-echo "🤖 Ralph iniciando loop para issue #$ISSUE_NUM en rama $BRANCH"
+echo "🤖 Ralph starting loop for issue #$ISSUE_NUM on branch $BRANCH"
 echo "   Session log: $RALPH_SESSION_LOG"
 echo "   Scenarios: $SCENARIOS"
 echo "   Budget: $BUDGET, Max iterations: $MAX_ITER"
@@ -198,7 +198,7 @@ mkdir -p .planning/acceptance
 
 for i in $(seq 1 "$MAX_ITER"); do
   echo ""
-  echo "=== Iteración $i de $MAX_ITER ==="
+  echo "=== Iteration $i of $MAX_ITER ==="
 
   ralph_iteration_start "tdd"
   ITER_EPOCH=$(date +%s)   # staleness floor for this iteration's result file
@@ -208,7 +208,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   # rate-limit paths below were unreachable and a CLI failure took the
   # loop down without marking the issue ralph-blocked.
   TDD_RC=0
-  TDD_OUT=$(ralph_call_claude_with_retry "/tdd para el issue #$ISSUE_NUM. Lee el cuerpo del issue, los escenarios scn-* mencionados ($SCENARIOS), y avanza un slice." 2>&1) || TDD_RC=$?
+  TDD_OUT=$(ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the issue body, the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." 2>&1) || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -272,7 +272,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "🧐 Invocando reviewer agent sobre el diff..."
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
-    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review sobre el diff actual. Cita las reglas §N violadas. Marca cada finding con 🛑 / ⚠️ / 💡 según severidad." 2>&1 || true)
+    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity." 2>&1 || true)
     check_budget_or_block "code-review"
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
@@ -282,7 +282,7 @@ for i in $(seq 1 "$MAX_ITER"); do
       "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
 
     if [ "$REVIEWER_SEVERITY" = "blocking" ] && [ "$i" -lt "$MAX_ITER" ]; then
-      echo "🛑 Reviewer reportó findings blocking. Intentando una iteración extra de /tdd para corregir…"
+      echo "🛑 Reviewer reported blocking findings. Attempting one extra /tdd iteration to fix…"
       ralph_log_event "warn" "ralph.reviewer.retry" \
         "{\"reason\":\"blocking-findings\",\"retry_iteration\":$((i+1))}"
       # Loop back to the top of the for-loop body for one more iteration.
@@ -307,7 +307,7 @@ for i in $(seq 1 "$MAX_ITER"); do
       exit 1
     fi
 
-    echo "✅ Reviewer severity: ${REVIEWER_SEVERITY}. Creando PR…"
+    echo "✅ Reviewer severity: ${REVIEWER_SEVERITY}. Creating PR…"
 
     REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
 
@@ -357,7 +357,7 @@ EOF
   ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
 done
 
-echo "❌ Ralph agotó $MAX_ITER iteraciones sin green. Marcando issue como ralph-blocked."
+echo "❌ Ralph exhausted $MAX_ITER iterations without green. Marking issue as ralph-blocked."
 
 # Use the reviewer section from the last attempt if any, otherwise a placeholder.
 if [ -n "$LAST_REVIEWER_OUTPUT" ]; then
