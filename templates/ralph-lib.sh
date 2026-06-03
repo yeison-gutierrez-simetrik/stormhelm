@@ -206,12 +206,23 @@ ralph_scenario_failed() {
 # ──────────────────────────────────────────────────────────────────────
 # file_mtime <path>
 #
-# Portable mtime-as-epoch (BSD stat on macOS, GNU stat on Linux).
+# Portable mtime-as-epoch (GNU stat on Linux, BSD stat on macOS).
+# GNU must be tried FIRST: on GNU, `stat -f %m` does not fail — it is
+# "filesystem status" and prints the MOUNT POINT (e.g. "/"), which a
+# `-lt` comparison then silently mis-evaluates. BSD errors on `-c`, so
+# the fallback chain is safe in this order. The numeric guard catches
+# any remaining non-epoch output.
 # Prints 0 if the file does not exist or stat fails.
 # ──────────────────────────────────────────────────────────────────────
 ralph_file_mtime() {
   local f="${1:?ralph_file_mtime requires <path>}"
-  stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0
+  local m
+  m=$(stat -c %Y "$f" 2>/dev/null) || m=$(stat -f %m "$f" 2>/dev/null) || m=0
+  if [[ "$m" =~ ^[0-9]+$ ]]; then
+    echo "$m"
+  else
+    echo 0
+  fi
 }
 
 # ──────────────────────────────────────────────────────────────────────
