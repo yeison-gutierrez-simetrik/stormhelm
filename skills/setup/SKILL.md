@@ -253,6 +253,9 @@ issues/.keep                         # consumed by /to-issues, /plan, Ralph
 scripts/<consumer-runtime>.mjs       # copied from $STORMHELM_PATH (see below) — skills invoke these by relative path
 .claude/hooks/*.js                   # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
 .claude/hooks/README.md              # install + per-hook config reference
+ralph-local.sh                       # Night Shift entry point (materialized from template; tailored to stack)
+ralph-lib.sh                         # Night Shift engine — sourced by ralph-local.sh (verbatim)
+ralph-blocked-comment.md.tmpl        # rendered by ralph-lib on block (verbatim)
 ```
 
 **Durable rationale (tracked — see `docs/decisions/README.md`):**
@@ -343,6 +346,18 @@ for f in scripts/*.mjs .claude/hooks/*.js; do
 done
 chmod +x .claude/hooks/*.js   # re-assert after rewrite
 
+# Night Shift engine (Ralph). `ralph-local.sh` SOURCES `ralph-lib.sh` and RENDERS
+# `ralph-blocked-comment.md.tmpl` — all three must be CO-LOCATED or the loop aborts
+# on entry ("ralph-lib.sh no encontrado"). Deliver all three to the project root,
+# matching the documented `./ralph-local.sh <issue>` usage. ralph-lib.sh + the comment
+# template are verbatim (the shared engine); ralph-local.sh is the materialization base
+# whose TEST_CMD/ACCEPTANCE_CMD/... the wizard tailors to the stack (see "ralph-local.sh"
+# below). Without this step, the autonomous Night Shift is broken on first run.
+cp "$STORMHELM_PATH/templates/ralph-lib.sh"                  ralph-lib.sh
+cp "$STORMHELM_PATH/templates/ralph-blocked-comment.md.tmpl" ralph-blocked-comment.md.tmpl
+cp "$STORMHELM_PATH/templates/ralph-local.sh.tmpl"           ralph-local.sh
+chmod +x ralph-local.sh
+
 # .gitignore additions for ephemeral directories
 cat >> .gitignore <<'EOF'
 
@@ -356,7 +371,7 @@ This ensures every downstream skill's `mkdir -p` is defensive but not required f
 
 ### `ralph-local.sh`
 
-Tailored to the stack. For TypeScript + Hono + Drizzle + Zod, the script includes:
+Delivered to the **project root** alongside its engine `ralph-lib.sh` and `ralph-blocked-comment.md.tmpl` (the copy step above) — all three must stay co-located; `ralph-local.sh` sources the lib and renders the template by `SCRIPT_DIR`. The wizard tailors the test-command block to the stack. For TypeScript + Hono + Drizzle + Zod, the script includes:
 
 ```bash
 # Test commands chosen for the stack
@@ -434,7 +449,8 @@ After generation, the skill runs a self-check:
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
-6. Print a summary:
+6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh no encontrado" and the autonomous Night Shift never runs.
+7. Print a summary:
 
 ```
 ✅ Stormhelm configured for <ProjectName>
