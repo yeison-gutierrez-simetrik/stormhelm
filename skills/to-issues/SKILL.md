@@ -106,6 +106,8 @@ It returns `{ modules, module_count, contexts, context_count, labels }`. Rule (c
 
 **Auto-create the labels if missing** in the repo: `gh label create feature:single-module --force` (and the other two). A team may override a classification, but only by an audited label flip in the GitHub timeline (ADR-0002 safeguard 1) — never a silent frontmatter field. Over-classification is safe (it only adds ceremony, downgradable by an explicit human flip); under-classification is caught later by escalation (PR-N, INV-6).
 
+> **Layout assumption.** The detector counts *bounded contexts* from the path segment under a known layer dir — `src/{domain,application,infrastructure,entrypoints,modules,contexts}/<ctx>/…` — i.e. the §3 layer-first hexagonal layout this framework prescribes. The **module count** (the primary §107 trigger) is layout-independent and always works; only `feature:cross-context` is layout-sensitive. A project that nests code differently (e.g. `src/features/<ctx>/…`, or no `src/` prefix) will **under-detect** `cross-context` — which is safe by design (conservative + one-way escalation, PR-N/INV-6), but if your layout diverges, expect to set `feature:cross-context` by hand (audited label flip).
+
 If `feature:multi-module`, also switch to Agent Teams mode (§107) at issue-generation time. (An explicit `module:X` marker in the spec still forces multi-module.)
 
 ### Step 3 — Detect sensitive paths
