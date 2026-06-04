@@ -40,6 +40,12 @@ const ok = (msg) => { console.log(`✅ ${msg}`); process.exit(0); };
 function findFeatures(slug) {
   const root = 'features';
   if (!existsSync(root)) return [];
+  // Escape the slug before interpolating into a RegExp: a '.' would
+  // over-match (api.v2 ≈ apixv2) and a '(' would throw, crashing the
+  // gate instead of failing with an actionable message. Built once —
+  // not per file.
+  const slugEscaped = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const featureTagRe = new RegExp(`^@feature:${slugEscaped}\\s*$`, 'm');
   const matches = [];
   const stack = [root];
   while (stack.length) {
@@ -51,7 +57,7 @@ function findFeatures(slug) {
       if (e.name === `${slug}.feature`) { matches.push(p); continue; }
       const text = readFileSync(p, 'utf8');
       const spec = text.match(/^#\s*spec:\s*(\S+)/im)?.[1];
-      if (spec === `docs/specs/${slug}.md` || new RegExp(`^@feature:${slug}\\s*$`, 'm').test(text)) {
+      if (spec === `docs/specs/${slug}.md` || featureTagRe.test(text)) {
         matches.push(p);
       }
     }

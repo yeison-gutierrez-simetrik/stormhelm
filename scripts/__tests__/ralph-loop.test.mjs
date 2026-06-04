@@ -351,6 +351,15 @@ test('FU-21: ralph_expand_scns expands every wild label form', () => {
   assert.equal(r.stdout.trim(), 'scn-021 scn-022 scn-030 scn-031');
 });
 
+// T20b — non-numeric garbage is dropped, matching check-invariants.mjs' parser
+// (the two auditors must agree on what a label means).
+test('FU-21: ralph_expand_scns drops non-numeric segments', () => {
+  const r = spawnSync('bash', ['-c',
+    `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_expand_scns "scn-021+foo+022,scn-"`,
+  ], { encoding: 'utf8' });
+  assert.equal(r.stdout.trim(), 'scn-021 scn-022');
+});
+
 // ── render_blocked_comment: multiline substitution (found during FU-19) ───────
 
 // T21 — multiline values (every real substitution: scenario_results,

@@ -237,8 +237,13 @@ for i in $(seq 1 "$MAX_ITER"); do
   # non-zero cmd kills the whole script BEFORE the rc check — the 124
   # rate-limit paths below were unreachable and a CLI failure took the
   # loop down without marking the issue ralph-blocked.
+  # The session's prose is intentionally DISCARDED (>/dev/null): since the
+  # structured result channel, nothing parses it — only the result file and
+  # the NDJSON events are signals. stderr stays on the console for live
+  # diagnosis. (Capturing into never-read variables implied the prose
+  # mattered — it does not.)
   TDD_RC=0
-  TDD_OUT=$(ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments) — the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." 2>&1) || TDD_RC=$?
+  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments) — the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." >/dev/null || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -263,7 +268,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   check_budget_or_block "tdd"
 
   ACCEPTANCE_RC=0
-  ACCEPTANCE_OUT=$(ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason." 2>&1) || ACCEPTANCE_RC=$?
+  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason." >/dev/null || ACCEPTANCE_RC=$?
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
@@ -299,7 +304,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     #   suggestion → embed report, open PR
     #   clean      → open PR with brief reviewer-ok note
     # ──────────────────────────────────────────────────────────────
-    echo "🧐 Invocando reviewer agent sobre el diff..."
+    echo "🧐 Invoking reviewer agent on the diff..."
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
     REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity." 2>&1 || true)
