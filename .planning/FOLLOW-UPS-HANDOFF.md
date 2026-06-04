@@ -839,3 +839,75 @@ and iterates **in `gh issue list` default order: created DESC** — for a founda
 **Verify:** (a) `sed -n '325,335p' templates/ralph-local.sh.tmpl` + the queue loop's recursion with no reset; (b) `grep -n 'ISSUE.*log' templates/ralph-watch.sh` → issue-scoped glob; `grep -rn "queue.skipped" templates/ralph-watch.sh` → 0; (c) `grep -rci claim templates/ralph-local.sh.tmpl` → 0.
 
 **Acceptance.** (a) the two-independent-issues loop test pins clean PR bases; (b) `ralph-watch.sh --queue` follows a whole queue night and surfaces skip events (replay-tested with a fixture queue log); (c) the constraint is documented where queue mode is described (or claims implemented with a race test). Suite green.
+
+---
+
+# Queue-night live batch 7 — FOLLOW-UPs 47–49 (from the belong-marketplace slice-03 chained queue night, 2026-06-04)
+
+**Context.** First full **chained queue night** on the shipped FU-43/FU-46 engine: 4 accumulated `ralph-ready` issues (belong #28-#31, slice-group `03-register-provider-agent`, all `require-human-review`) drained unattended into 4 draft PRs (belong #35/#36/#37/#38) — two of them perfect single-iteration runs. The dependency-aware queue, chained `--base`, structured result files, per-call token events and the watcher all worked as designed. The three items below are the gaps the night surfaced — none blocked delivery, but 48 and 49 each silently degraded a `require-human-review` slice's guarantees, which is exactly the class this framework exists to prevent. Forensics: belong session logs `{28,29,30,31}-20260604-*.log`, queue log `queue-20260604-171205.log`, belong PRs #35-#38, issues #28-#31. Line numbers = consumer copies @cd44b72.
+
+---
+
+## FOLLOW-UP 47 — Sonar findings land AFTER Ralph's lifecycle ends: nobody in the workflow owns them, and no local gate has rule parity  ·  **Severity: MEDIUM**
+
+**Problem.** The loop's last act is `gh pr create` → session ends (queue moves to the next issue). SonarCloud **Automatic Analysis** (the GitHub-App default — no CI scanner) analyzes the push server-side and posts its report minutes later: **no step in the engine, `/run-acceptance`, or any skill ever reads it.** Three compounding facts:
+1. **Timing:** the only consumer of post-PR feedback would be a step that doesn't exist (`grep -ril sonar` over the engine + skills → only `compose-sonar-properties.mjs`, which composes config, never consumes results).
+2. **No local parity:** the rules that fired are not in the consumer's eslint, so neither `/tdd` nor the §114 reviewer can catch them pre-push — the reviewer had just passed this exact code.
+3. **Nothing turns red:** Quality Gate passed (the findings were non-blocking) → no label, no comment-on-issue, no human checkpoint names them. The findings are orphaned by design.
+
+**Evidence (live, belong slice-03 night).** Sonar commented 2 new issues on PR #36, 1 on #37, 4 on #38 (2 of the 4 are the SAME findings as #36/#37 — the sibling branch re-adds the same code, so unowned findings also **multiply across a slice-group**). Every comment landed after its session had ended. Finding classes (read from the annotated lines; the SonarCloud API hides PR issues from anonymous callers): duplicated `case` blocks in the audit-adapter switch, a nested ternary in a test-fake comparator, a missing optional chain in the agent-key middleware.
+
+**Verify:** `grep -ril sonar templates/ skills/ scripts/` → only the composer; any consumer PR with a Sonar App comment postdating `ralph.session.ended`.
+
+**Fix — options, combinable (maintainer call on depth):**
+- **(a) Left-shift, cheapest/highest-value:** the `/setup` linting capability adds `eslint-plugin-sonarjs` (the eslint port of the S-rules) to the consumer's eslint config. What Sonar would flag post-PR fails locally inside `/tdd` — the loop that CAN iterate. Pairs with the composed-config story (FU-10/12/13).
+- **(b) Bounded post-PR feedback:** after `gh pr create`, the engine (or a Day Shift `/babysit-prs` skill) polls the PR checks/comments for N minutes; new Sonar findings → posted as an issue comment (the FU-17/FU-26 channel) + `ralph-ready` re-add for a fix iteration. Opt-in; costs wall-clock at the end of every green run.
+- **(c) Floor:** document in `core/13` that post-PR analysis findings are owned by HUMAN CHECKPOINT 2 — today not even that is stated.
+
+**Related (record, pairs with FU-13):** under Automatic Analysis, **Coverage on New Code reads 0.0%** on every PR (no CI test run → no lcov) and the gate passes anyway — misleading for reviewers. If PR-Sonar is ever to take coverage seriously, the consumer needs the CI-scanner mode with `sonar.javascript.lcov.reportPaths`; otherwise the adoption docs should tell reviewers to ignore that tile.
+
+**Acceptance.** A consumer adopting (a) sees the three finding-classes above fail `pnpm lint` locally; or (b) a mock-checks loop test pins the comment+re-add path; at minimum (c) the ownership sentence exists where HUMAN CHECKPOINT 2 is documented. Suite green.
+
+---
+
+## FOLLOW-UP 48 — Chained queue resolves `--base` from the FIRST ralph-done dep only: a multi-dep issue runs on an incomplete base  ·  **Severity: HIGH (converged byte-identical this night by luck, not by contract)**
+
+**Problem.** The FU-43 queue's chained eligibility loop discovers the base branch only while `base_branch` is empty, then `continue`s past every remaining dep:
+```bash
+if [ -n "${RALPH_QUEUE_CHAINED:-}" ] && queue_dep_done "$d"; then
+  if [ -z "$base_branch" ]; then
+    base_branch=$(queue_base_branch_of "$d" || true)
+  fi
+  if [ -n "$base_branch" ]; then continue; fi
+```
+With ≥2 unmerged `ralph-done` deps, the dependent branches from dep₁'s tip and **never sees dep₂..n's code**. FU-43's design contemplated single-dep chains (foundation → dependent); the first real diamond graph broke the assumption. (Distinct from FU-46a, which is base drift between *independent* items.)
+
+**Evidence (live).** belong #31 (`## Depends on` → #28, #29, #30 — all three `ralph-done`, none merged) started **"chained on …-provider-agen-28"**: its worktree lacked #29's `idempotent-replay.service.ts` (needed by scn-062) and #30's `authenticate-agent-key.use-case.ts` (asserted by scn-064/065). Iteration 1 burned 118,202 tokens to `ran-below-expected (4 < 8)`. Iteration 2 recovered the sibling code from the origin branches **byte-identical** (post-hoc `git diff` of the shared files vs branch-29/branch-30: empty) and went green — an outcome no contract guarantees: a divergent reimplementation would have poisoned the slice-group's merge train instead.
+
+**Verify:** `grep -n -A6 'queue_dep_done' templates/ralph-local.sh.tmpl` → the first-base-wins `continue`; belong queue log: `ralph.queue` shows #31 chained on #28's branch with #29/#30 ralph-done.
+
+**Fix.** When the eligibility pass finds **≥2 unmerged ralph-done deps**, build an **ephemeral integration base** instead of picking one: `git checkout -b queue-integration/<issue> <dep₁-branch> && git merge --no-edit <dep₂-branch> …` (the dep branches share the foundation by construction). Merge conflict ⇒ treat the issue as **blocked, loudly** (`ralph.queue.skipped {"reason":"dep-branches-conflict"}`) — a conflict between siblings is a real divergence signal; building on one side would hide it. Single-dep path unchanged. The dependent's PR targets the integration branch (or dep₁'s branch — maintainer call; document the merge-train consequence either way).
+
+**Tests (mock-gh/git fixtures):** diamond A←B, A←C, {B,C}←D with B,C ralph-done → D's recorded base contains both B's and C's commits; make B and C touch the same line → D skipped with the conflict reason; single-dep chain unchanged (existing FU-43 tests stay green).
+
+**Acceptance.** A multi-dep chained issue never starts without ALL its delivered deps' code in its base; sibling divergence surfaces as a loud skip, not a silent half-base; suite green.
+
+---
+
+## FOLLOW-UP 49 — Plan amendments update the issue BODY but not the LABELS: the acceptance gate runs fewer scenarios than the issue owns  ·  **Severity: HIGH (security scenarios shipped ungated on a require-human-review slice)**
+
+**Problem.** The engine's scenario selection (`--tags` expression, expected-count, per-scn summaries) is driven **entirely by the `scenarios:*` label** (the FU-14/16/21/35 lineage hardened exactly that channel). But mid-flight scope amendments are written into the issue **body** (the FU-17 channel) by `/plan` — and nothing requires, checks, or even suggests rotating the label to match. The two contract channels silently fork: the implementing session reads the body (and implements the amendment); the GATE reads the label (and never verifies it).
+
+**Evidence (live).** belong #29's plan amendment (in-body, 2026-06-04): *"this issue also owns the idempotency-replay hardening scenarios **scn-067..070** (…). Budget bumped to `budget:250k`."* The **budget** label was rotated; the **scenarios** label stayed `scn-047+…+054`. Result: `/run-acceptance` ran `ran: 8, expected: 8` — formally green — while the four **security-hardening** scenarios (encrypted-store TTL→410, key_version rotation decrypt, replay rate-limit 429, replay-audit negative invariant) were implemented (commit `c917d2c`) and shipped in belong PR #36 **without ever passing the acceptance gate**, on a `require-human-review` slice. Discovered only because an operator compared the result file's count against the body. The half-rotation (budget yes, scenarios no) shows this is a missing contract, not a one-off lapse.
+
+**Verify:** belong issue #29 body ("Scope amendment") vs its label set at session start (`ralph.contract.validated {"scenarios":"scn-047+048+049+050+051+052+053+054"}`); `.planning/acceptance/issue-29-result.json` → `ran: 8, expected: 8`, no scn-067..070 keys.
+
+**Fix — both halves (same cause/backstop split as FU-35):**
+1. **Contract (cause):** any skill that amends an issue's scope — `/plan` amendments foremost — MUST rotate the affected labels in the same operation (`gh issue edit --remove-label scenarios:<old> --add-label scenarios:<new>`, same for `budget:`), and say so in its SKILL.md as a MANDATORY step ("a body amendment without its label rotation is an incomplete amendment").
+2. **Engine backstop:** the contract-validation block (where budget/labels are already checked, the FU-35 slot) parses the body's `## Scenarios covered` section (and any `Scope amendment` additions), expands both sides, and on mismatch **aborts before iteration 1**: *"scenarios label (scn-047..054) ≠ body scenario set (scn-047..054 + scn-067..070) — rotate the label or fix the body."* Loud, actionable, pre-spend.
+
+**Tests:** fixture issue with body-section ⊃ label → engine refuses with the message; label == body → unchanged; body section absent → label is authoritative (today's behavior, pinned).
+
+**Acceptance.** A body amendment can no longer half-apply: either the label rotates with it (skill contract) or the engine refuses to run (backstop); the belong #29 shape (label ⊂ body) is a pinned red fixture; suite green.
+
+**Consumer note (belong, recorded):** scn-067..070 must be run against PR #36's branch before that PR merges — tracked operator-side; not a framework deliverable.
