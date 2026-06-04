@@ -811,3 +811,31 @@ and iterates **in `gh issue list` default order: created DESC** — for a founda
 - ASC pin: two independent issues created newest-first run oldest-first.
 
 **Acceptance.** Queue mode never starts an issue with unsatisfied dependencies in either mode; the template's ⚠️ order-caveat comment is REPLACED by the real behavior's documentation (and `core/13`'s queue-mode section updated to describe accumulate-and-drain as the supported pattern); `RALPH_QUEUE_CHAINED` is documented next to the §123 exception it leverages; all fixtures above pinned; suite green. A consumer can then specify slices 3-4-5 by day, run `./ralph-local.sh` (or `ralph-isolated` per worker) by night, and wake to a topologically-ordered stack of draft PRs.
+
+---
+
+## FOLLOW-UP 45 — Vendored hooks are CJS with `.js` extension: silently broken under every `"type": "module"` consumer  ·  **Severity: MEDIUM-HIGH (silent — every hook invocation failed since adoption)**
+
+**Problem.** The 5 hooks in `hooks/` use CommonJS (`require(...)`) with a `.js` extension. A consumer whose `package.json` declares `"type": "module"` (the modern default — belong does) makes Node load every `.js` under the project tree as ESM: each hook invocation dies with `ReferenceError: require is not defined in ES module scope` (surfaced as `PostToolUse hook error … cjs/loader:1423`). Because hook failures are NON-BLOCKING, this is invisible-but-total: belong ran since adoption with **zero functioning hooks** — no git-guardrails (C.10's mechanical enforcement!), no closed-set-check, no context-monitor — and nobody noticed until the operator asked about the recurring error line. Pairs with FOLLOW-UP 1 (hooks aren't even copied by /setup); this one says: when they ARE present, they must work regardless of the consumer's module type.
+
+**Verify:** in any `type:module` repo: `echo '{}' | node .claude/hooks/context-monitor.js` → ReferenceError. Belong fix PR #28 (rename to `.cjs` + settings paths) → all 5 exit 0.
+
+**Fix.** Ship the hooks as **`.cjs`** (forces CJS regardless of consumer type; zero code changes — belong validated all 5 run as-is) and update every reference: the framework's own `.claude/settings.json`, `/setup`'s copy step + settings wiring (coordinate with FOLLOW-UP 1, same surface), and any docs naming `hooks/*.js`. Add a metadata-gate or test asserting the shipped hook extensions match the settings references. Consumers that already renamed (belong) re-converge byte-identical.
+
+**Acceptance.** A fresh `type:module` consumer has working hooks out of the box (`echo '{}' | node .claude/hooks/<each>.cjs` → 0); framework settings/docs reference `.cjs`; the FU-1 copy step (when done) copies the `.cjs` names.
+
+---
+
+## FOLLOW-UP 46 — Queue-mode operational gaps: branch-base drift between non-chained items; no queue-level observability; undocumented single-worker constraint  ·  **Severity: MEDIUM (bites the first multi-issue queue night)**
+
+**Problem (three gaps, found by code-reading FU-43's shipped implementation before its first live run — fix them BEFORE they bite).**
+
+**(a) Branch-base drift.** Per-issue branch setup is `git checkout -b "$BRANCH" ${BASE_REF:+"$BASE_REF"}` (`templates/ralph-local.sh.tmpl` ~line 327): with no `--base`, the branch starts at **current HEAD**. The queue loop invokes `"$0" "$n"` per item with NO reset between items — so after issue A completes (HEAD = A's branch tip), an **independent** issue B runnable in the same pass branches from A's tip: B's PR (base `main`) carries A's commits. Dependency-gated graphs don't hit it (serialization or explicit `--base` in chained mode), but the headline use-case — accumulated independent issues from multiple slices, drained in one night — produces polluted PRs on the SECOND item. Fix: between queue items, when the next item is non-chained, reset to the session's recorded start ref (`git checkout --detach <session-start-ref>`; record it once when the queue starts — do NOT re-fetch origin/main mid-queue, the night should be a consistent snapshot). Chained items keep their explicit `--base`. Pin with a loop test: two independent ready issues → second PR's branch contains zero commits of the first.
+
+**(b) No queue-level observability.** `templates/ralph-watch.sh` binds per-issue (`${ISSUE}-*.log` glob): a queue night has no single monitoring surface, and the queue's own `ralph.queue.skipped` events (written to the queue-level NDJSON) are read by nobody. Fix: a `--queue` mode for the watch — glob `*-*.log` newest-first regardless of issue (the rebind-per-tick mechanism already exists, only the glob is issue-scoped), and ALSO tail the queue-level log so skips/cycles surface as notifications ("queue: 4 ready, running #27, skipped #29 (blocked on #27), #30 (blocked on #29)"). Replay mode should accept the queue log too.
+
+**(c) Undocumented single-worker constraint.** Nothing claims an issue for a worker: two concurrent queue workers (`RALPH_WORKER_ID=w1/w2`) would both list the same `ralph-ready` set and double-process. Cheapest honest fix: DOCUMENT "one queue worker per repo; parallelism = explicit per-issue `ralph-isolated` launches" in `core/13`'s queue section + the template header. A label-based claim (`ralph-claimed:w1` applied before processing, cleared after) is the real fix if multi-worker queues are ever wanted — maintainer's call whether to build it now or document the constraint (recommend: document now, build when a consumer actually runs two queue workers).
+
+**Verify:** (a) `sed -n '325,335p' templates/ralph-local.sh.tmpl` + the queue loop's recursion with no reset; (b) `grep -n 'ISSUE.*log' templates/ralph-watch.sh` → issue-scoped glob; `grep -rn "queue.skipped" templates/ralph-watch.sh` → 0; (c) `grep -rci claim templates/ralph-local.sh.tmpl` → 0.
+
+**Acceptance.** (a) the two-independent-issues loop test pins clean PR bases; (b) `ralph-watch.sh --queue` follows a whole queue night and surfaces skip events (replay-tested with a fixture queue log); (c) the constraint is documented where queue mode is described (or claims implemented with a race test). Suite green.
