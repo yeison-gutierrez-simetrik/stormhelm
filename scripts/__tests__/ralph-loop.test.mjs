@@ -26,7 +26,7 @@ const TEMPLATES = join(here, '..', '..', 'templates');
 const MOCK_BIN = join(here, 'fixtures', 'ralph-mock-bin');
 
 // Make sure the mock executables are runnable even if the checkout dropped the bit.
-for (const m of ['gh', 'claude', 'docker']) chmodSync(join(MOCK_BIN, m), 0o755);
+for (const m of ['gh', 'claude', 'docker', 'git']) chmodSync(join(MOCK_BIN, m), 0o755);
 
 // Stand up a throwaway consumer with the Ralph engine co-located at its root, a git
 // repo (the loop runs `git checkout -b`), and a session-log dir.
@@ -312,6 +312,151 @@ test('FU-22: ASCII title unchanged in spirit (lowercased, dashed)', () => {
   withConsumer((dir) => {
     const { out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: 'Add Webhook Retry' });
     assert.match(out, /on branch agent\/feature-add-webhook-retry-1/);
+  });
+});
+
+// ── FOLLOW-UP 29: the branch must be pushed before gh pr create ───────────────
+// (The mock gh now enforces the real CLI's contract: `pr create` aborts unless
+// the mock git recorded a `push` — so EVERY happy-path test in this file also
+// pins the push-before-create order.)
+
+// T22 — push precedes PR creation, in the NDJSON order too.
+test('FU-29: green path pushes the branch before gh pr create', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const ev = readEvents(dir, 1);
+    const idxPush = ev.findIndex((e) => e.event === 'ralph.git.action' && e.details.action === 'push' && e.details.status === 'success');
+    const idxPr = ev.findIndex((e) => e.event === 'ralph.pr.opened');
+    assert.ok(idxPush !== -1, 'a push event is logged');
+    assert.ok(idxPr !== -1, 'the PR opens');
+    assert.ok(idxPush < idxPr, 'push happens BEFORE pr create');
+  });
+});
+
+// T23 — a failing push takes the block path with a structured reason (never a
+// silent finish-line death like the live issue-15 run).
+test('FU-29: push failure → blocked with reason git-push-failed, no PR', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '1'], { MOCK_PUSH_FAIL: '1' });
+    assert.notEqual(status, 0);
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.issue.blocked'));
+    assert.ok(!names(ev).includes('ralph.pr.opened'), 'no PR without a pushed branch');
+    assert.equal(ev.find((e) => e.event === 'ralph.session.ended')?.details?.reason, 'git-push-failed');
+  });
+});
+
+// ── FOLLOW-UP 27: VERDICT line beats emoji headers in severity parsing ────────
+
+const severity = (text) => spawnSync('bash', ['-c',
+  `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_reviewer_severity "$1"`, '_', text,
+], { encoding: 'utf8' }).stdout.trim();
+
+// The reviewer's structured report ALWAYS carries emoji section headers —
+// a clean report contains "## 🛑 Blocking findings (0)" — which the old
+// emoji grep classified as blocking (live false-blocking → wasted retry).
+const CLEAN_REPORT = `# Code review — slice
+## 🛑 Blocking findings (0)
+## ⚠️ Should fix (0)
+## 💡 Suggestions (0)
+| 🛑 Blocking | 0 |
+**Recommendation:** approve as-is
+VERDICT: CLEAN`;
+
+test('FU-27: clean report with emoji headers + VERDICT: CLEAN → clean', () => {
+  assert.equal(severity(CLEAN_REPORT), 'clean');
+});
+
+test('FU-27: VERDICT wins over emojis, last occurrence, markdown/case tolerated', () => {
+  assert.equal(severity('🛑 stuff\n**VERDICT: BLOCKING**'), 'blocking');
+  assert.equal(severity('mentions VERDICT: CLEAN early\n…later real one:\nverdict: should-fix'), 'should-fix');
+  assert.equal(severity('## 💡 Suggestions (2)\nVERDICT: SUGGESTION'), 'suggestion');
+});
+
+test('FU-27: legacy outputs without VERDICT keep the emoji fallback', () => {
+  assert.equal(severity('🛑 §27 Authorization missing'), 'blocking');
+  assert.equal(severity('💡 minor: extract a helper'), 'suggestion');
+  assert.equal(severity('all good, nothing to report'), 'clean');
+});
+
+// Loop-level: a clean-with-emoji-headers report must take the PR path (no retry).
+test('FU-27: loop takes the PR path on a clean report with emoji headers', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_REVIEW: CLEAN_REPORT });
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.reviewer.retry'), 'no false-blocking retry');
+    const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
+    assert.equal(findings?.details?.severity, 'clean');
+  });
+});
+
+// ── FOLLOW-UP 26: blocking findings reach the retry via an issue comment ──────
+
+// T28 — before the blind-retry fix, findings lived only in shell memory: the
+// retry /tdd had no way to know what to fix and they were unrecoverable after
+// a crash. Now they land as an issue comment (FU-17's read-both channel).
+test('FU-26: blocking findings are posted as an issue comment before the retry', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.reviewer.retry'), 'a retry happened');
+    const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
+    assert.match(comments, /Reviewer findings \(iteration 1\)/, 'findings comment posted');
+    assert.match(comments, /§27 missing auth check/, 'the actual findings text is in the comment');
+  });
+});
+
+// ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
+
+// T29 — a pre-seeded GREEN result file + a session that skips the mandatory
+// rewrite must read as result-file-missing (contract violation), never go
+// green off the seed nor read as -stale (the live confusion).
+test('FU-28: stale green seed + no rewrite → result-file-missing, never green', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, '.planning', 'acceptance'), { recursive: true });
+    writeFileSync(join(dir, '.planning', 'acceptance', 'issue-1-result.json'),
+      '{ "issue": 1, "exit_code": 0, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "failure_reason": null }');
+    const { status } = runRalph(dir, ['1', '1'], { MOCK_NO_RESULT_FILE: '1' });
+    assert.notEqual(status, 0, 'a skipped rewrite must never ride a previous green');
+    const ev = readEvents(dir, 1);
+    const fail = ev.find((e) => e.event === 'ralph.iteration.completed' && e.details.outcome === 'acceptance-failing');
+    assert.match(fail.details.reason, /result-file-missing/, 'unambiguous contract violation');
+    assert.doesNotMatch(fail.details.reason, /stale/, 'never confusable with staleness');
+    assert.ok(!names(ev).includes('ralph.pr.opened'));
+  });
+});
+
+// ── FOLLOW-UP 30: block-path robustness ───────────────────────────────────────
+
+// T30a — blocking an issue in a label-less repo provisions ralph-blocked first
+// (gh issue edit --add-label fails SILENTLY on a missing label).
+test('FU-30a: block path creates the ralph-blocked label idempotently', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '1'], { MOCK_ACCEPT: 'exit code: 1' });
+    const labels = readFileSync(join(dir, '.mock-gh-labels'), 'utf8');
+    assert.match(labels, /ralph-blocked.*--force/, 'label provisioned with --force before the add');
+  });
+});
+
+// T30b — a budget block right AFTER a green acceptance run must report the
+// scenarios from the RESULT FILE (✅ passed), not "⚪ not attempted" (the
+// NDJSON events are only emitted on the green path, which the budget guard
+// preempts — the live blocked comment contradicted the result file).
+test('FU-30b: blocked comment reads scenario truth from the result file', () => {
+  withConsumer((dir) => {
+    // tdd (1540) stays under 2k; acceptance (3080 cumulative) exceeds →
+    // budget-block fires right after a GREEN acceptance wrote the file.
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:2k' });
+    assert.notEqual(status, 0);
+    const ev = readEvents(dir, 1);
+    assert.equal(endStatus(ev), 'budget_exceeded');
+    const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
+    assert.match(comments, /✅ `scn-001` — passed/, 'scenario truth from the result file');
+    assert.doesNotMatch(comments, /⚪ `scn-001`/, 'never "not attempted" when the file says passed');
   });
 });
 

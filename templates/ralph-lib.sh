@@ -469,15 +469,19 @@ ralph_json_string() {
 # reviewer_severity <reviewer_output_text>
 #
 # Classify the reviewer agent's output into one of:
-#   blocking    — has any 🛑 marker or "BLOCKED:" line → must retry /tdd
-#   should-fix  — has any ⚠️ marker or "SHOULD FIX:" line → embed in PR, human decides
-#   suggestion  — only 💡 markers — proceed to PR
-#   clean       — no findings at all
+#   blocking | should-fix | suggestion | clean
 #
-# Conventions match the reviewer agent (agents/reviewer.md):
-# - 🛑 / "BLOCKED:" → blocking finding (must fix before merge)
-# - ⚠️ / "SHOULD FIX:" → significant but not blocking
-# - 💡 / "SUGGESTION:" → suggestion / nit
+# PRIMARY signal (FOLLOW-UP 27): the terminal "VERDICT: <CLEAN|SUGGESTION|
+# SHOULD-FIX|BLOCKING>" line that agents/reviewer.md mandates and the
+# loop's prompt demands. Last occurrence wins, case-insensitive, markdown
+# (**bold**) tolerated. This exists because the structured report ALWAYS
+# contains emoji section headers — "## 🛑 Blocking findings (0)" — so the
+# old emoji grep classified a CLEAN report as blocking (live: a false
+# blocking triggered a wasted retry on a diff a §114 re-audit scored 0/0).
+#
+# FALLBACK (legacy outputs without a VERDICT line): the emoji/keyword grep.
+# - 🛑 / "BLOCKED:" → blocking; ⚠️ / "SHOULD FIX:" → should-fix;
+# - 💡 / "SUGGESTION:" → suggestion; none → clean.
 # ──────────────────────────────────────────────────────────────────────
 ralph_reviewer_severity() {
   local output="${1:-}"
@@ -485,6 +489,16 @@ ralph_reviewer_severity() {
     echo "clean"
     return 0
   fi
+  local verdict
+  verdict=$(printf '%s\n' "$output" \
+    | grep -iEo 'VERDICT[^A-Za-z]*(CLEAN|SUGGESTION|SHOULD-FIX|BLOCKING)' \
+    | tail -1 \
+    | grep -iEo '(CLEAN|SUGGESTION|SHOULD-FIX|BLOCKING)$' \
+    | tr '[:upper:]' '[:lower:]')
+  case "$verdict" in
+    clean|suggestion|should-fix|blocking) echo "$verdict"; return 0 ;;
+  esac
+  # Legacy fallback — pre-VERDICT outputs only.
   if echo "$output" | grep -qE "🛑|^BLOCKED:|^\s*BLOCKING:"; then
     echo "blocking"
   elif echo "$output" | grep -qE "⚠️|^SHOULD FIX:|^\s*WARNING:"; then
@@ -830,12 +844,38 @@ ralph_extract_last_actions() {
 #
 # Build a markdown bullet list reporting which scenarios passed,
 # which failed, and which were never attempted.
-# `expected_scenarios` is a comma-separated list (matches the
-# scenarios:scn-* label value).
+# `expected_scenarios` is the scenarios:* label value (any form).
+#
+# Source of truth, in order (FOLLOW-UP 30b):
+#   1. The acceptance result file (issue-<N>-result.json) when present
+#      and written for THIS issue — NDJSON scenario events are only
+#      emitted on the green path, so a block right after a green
+#      acceptance run used to print "⚪ not attempted" for scenarios
+#      whose result file said passed, actively misleading the morning
+#      reviewer. The FU-28 pre-delete guarantees an existing file was
+#      written by the CURRENT iteration.
+#   2. The session log's scenario events (fallback).
 # ──────────────────────────────────────────────────────────────────────
 ralph_summarize_scenarios() {
   local log="${1:?ralph_summarize_scenarios requires <log_file>}"
   local expected="${2:-}"
+  local scn
+
+  local result_file=".planning/acceptance/issue-${RALPH_ISSUE_NUMBER:-0}-result.json"
+  if [ -f "$result_file" ] \
+     && [ "$(jq -r '.issue // empty' "$result_file" 2>/dev/null)" = "${RALPH_ISSUE_NUMBER:-}" ]; then
+    local status
+    for scn in $(ralph_expand_scns "$expected"); do
+      status=$(jq -r --arg s "$scn" '.scenarios[$s] // "missing"' "$result_file" 2>/dev/null || echo "missing")
+      case "$status" in
+        passed)  echo "- ✅ \`${scn}\` — passed" ;;
+        manual)  echo "- 📖 \`${scn}\` — manual (§60, excluded from automation)" ;;
+        missing) echo "- ⚪ \`${scn}\` — not attempted" ;;
+        *)       echo "- 🛑 \`${scn}\` — ${status}" ;;
+      esac
+    done
+    return 0
+  fi
 
   if [ ! -f "$log" ]; then
     echo "_(no session log)_"
@@ -846,7 +886,6 @@ ralph_summarize_scenarios() {
   passed=$(jq -r 'select(.event == "ralph.scenario.passed") | .details.scenario' "$log" 2>/dev/null | sort -u)
   failed=$(jq -r 'select(.event == "ralph.scenario.failed") | .details.scenario' "$log" 2>/dev/null | sort -u)
 
-  local scn
   for scn in $(ralph_expand_scns "$expected"); do
     if echo "$passed" | grep -qx "$scn"; then
       echo "- ✅ \`${scn}\` — passed"
@@ -945,6 +984,13 @@ ralph_block_issue() {
     scenario_results "$scenario_results" \
     last_actions "$last_actions" \
     reviewer_section "$reviewer_section")
+
+  # FOLLOW-UP 30a: a consumer repo may not HAVE the ralph-blocked label
+  # (nothing provisions it on adoption) — and `gh issue edit --add-label`
+  # fails SILENTLY then: no label, watchers/queries can't see the blocked
+  # state. Create it idempotently first (--force updates if present).
+  gh label create "ralph-blocked" --force --color "D93F0B" \
+    --description "Ralph blocked: needs human intervention (§66)" >/dev/null 2>&1 || true
 
   # Apply / remove labels (idempotent: gh edit ignores already-present / already-absent)
   gh issue edit "$issue" --add-label "ralph-blocked" --remove-label "ralph-ready" 2>/dev/null || true

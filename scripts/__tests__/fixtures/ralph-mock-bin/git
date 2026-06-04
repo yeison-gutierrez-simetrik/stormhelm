@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Mock `git` for the Ralph loop test (FOLLOW-UP 29). Intercepts ONLY `push`
+# — records the pushed state in a sentinel file so the mock `gh` can enforce
+# the real CLI's contract (`pr create` aborts on an unpushed branch). Every
+# other subcommand passes through to the real git.
+#   MOCK_PUSH_FAIL  if set, `git push` fails (network/permission simulation)
+if [ "${1:-}" = "push" ]; then
+  if [ -n "${MOCK_PUSH_FAIL:-}" ]; then
+    echo "mock git: push rejected (MOCK_PUSH_FAIL)" >&2
+    exit 1
+  fi
+  touch .mock-pushed
+  exit 0
+fi
+# Resolve the REAL git by scanning PATH while excluding this mock's own
+# directory — `command -v -p` proved unreliable (it can return this very
+# script → infinite exec recursion → the whole suite hangs).
+SELF_DIR=$(cd "$(dirname "$0")" && pwd)
+if [ -x /usr/bin/git ] && [ "$(cd /usr/bin && pwd)" != "$SELF_DIR" ]; then
+  exec /usr/bin/git "$@"
+fi
+IFS=':' read -ra _DIRS <<< "$PATH"
+for d in "${_DIRS[@]}"; do
+  [ -z "$d" ] && continue
+  [ "$(cd "$d" 2>/dev/null && pwd)" = "$SELF_DIR" ] && continue
+  if [ -x "$d/git" ]; then
+    exec "$d/git" "$@"
+  fi
+done
+echo "mock git: real git not found on PATH" >&2
+exit 127

@@ -243,7 +243,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   # diagnosis. (Capturing into never-read variables implied the prose
   # mattered — it does not.)
   TDD_RC=0
-  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments) — the scn-* scenarios mentioned ($SCENARIOS), and advance one slice." >/dev/null || TDD_RC=$?
+  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice." >/dev/null || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -268,7 +268,14 @@ for i in $(seq 1 "$MAX_ITER"); do
   check_budget_or_block "tdd"
 
   ACCEPTANCE_RC=0
-  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason." >/dev/null || ACCEPTANCE_RC=$?
+  # FOLLOW-UP 28: delete the previous result BEFORE the acceptance session.
+  # A live retry session decided "nothing changed since the last green run"
+  # and skipped the mandatory rewrite — the (correct) staleness check then
+  # burned the iteration on result-file-stale. With the pre-delete, a
+  # session that skips the write produces result-file-missing: an
+  # unambiguous contract violation, never confusable with staleness.
+  rm -f "$ACCEPT_RESULT_FILE"
+  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason. ALWAYS rewrite that file fresh in THIS run — even if nothing changed since a previous green run." >/dev/null || ACCEPTANCE_RC=$?
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
@@ -307,7 +314,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "🧐 Invoking reviewer agent on the diff..."
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
-    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity." 2>&1 || true)
+    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity. MANDATORY: end your report with the literal line 'VERDICT: CLEAN' or 'VERDICT: SUGGESTION' or 'VERDICT: SHOULD-FIX' or 'VERDICT: BLOCKING' — automation parses that exact line." 2>&1 || true)
     check_budget_or_block "code-review"
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
@@ -318,8 +325,20 @@ for i in $(seq 1 "$MAX_ITER"); do
 
     if [ "$REVIEWER_SEVERITY" = "blocking" ] && [ "$i" -lt "$MAX_ITER" ]; then
       echo "🛑 Reviewer reported blocking findings. Attempting one extra /tdd iteration to fix…"
+      # FOLLOW-UP 26: persist the findings to the channel the implementer
+      # READS (FU-17's contract: issue body + comments). Without this the
+      # retry /tdd re-ran the standard prompt with NO way to know what to
+      # fix (the findings lived only in this shell's memory): the live
+      # retry committed nothing, and the findings were unrecoverable after
+      # the session died. The comment fixes both — the retry sees them,
+      # and they survive any crash for the morning review.
+      RETRY_COMMENT=$(printf '## Reviewer findings (iteration %s) — fix these; the acceptance gate re-runs next iteration\n\n%s' \
+        "$i" "$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")")
+      if ! gh issue comment "$ISSUE_NUM" --body "$RETRY_COMMENT" >/dev/null 2>&1; then
+        ralph_error_tool "gh" "failed to post reviewer findings comment before retry"
+      fi
       ralph_log_event "warn" "ralph.reviewer.retry" \
-        "{\"reason\":\"blocking-findings\",\"retry_iteration\":$((i+1))}"
+        "{\"reason\":\"blocking-findings\",\"retry_iteration\":$((i+1)),\"findings_posted\":true}"
       # Loop back to the top of the for-loop body for one more iteration.
       # The retry counts toward MAX_ITER because the for-loop increment is implicit.
       continue
@@ -363,7 +382,28 @@ $REVIEWER_SECTION
 EOF
 )
 
-    if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+    # Push BEFORE creating the PR: non-interactive `gh pr create` aborts on
+    # an unpushed branch ("you must first push the current branch…"). This
+    # is the first instruction every successful run reaches — and it had
+    # never executed until the issue-15 run, where it failed at the finish
+    # line. --head makes the call worktree/detached-HEAD-proof.
+    if ! git push -u origin "$BRANCH"; then
+      ralph_git_action "push" "failed" "git push -u origin $BRANCH"
+      ralph_error_tool "git" "git push failed before PR creation"
+      REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
+      ralph_block_issue "$ISSUE_NUM" \
+        "git-push-failed" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "blocked" "git-push-failed"
+      exit 1
+    fi
+    ralph_git_action "push" "success" "git push -u origin $BRANCH"
+
+    if gh pr create --draft --head "$BRANCH" --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \
