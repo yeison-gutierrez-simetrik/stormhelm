@@ -112,8 +112,12 @@ fi
 # ──────────────────────────────────────────────────────────────────────
 # §63 label-contract validation (must run BEFORE init_session so we
 # never leave an empty log file for issues we refuse to process).
+# One combined fetch: labels (the contract) + title (slug + PR title,
+# FOLLOW-UP 36) — the engine used to hit the API twice for one issue.
 # ──────────────────────────────────────────────────────────────────────
-LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
+ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title 2>/dev/null || true)
+LABELS=$(printf '%s' "$ISSUE_JSON" | jq -r '.labels[].name' 2>/dev/null || true)
+ISSUE_TITLE=$(printf '%s' "$ISSUE_JSON" | jq -r '.title // empty' 2>/dev/null || true)
 
 if [ -z "$LABELS" ]; then
   echo "❌ Issue #$ISSUE_NUM does not exist or gh CLI is not authenticated" >&2
@@ -209,7 +213,7 @@ check_budget_or_block() {
 # iconv) while still emitting the transliterated prefix — '|| true' keeps
 # pipefail from killing the script and the partial output is exactly what
 # we want (the bad byte just disappears instead of becoming a dash).
-SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' \
+SLUG=$(printf '%s' "$ISSUE_TITLE" \
   | tr '[:upper:]' '[:lower:]' \
   | { iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null || true; } \
   | tr -c 'a-z0-9' '-' | tr -s '-' | head -c 40 | sed 's/^-//; s/-$//')
@@ -408,11 +412,24 @@ for i in $(seq 1 "$MAX_ITER"); do
 
     REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
 
+    # FOLLOW-UP 36: review-grade PR, composed from data the engine already
+    # holds — both live PRs were manually retitled/re-bodied by the Day
+    # Shift before this. Title = the issue's own title; body = per-scenario
+    # outcomes (from the result file via summarize), counts, tokens,
+    # reviewer verdict + report. Consumers can tune the heredoc.
+    PR_TITLE=$(printf '%.110s' "${ISSUE_TITLE:-fix issue} (#${ISSUE_NUM})")
+    RAN_EXPECTED=$(jq -r '"\(.ran // "?")/\(.expected // "?")"' "$ACCEPT_RESULT_FILE" 2>/dev/null || echo "?/?")
+    SCENARIO_TABLE=$(ralph_summarize_scenarios "$RALPH_SESSION_LOG" "$SCENARIOS")
+
     PR_BODY=$(cat <<EOF
 Automated by Ralph. Closes #$ISSUE_NUM
 
 **Iterations consumed:** $i / $MAX_ITER
-**Scenarios satisfied:** $SCENARIOS
+**Scenarios (ran/expected):** $RAN_EXPECTED
+$SCENARIO_TABLE
+
+**Tokens consumed:** ${RALPH_TOKENS_CUMULATIVE} / ${BUDGET_TOKENS}
+**Reviewer severity:** ${REVIEWER_SEVERITY}
 **Session log:** \`$RALPH_SESSION_LOG\`
 
 ---
@@ -446,7 +463,7 @@ EOF
     fi
     ralph_git_action "push" "success" "git push -u origin $BRANCH"
 
-    if gh pr create --draft --head "$BRANCH" --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+    if gh pr create --draft --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \

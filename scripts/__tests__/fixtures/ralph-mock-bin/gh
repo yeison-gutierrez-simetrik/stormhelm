@@ -7,9 +7,15 @@
 sub="$1 $2"
 case "$sub" in
   "issue view")
-    if printf '%s\n' "$@" | grep -q labels; then
-      if [ -n "${MOCK_LABELS+x}" ]; then printf '%s\n' "$MOCK_LABELS"
-      else printf 'ralph-ready\nscenarios:scn-001\nbudget:50k\n'; fi
+    labels="${MOCK_LABELS-ralph-ready
+scenarios:scn-001
+budget:50k}"
+    if printf '%s\n' "$@" | grep -q "labels,title"; then
+      # Combined fetch (FOLLOW-UP 36): real JSON, parsed client-side with jq.
+      jq -n --arg l "$labels" --arg t "${MOCK_TITLE:-Feature X}" \
+        '{labels: ($l | split("\n") | map(select(length > 0) | {name: .})), title: $t}'
+    elif printf '%s\n' "$@" | grep -q labels; then
+      printf '%s\n' "$labels"
     elif printf '%s\n' "$@" | grep -q title; then
       printf '%s\n' "${MOCK_TITLE:-Feature X}"
     fi ;;

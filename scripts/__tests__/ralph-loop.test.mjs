@@ -500,6 +500,21 @@ test('FU-35: canonical compact label still runs normally', () => {
   });
 });
 
+// ── FOLLOW-UP 36: review-grade PR title + body, composed from the result file ─
+
+test('FU-36: PR title carries the issue title; body carries per-scenario outcomes + Closes', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '2'], { MOCK_TITLE: 'Stripe Connect onboarding' });
+    assert.equal(status, 0);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /Stripe Connect onboarding \(#1\)/, 'real title, not "fix #1"');
+    assert.match(pr, /Closes #1/);
+    assert.match(pr, /✅ `scn-001` — passed/, 'per-scenario outcome line');
+    assert.match(pr, /Scenarios \(ran\/expected\):.*1\/1/, 'count line from the result file');
+    assert.match(pr, /Reviewer severity:.*clean/);
+  });
+});
+
 // ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
 
 // T29 — a pre-seeded GREEN result file + a session that skips the mandatory
