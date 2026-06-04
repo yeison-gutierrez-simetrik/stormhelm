@@ -32,9 +32,19 @@ shift || true
 WORKER_ID="${RALPH_WORKER_ID:-w1}"
 
 RESUME=0
+BASE_REF=""
 PASS_ARGS=()
+expect_base=0
 for a in "$@"; do
-  if [ "$a" = "--resume" ]; then RESUME=1; else PASS_ARGS+=("$a"); fi
+  if [ "$expect_base" = "1" ]; then
+    BASE_REF="$a"; PASS_ARGS+=("--base" "$a"); expect_base=0; continue
+  fi
+  case "$a" in
+    --resume) RESUME=1 ;;
+    --base)   expect_base=1 ;;             # FOLLOW-UP 38a: slice-group chaining
+    --base=*) BASE_REF="${a#*=}"; PASS_ARGS+=("--base" "$BASE_REF") ;;
+    *)        PASS_ARGS+=("$a") ;;
+  esac
 done
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -67,8 +77,10 @@ else
   STAMP=$(date -u +"%Y%m%d-%H%M%S")
   WT="${ROOT}/.worktrees/ralph-${ISSUE}-${WORKER_ID}-${STAMP}"
   mkdir -p "${ROOT}/.worktrees"
-  git worktree add --detach "$WT" HEAD >/dev/null
-  echo "🏝  Isolated worktree: $WT (worker ${WORKER_ID}, issue #${ISSUE})"
+  # FOLLOW-UP 38a: with --base, the worktree starts at the previous
+  # sibling's branch — the engine then branches and PRs against it.
+  git worktree add --detach "$WT" "${BASE_REF:-HEAD}" >/dev/null
+  echo "🏝  Isolated worktree: $WT (worker ${WORKER_ID}, issue #${ISSUE}${BASE_REF:+, chained on ${BASE_REF}})"
 fi
 
 # Untracked runtime surface: tracked files (engine, code) arrive with the

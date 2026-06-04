@@ -324,6 +324,23 @@ A slice often decomposes into several issues that **share a foundation** (issue 
 
 **Cumulative is the default; stacked is discouraged.** Stacked PRs are the root of the "fix landed on the wrong branch, lower PR ships a known defect" failure (a blocking finding can be committed on the top branch while the foundation PR still merges without it). Use stacked only when a cohesive group genuinely exceeds the review budget — and then **finding-attribution (PR-Attr) is mandatory**: a blocking finding must be fixed on the branch that owns the offending code, and `main` must never sit in the intermediate state where one stacked PR is merged without the fix. The old `agent/feature-<slug>-<issue-NNN>` per-issue convention is retired precisely because it forced stacking whenever a slice had dependent issues.
 
+### Night Shift slice-groups: the deliberate stacked exception (FOLLOW-UP 38a, maintainer ruling 2026-06-04)
+
+A Night Shift slice-group is the one place stacking is **sanctioned**: each Ralph run is one issue, sessions run AFK while humans sleep, and waiting for a human merge between siblings would serialize the night on the reviewer's bed-time (live: belong #19 and #21 both branched from `main` and conflicted on the shared wiring files — the second PR needed manual resolution). The chain model trades §123's default for nocturnal throughput, **under four mandatory conditions**:
+
+1. **Merge commits only.** Squash-merging a base PR rewrites its commits and breaks every stacked diff above it. The engine's PR body states this; the merge guidance for chained PRs is merge-commit, base-first.
+2. **The engine carries the base.** `ralph-local.sh --base <prev-branch>` (also accepted by `ralph-isolated.sh`, which starts the worktree at that ref) branches the slice FROM the previous sibling's branch and opens the PR **against** it (`gh pr create --base`). Merge order = chain order; GitHub retargets child PRs automatically when the base merges and its branch is deleted.
+3. **Finding-attribution (PR-Attr) is mandatory** — unchanged from the stacked rule above: a blocking finding is fixed on the branch that owns the offending code, never on a branch stacked above it.
+4. **Cascade procedure.** If the foundation changes post-review, each child refreshes with `git merge <prev-branch>` (in chain order) and re-gates. (Candidate for automation later; manual and documented for now.)
+
+The launch pattern for a chained group, in topological order from `group-slice-issues.mjs`:
+
+```bash
+./ralph-isolated.sh 14                                  # foundation: branches from main
+./ralph-isolated.sh 15 --base agent/feature-<slug14>-14 # chained on the foundation
+./ralph-isolated.sh 16 --base agent/feature-<slug15>-15
+```
+
 ---
 
 ## §68. Ralph respects `git-guardrails`: destructive Git operations are blocked at the tool level

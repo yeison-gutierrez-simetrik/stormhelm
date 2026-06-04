@@ -747,3 +747,41 @@ test('E2E: fail→feedback→green→reviewer-from-file→push→composed PR, fu
     assert.match(pr, /MOCK-REVIEWER-REPORT/, 'the report FILE is what the PR embeds');
   });
 });
+
+// ── FOLLOW-UP 38a: base-branch chaining for slice-groups ──────────────────────
+
+// The maintainer's ruling: Night Shift slice-groups chain (deliberate §123
+// exception) — each sibling branches FROM the previous one and PRs AGAINST it,
+// with merge-commit + base-first stated in the PR body.
+test('FU-38a: --base chains the slice — branch from base, PR against base, stack note in body', () => {
+  withConsumer((dir) => {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    // a foundation branch with a commit main doesn't have:
+    git('checkout', '-qb', 'agent/feature-foundation-9');
+    writeFileSync(join(dir, 'foundation.txt'), 'wiring');
+    git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'foundation wiring');
+    git('checkout', '-q', '-');
+
+    const { status, out } = runRalph(dir, ['1', '2', '--base', 'agent/feature-foundation-9'], {});
+    assert.equal(status, 0, out);
+    // The slice branch contains the foundation commit (chained, not from main):
+    const branch = (out.match(/on branch (\S+)/) || [])[1];
+    assert.ok(branch, 'branch line present');
+    const contains = git('branch', '--contains', git('rev-parse', 'agent/feature-foundation-9').stdout.trim()).stdout;
+    assert.match(contains, new RegExp(branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'slice branch built on the foundation');
+    // PR opened AGAINST the base, with the stack contract stated:
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-foundation-9/, 'PR targets the previous sibling');
+    assert.match(pr, /STACKED PR \(slice-group chain/, 'stack note present');
+    assert.match(pr, /merge commit/i, 'merge-commit requirement stated');
+  });
+});
+
+test('FU-38a: --base with a non-existent ref refuses before any work', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '2', '--base', 'agent/feature-ghost-9'], {});
+    assert.notEqual(status, 0);
+    assert.match(out, /--base 'agent\/feature-ghost-9' does not resolve/);
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
+  });
+});

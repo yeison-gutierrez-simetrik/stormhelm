@@ -64,12 +64,19 @@ LAST_FAIL_REASON=""
 ISSUE_NUM=""
 MAX_ITER=""
 WORKER_ID="${RALPH_WORKER_ID:-w0}"
+# --base <ref> (FOLLOW-UP 38a): slice-group chaining — branch from <ref>
+# instead of the current HEAD and open the PR AGAINST <ref>'s branch.
+# Deliberate §123 stacked exception for Night Shift slice-groups (merge-
+# commit required; finding-attribution mandatory; see core/13).
+BASE_REF=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --max-iterations) MAX_ITER="${2:?--max-iterations requires a value}"; shift 2 ;;
     --max-iterations=*) MAX_ITER="${1#*=}"; shift ;;
     --worker-id) WORKER_ID="${2:?--worker-id requires a value}"; shift 2 ;;
     --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
+    --base) BASE_REF="${2:?--base requires a ref}"; shift 2 ;;
+    --base=*) BASE_REF="${1#*=}"; shift ;;
     --) shift; break ;;
     -*) echo "❌ unknown flag: $1" >&2; exit 2 ;;
     *)
@@ -221,8 +228,14 @@ SLUG=$(printf '%s' "$ISSUE_TITLE" \
 [ -n "$SLUG" ] || SLUG="issue"
 BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
 
-if git checkout -b "$BRANCH" 2>/dev/null; then
-  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH"
+# FOLLOW-UP 38a: with --base, the slice branches from the PREVIOUS sibling's
+# branch (chain), not from the current HEAD. The base must exist.
+if [ -n "$BASE_REF" ] && ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+  echo "❌ --base '$BASE_REF' does not resolve to a ref — chain the slice on an existing sibling branch." >&2
+  exit 1
+fi
+if git checkout -b "$BRANCH" ${BASE_REF:+"$BASE_REF"} 2>/dev/null; then
+  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH ${BASE_REF:-}"
 else
   git checkout "$BRANCH"
   ralph_git_action "checkout-existing" "success" "git checkout $BRANCH"
@@ -426,9 +439,16 @@ for i in $(seq 1 "$MAX_ITER"); do
     PR_TITLE=$(printf '%.110s' "${ISSUE_TITLE:-fix issue} (#${ISSUE_NUM})")
     RAN_EXPECTED=$(jq -r '"\(.ran // "?")/\(.expected // "?")"' "$ACCEPT_RESULT_FILE" 2>/dev/null || echo "?/?")
     SCENARIO_TABLE=$(ralph_summarize_scenarios "$RALPH_SESSION_LOG" "$SCENARIOS")
+    # FOLLOW-UP 38a: a chained slice's PR states the stack contract — base
+    # merges FIRST and with a MERGE COMMIT (squash breaks stacked diffs).
+    STACK_NOTE=""
+    if [ -n "$BASE_REF" ]; then
+      STACK_NOTE="> 🔗 **STACKED PR (slice-group chain, §123 Night Shift exception):** based on \`$BASE_REF\` — merge that PR first, and use a **merge commit** (squash breaks the stacked diffs). If the base changes after review, refresh this branch with \`git merge $BASE_REF\` and re-gate."
+    fi
 
     PR_BODY=$(cat <<EOF
 Automated by Ralph. Closes #$ISSUE_NUM
+${STACK_NOTE}
 
 **Iterations consumed:** $i / $MAX_ITER
 **Scenarios (ran/expected):** $RAN_EXPECTED
@@ -469,7 +489,9 @@ EOF
     fi
     ralph_git_action "push" "success" "git push -u origin $BRANCH"
 
-    if gh pr create --draft --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
+    PR_BASE_ARGS=()
+    [ -n "$BASE_REF" ] && PR_BASE_ARGS=(--base "$BASE_REF")
+    if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \
