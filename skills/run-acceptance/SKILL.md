@@ -82,7 +82,11 @@ If any check exits non-zero, stop and report it — do not start the workflow.
 # ISSUE_NUM = the issue being gated.
 # Scenarios owned by OTHER open issues = siblings not yet implemented (§61).
 # Handles both label forms: scenarios:scn-021,scn-022 and scenarios:scn-021+022.
-SIBLING_SCNS=$(gh issue list --state open --json number,labels \
+# --limit 1000: gh defaults to 30 and truncates SILENTLY — a >30-issue backlog
+# would leave some siblings' undefined scns in the smoke selection, resurrecting
+# exactly the failure mode this scoping exists to kill. 1000 is the same
+# far-above-any-real-backlog backstop the framework uses elsewhere.
+SIBLING_SCNS=$(gh issue list --state open --limit 1000 --json number,labels \
   --jq "[.[] | select(.number != ${ISSUE_NUM}) | .labels[].name | select(startswith(\"scenarios:\"))] | join(\",\")" \
   | tr ',+' '\n' | sed -E 's/^scenarios://; s/^scn-//; /^$/d; s/^/scn-/' \
   | grep -E '^scn-[0-9]+$' | sort -u)
