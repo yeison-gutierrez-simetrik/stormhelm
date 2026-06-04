@@ -675,6 +675,82 @@ gh pr create --draft --head "$BRANCH" …
 
 ---
 
+# Slice close-out batch 5 — FOLLOW-UPs 39–42 (from belong slice-02's /gates close-out, 2026-06-04)
+
+**Context.** The first full `/gates` close-out on a real merged slice (belong PRs #17/#19/#21 → close-out PR #23: traceability-v0.2.0-final, lifecycle flips, the repo's first-ever all-green `check-invariants` + 38/38 full-suite BDD). Four NEW defect classes surfaced — all in the **close-out/merge phase**, a phase no previous batch exercised (every earlier batch died before merge). None blocks *starting* the next slice's spec pipeline; **40 and 41 should land before the next Night Shift run** (40 bites any slice-group with siblings; 41 bites every single PR-open). Forensics: belong PR #23, this conversation's close-out transcript, belong issues #14-#16 label history.
+
+---
+
+## FOLLOW-UP 39 — INV-3 rejects the `implemented` lifecycle state: a correctly closed-out feature breaks the invariant gate  ·  **Severity: MEDIUM (close-out blocker, workaround exists)**
+
+**Problem.** The §58 feature lifecycle is `draft → clarifying → approved → implemented` (INV-8 itself *requires* `# status: implemented` features to be pinned to a `-final` matrix — the close-out flips them). But INV-3's approval check is a strict equality: `scnApproved[scn] = status === 'approved'` (`check-invariants.mjs` ~line 83). Flip a feature to `implemented` at close-out and **every scenario it contains becomes "non-approved"** for any issue file whose `**Labels:**` line still carries `ralph-ready` — INV-3 lists all of them as §58 violations. The two invariants contradict each other: INV-8 demands the very state INV-3 rejects.
+
+**Live failure (belong close-out, 2026-06-04):** flipping the two slice-02 features to `implemented` produced `❌ INV-3 §63: scns in non-approved features (§58): scn-021 … scn-038` — all 18, every one of them human-approved and shipped. Workaround used: edit the issue file's `**Labels:**` line from `ralph-ready` to `ralph-done` (accurate bookkeeping — the GH issues had rotated — but it only *dodges* INV-3 by removing its trigger; the semantic bug stands).
+
+**Verify:**
+```bash
+grep -n "status === 'approved'" scripts/check-invariants.mjs
+# fixture: a ralph-ready issue file + a feature with `# status: implemented` → INV-3 fails
+```
+
+**Fix.** INV-3's check accepts the approved-or-later states: `status === 'approved' || status === 'implemented'` (`implemented` is post-approval by definition — a scenario cannot reach it without the human checkpoint). Keep `draft`/`clarifying` rejected. Add a fixture test: implemented feature + ralph-ready issue → INV-3 passes; draft feature + ralph-ready issue → still fails.
+
+**Acceptance.** A close-out (features `implemented`, `-final` matrix present) passes INV-3 *and* INV-8 simultaneously without label-line edits; the regression fixture is in `check-invariants.test.mjs`.
+
+---
+
+## FOLLOW-UP 40 — Sibling slices' step definitions collide: 9 scenarios went AMBIGUOUS, detectable only after merge  ·  **Severity: HIGH for slice-groups (invisible until it bites)**
+
+**Problem.** Step definitions are authored per-slice by `/tdd` (§61), on independent branches. Generic assertions — `the response has status {int}`, `the response is {int} with code {string}` — are needed by *every* slice, so each sibling's `/tdd` session reasonably defines them in its own `features/<ctx>/steps/*.ts`… reading **its own flow's World state**. Each branch is green in isolation. **The collision only exists after both siblings merge:** cucumber then sees multiple matching definitions and marks every affected scenario `ambiguous` (it refuses to guess).
+
+**Live failure (belong, post-merge of PRs #19 + #21):** the first-ever full-suite run reported `38 scenarios (9 ambiguous, 29 passed)`. Two expressions were defined in BOTH `features/onboarding/steps/` (#15: reads `bag.statusHttp` / `world.lastError`) and `features/settlement/steps/` (#16: reads `bag.scn.httpStatus` / `bag.scn.result`). The `.feature` wording is human-approved and read-only (§58), so disambiguating by rewording is forbidden. Resolution used: ONE canonical definition in `features/support/response.steps.ts` resolving the **union** of both flows' World state (exactly one source is populated per scenario), duplicates deleted from both slice files → 38/38.
+
+**Verify:** belong PR #23 (`features/support/response.steps.ts` + the two deletions); reproduce with any two step files defining `the response has status {int}`.
+
+**Fix — three layers:**
+1. **Convention (§61 addendum, in `skills/tdd/SKILL.md` + `core/12`):** *generic/cross-slice step expressions (response-status, error-code, and similar flow-agnostic assertions) live in `features/support/` as canonical shared definitions; slice step files define only slice-specific steps. When a shared step must read flow-specific World state, it resolves the union (document the one-flow-per-scenario guarantee).*
+2. **Detection (cheap, in `/run-acceptance` pre-flight):** `$BDD_RUNNER --dry-run` (no World boot, ~1-2s) — any `Multiple step definitions match` → FAIL listing the colliding definitions. Catches the collision the moment it becomes visible in a checkout.
+3. **Note the 38a interplay:** under base-branch chaining (38a-a2), the second sibling's branch CONTAINS the first's steps — the collision surfaces during that slice's own `/tdd`/gate instead of post-merge. Another argument recorded for the chaining ruling.
+
+**Acceptance.** Convention documented in both files; the dry-run ambiguity check runs in `/run-acceptance` Step 1 with a test (fixture with two colliding step files → gate fails naming both); a slice-group merged with the convention produces zero ambiguous scenarios.
+
+---
+
+## FOLLOW-UP 41 — `ralph-done` is never provisioned at runtime: the PR-open label rotation half-fails silently on every adopted consumer  ·  **Severity: MEDIUM-HIGH (bites every successful run)**
+
+**Problem.** #83 (FU-30a) provisioned labels in two places: `ralph-blocked` **just-in-time in the block path** (`ralph-lib.sh` `ralph_block_issue`, line ~1024 — the only `gh label create` in the shipped engine) and the full ready/done/blocked trio **in `/setup`** (adoption-time). The gap: consumers who adopt updates via **re-sync** (vendoring files — the normal upgrade path, never re-running `/setup`) get an engine whose green path runs `gh issue edit --add-label ralph-done --remove-label ralph-ready` with **no guarantee `ralph-done` exists**. `gh` fails that edit silently (or atomically drops the add): the issue loses `ralph-ready` and gains nothing.
+
+**Live failure (belong #16, the historic first autonomous run, 04:58Z):** after `ralph.pr.opened`, the issue had **zero** ralph-* labels — `ralph-done` did not exist in the repo (verified at close-out: `gh label create ralph-done` succeeded as a NEW label on 2026-06-04). The morning state read as "neither ready nor done nor blocked" — semantically *worse* than not rotating at all, and invisible unless someone inspects labels.
+
+**Verify:**
+```bash
+grep -n "label create" templates/ralph-lib.sh templates/ralph-local.sh.tmpl
+# → exactly one hit (ralph-blocked, block path). The green path's rotation has no provisioning.
+```
+
+**Fix.** Mirror the block path's pattern: provision idempotently **just-in-time where each label is used** — `gh label create ralph-done --force …` immediately before the PR-open rotation (and `ralph-ready` before any re-add in resume guidance), OR provision all three at session start (contract-validation block; one-time cost ~3 API calls). Prefer just-in-time for symmetry with #83's existing choice. Extend the mock `gh` to fail `issue edit --add-label` for labels not previously created (pinning the real failure mode), and assert the loop test's green path creates `ralph-done` before rotating.
+
+**Acceptance.** A fresh consumer repo (no ralph-* labels) running the loop to a green PR ends with the issue labeled `ralph-done`; the mock-gh enforcement makes the regression impossible to reintroduce silently; suite green.
+
+---
+
+## FOLLOW-UP 42 — `/setup` never installs the §60 CI surface: `@release` scenarios run nowhere after merge  ·  **Severity: MEDIUM (adoption class, same family as FOLLOW-UP 1)**
+
+**Problem.** §60's contract: `@smoke` runs on every push (pre-push hook), `@release` runs **in CI before merge**, untagged fails CI. The framework ships the rule but **no artifact installs it**: `/setup` scaffolds no workflow, no pre-push hook for smoke, and `check-framework-metadata`/invariants don't notice the absence. Same "broken-on-adoption" class as FOLLOW-UP 1 (hooks) and #39/#41 (scripts): the rule promises behavior only `/feature`-discipline delivers locally.
+
+**Live evidence (belong, 2026-06-04):** the repo's 38/38 green exists ONLY in local runs (Ralph's gate + Day Shift). Zero GitHub Actions workflows (`ls .github/workflows` → none). Three slices have merged with **no remote re-verification at merge time** — the human reviewer's checkout discipline is the only backstop. On a `require-human-review` flow the risk is contained, but §60 explicitly promises more.
+
+**Verify:** `grep -rn "workflow\|\.github" skills/setup/SKILL.md | grep -i ci` → no CI scaffolding step; any adopted consumer lacks the workflow.
+
+**Fix.**
+1. Ship `templates/github-workflows/acceptance.yml`: on `pull_request` → checkout, node+pnpm setup, `pnpm typecheck`, `pnpm test`, `$BDD_RUNNER --tags @release` (testcontainers runs natively on `ubuntu-latest` — docker daemon present). **Gate external-sandbox tests by secret presence** (e.g. skip Stripe-sandbox integration specs when `STRIPE_SECRET_KEY` is absent, with a visible skip note) so the workflow is green out-of-the-box and consumers opt into sandbox CI by adding repo secrets.
+2. `/setup` copies it into `.github/workflows/` + adds the §60 pre-push smoke hook to the hook-install step (pairs with FOLLOW-UP 1 — coordinate, don't collide).
+3. **Docs nit to fold in (from the same close-out):** add to the skills' bash conventions: *never pipe a gate command into formatting (`cmd | tail`) — the pipe swallows the exit code; capture RC explicitly or use `set -o pipefail`.* Two live incidents in one day: a red `pnpm typecheck` piped to `tail` let a broken commit get pushed (caught and fixed forward, but the same pattern inside an unattended skill session would silently pass a gate).
+
+**Acceptance.** A freshly `/setup`-ed consumer gets a green `acceptance.yml` on its first PR (sandbox specs visibly skipped without secrets); §60's three promises each map to an installed artifact; the pipe-exit warning lives where skills document bash usage.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.
@@ -686,6 +762,7 @@ gh pr create --draft --head "$BRANCH" …
 7. ~~**Items 18–19** (pre-flight + budget accounting)~~ — ✅ **DONE** (#69, #70).
 8. ~~**Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization)~~ — ✅ **DONE** (#72, #73, #71).
 9. ~~**Items 26–30 (batch 3)**~~ — ✅ **DONE** (#83 cumulative + #84; #85 resolved 32). Validated live: belong #16 was the first fully-autonomous issue→draft-PR run (2 iterations, engine pushed + opened the PR natively).
-10. **Items 33–38 (batch 4 — optimization retrospective; nothing blocks a run):** 33 first (HIGH: ~15k tokens of measured pure duplication per green iteration — the loop re-invokes the reviewer the acceptance session already ran; the fix also removes the last prose-parsing surface). Then 34 + 35 (small, convergence + a live near-miss class), 36 + 37 (UX, batchable), 38 (maintainer decisions + the per-call token instrumentation that gates further optimization). Quality bar for the whole batch: §114 reviewer still runs once per gating pass, real gates and red-first untouched — these remove duplication and fragility, not rigor.
+10. ~~**Items 33–38 (batch 4)**~~ — ✅ **DONE** (#86 docs + #87 cumulative; 38a ruled a2-chaining + implemented in #87, 38b deferred-with-data-plan, 38c shipped).
+11. **Items 39–42 (batch 5 — slice close-out class; first /gates run on a real merged slice):** **41 first** (bites EVERY successful run: the PR-open label rotation half-fails silently on re-sync-adopted consumers), then **40** (HIGH for slice-groups: sibling step collisions are invisible until merge — convention + cheap dry-run detection; interplay with the pending 38a ruling recorded), **39** (INV-3 vs INV-8 lifecycle contradiction — small checker fix), **42** (adoption class: ship the §60 CI workflow + pre-push smoke; coordinate with item 1's hook-install step; fold in the pipe-exit-swallowing bash-convention warning). All four carry live forensics: belong close-out PR #23 + issues #14-#16 label history.
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
