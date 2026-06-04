@@ -693,6 +693,26 @@ test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran
   });
 });
 
+// ── FOLLOW-UP 41: ralph-done provisioned just-in-time before the rotation ─────
+
+// The live first autonomous run ended with ZERO ralph-* labels: ralph-done
+// didn't exist in the (re-sync-adopted) repo and gh failed the rotation
+// silently — the issue lost ralph-ready and gained nothing. The mock gh now
+// REFUSES --add-label for non-created labels, so this green run only passes
+// if the engine provisions ralph-done first AND the rotation succeeds.
+test('FU-41: green run provisions ralph-done before rotating; rotation failure is never silent', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+    const labels = readFileSync(join(dir, '.mock-gh-labels'), 'utf8');
+    assert.match(labels, /ralph-done.*--force/, 'ralph-done created just-in-time');
+    const ev = readEvents(dir, 1);
+    const rotationErr = ev.find((e) => e.event === 'ralph.error.tool' && /label rotation/.test(e.details.message || ''));
+    assert.equal(rotationErr, undefined, 'the rotation succeeded — no error event');
+    assert.ok(names(ev).includes('ralph.pr.opened'));
+  });
+});
+
 // ── E2E: the full autonomous arc with every Day Shift channel exercised ───────
 //
 // One run, the whole contract: issue labels (§63) → /tdd told to read body AND

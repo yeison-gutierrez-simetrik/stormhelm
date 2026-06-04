@@ -493,7 +493,16 @@ EOF
     [ -n "$BASE_REF" ] && PR_BASE_ARGS=(--base "$BASE_REF")
     if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
-      gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
+      # FOLLOW-UP 41: provision ralph-done just-in-time (mirror of the block
+      # path's ralph-blocked). Re-sync-adopted consumers never re-run /setup,
+      # and gh fails the rotation SILENTLY when the label doesn't exist —
+      # the first live autonomous run ended with ZERO ralph-* labels on the
+      # issue (lost ralph-ready, gained nothing).
+      gh label create "ralph-done" --force --color "5319E7" \
+        --description "Ralph delivered a draft PR for this issue" >/dev/null 2>&1 || true
+      if ! gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1; then
+        ralph_error_tool "gh" "label rotation (ralph-ready → ralph-done) failed for issue #$ISSUE_NUM"
+      fi
       ralph_log_event "info" "ralph.pr.opened" \
         "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
       ralph_end_session "completed"

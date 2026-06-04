@@ -41,7 +41,24 @@ budget:50k}"
   "label create")
     # Record label provisioning so tests can assert on it (FOLLOW-UP 30a).
     printf '%s\n' "$*" >> .mock-gh-labels ;;
-  "issue edit") : ;;
+  "issue edit")
+    # FOLLOW-UP 41: real gh REFUSES --add-label for a label that doesn't
+    # exist in the repo (and the engine used to swallow that failure
+    # silently). Enforce here: every added label must have been
+    # `label create`d first — pins the live failure mode so the JIT
+    # provisioning can't regress silently.
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = "--add-label" ]; then
+        for lbl in $(printf '%s' "$a" | tr ',' ' '); do
+          if ! grep -q -- "$lbl" .mock-gh-labels 2>/dev/null; then
+            echo "failed to update: '$lbl' not found" >&2
+            exit 1
+          fi
+        done
+      fi
+      prev="$a"
+    done ;;
   *) : ;;
 esac
 exit 0
