@@ -692,3 +692,58 @@ test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran
     assert.match(check(null, `"${file}" 7 0`).out, /result-file-invalid-json/);
   });
 });
+
+// ── E2E: the full autonomous arc with every Day Shift channel exercised ───────
+//
+// One run, the whole contract: issue labels (§63) → /tdd told to read body AND
+// comments (FU-17) → iteration 1 fails with a gate diagnosis → the diagnosis
+// feeds iteration 2's prompt (FU-34) → green → reviewer verdict+report arrive
+// from the acceptance session's files, never a /code-review (FU-33) → per-call
+// instrumentation (FU-38c) → push before PR (FU-29) → review-grade PR composed
+// from the result file (FU-36) → session completed. If Ralph can't be
+// autonomous with the Day Shift's information, this test names where.
+test('E2E: fail→feedback→green→reviewer-from-file→push→composed PR, fully autonomous', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_FAIL_FIRST: '1',
+      MOCK_TITLE: 'Stripe Connect onboarding',
+      MOCK_ACCEPT_REVIEWER: 'should-fix',
+      MOCK_REVIEW: '⚠️ §5 any type introduced\nVERDICT: SHOULD-FIX',
+    });
+    assert.equal(status, 0, out);
+
+    const ev = readEvents(dir, 1);
+    // Arc shape: exactly fail → green, then completed.
+    const outcomes = ev.filter((e) => e.event === 'ralph.iteration.completed').map((e) => e.details.outcome);
+    assert.deepEqual(outcomes, ['acceptance-failing', 'green']);
+    assert.equal(endStatus(ev), 'completed');
+
+    // Day Shift channels reach the implementer:
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8')
+      .split('―――').map((s) => s.trim()).filter(Boolean);
+    const tdd = prompts.filter((p) => p.includes('/tdd'));
+    assert.equal(tdd.length, 2);
+    assert.match(tdd[0], /body AND comments/, 'FU-17: plan + amendments channel in every prompt');
+    assert.match(tdd[1], /PREVIOUS ITERATION failed acceptance with: exit_code=1/, 'FU-34: gate diagnosis fed forward');
+
+    // FU-33: zero loop-side reviewer invocations; verdict came from the file.
+    assert.doesNotMatch(readFileSync(join(dir, '.mock-claude-prompts'), 'utf8'), /\/code-review/);
+    const findings = ev.filter((e) => e.event === 'ralph.reviewer.findings');
+    assert.ok(findings.some((f) => f.details.source === 'result-file' && f.details.severity === 'should-fix'));
+
+    // FU-38c: every call instrumented (2 tdd + 2 acceptance).
+    const calls = ev.filter((e) => e.event === 'ralph.call.completed');
+    assert.equal(calls.length, 4, `4 instrumented calls, got ${calls.length}`);
+
+    // FU-29 + FU-36: push precedes a composed, review-grade PR.
+    const idxPush = ev.findIndex((e) => e.event === 'ralph.git.action' && e.details.action === 'push' && e.details.status === 'success');
+    const idxPr = ev.findIndex((e) => e.event === 'ralph.pr.opened');
+    assert.ok(idxPush !== -1 && idxPr !== -1 && idxPush < idxPr);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /Stripe Connect onboarding \(#1\)/);
+    assert.match(pr, /Closes #1/);
+    assert.match(pr, /✅ `scn-001` — passed/);
+    assert.match(pr, /Reviewer severity:.*should-fix/);
+    assert.match(pr, /MOCK-REVIEWER-REPORT/, 'the report FILE is what the PR embeds');
+  });
+});
