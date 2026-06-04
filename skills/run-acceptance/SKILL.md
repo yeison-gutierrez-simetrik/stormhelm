@@ -67,6 +67,24 @@ If any check exits non-zero, stop and report it — do not start the workflow.
 - Verify the branch is on its own commit (clean working tree).
 - Verify the issue's `scenarios:scn-NNN` labels exist.
 - Verify the corresponding `.feature` files exist and are unchanged from the approved versions (§58 — agent-modified `.feature` files fail this check).
+- **Step-definition ambiguity check (FOLLOW-UP 40).** Sibling slices may
+  both define a generic expression (each green in isolation — the collision
+  only exists once both sets of steps share a checkout; live: 9/38
+  scenarios `ambiguous` post-merge). A `--dry-run` pass catches it in ~1-2s
+  (no World boot):
+
+  ```bash
+  # Grep the OUTPUT for ambiguity — NEVER use the exit code: --dry-run also
+  # exits non-zero for sibling slices' undefined steps, which are
+  # §61-by-design (the FOLLOW-UP 15 class); failing on rc would re-block
+  # every slice-group.
+  AMBIG=$($BDD_RUNNER --dry-run 2>&1 | grep -iE "multiple step definitions match|ambiguous" || true)
+  if [ -n "$AMBIG" ]; then
+    echo "::error::Ambiguous step definitions — consolidate the generic expression into features/support/ (§61 addendum):"
+    echo "$AMBIG"
+    exit 1
+  fi
+  ```
 
 ### Step 2 — Run @smoke scenarios (scoped to delivered + this-slice work)
 
