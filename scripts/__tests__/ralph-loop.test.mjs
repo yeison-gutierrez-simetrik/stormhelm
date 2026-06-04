@@ -394,6 +394,22 @@ test('FU-27: loop takes the PR path on a clean report with emoji headers', () =>
   });
 });
 
+// ── FOLLOW-UP 26: blocking findings reach the retry via an issue comment ──────
+
+// T28 — before the blind-retry fix, findings lived only in shell memory: the
+// retry /tdd had no way to know what to fix and they were unrecoverable after
+// a crash. Now they land as an issue comment (FU-17's read-both channel).
+test('FU-26: blocking findings are posted as an issue comment before the retry', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.reviewer.retry'), 'a retry happened');
+    const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
+    assert.match(comments, /Reviewer findings \(iteration 1\)/, 'findings comment posted');
+    assert.match(comments, /§27 missing auth check/, 'the actual findings text is in the comment');
+  });
+});
+
 // ── Review adjustment 1: @manual scenarios in the result contract (§60) ───────
 
 // A scenarios{} entry of "manual" is a §60 exclusion, not a failure — it must
