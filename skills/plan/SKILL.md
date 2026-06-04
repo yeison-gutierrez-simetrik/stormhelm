@@ -187,6 +187,24 @@ Save the plan to the issue: **initial plan → `gh issue edit --body`; amendment
 to an already-planned issue → `gh issue comment`** (the channel contract in
 Outputs). Return path to workflow.
 
+**MANDATORY — amendment FORM is canonical (FOLLOW-UP 49, consumer review).**
+A scope or dependency amendment is MACHINE-READ (the engine's pre-iteration
+backstop, the queue's dep graph) — free-form prose created the live blind
+spot (a blockquote amendment that no parser saw). The canonical forms, in the
+issue **body** (`gh issue edit --body`; scope-changing amendments are too
+load-bearing for the comments channel):
+
+- **Scenario changes** → edit `## Scenarios covered` in place, or append a
+  literal `## Scope amendment` section listing the added `scn-NNN`.
+- **Dependency changes** → edit `## Depends on` in place (the queue reads
+  exactly that section).
+- Either way, a dated one-line note in `## Scope amendment` keeps the audit
+  trail human-readable.
+
+(The engine also tolerates the legacy inline form — a line starting with
+`> **Scope amendment…**` / `> **Dependency amendment…**` — but new
+amendments use the headings.)
+
 **MANDATORY — label rotation travels with every scope amendment (FOLLOW-UP
 49).** A body/comment amendment that changes the issue's scope is INCOMPLETE
 until the affected labels rotate **in the same operation**:

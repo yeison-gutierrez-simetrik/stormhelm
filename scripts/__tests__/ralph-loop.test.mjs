@@ -1049,3 +1049,43 @@ test('FU-49: body without scenario sections → label is authoritative (pinned)'
     assert.equal(status, 0, 'prose mentions outside the sections must not trip the gate');
   });
 });
+
+// ── FU-49 round-2 (consumer review): the LIVE amendment shape, verbatim ───────
+
+// The live amendment was a BLOCKQUOTE inside ## Plan — not a heading. The
+// first backstop only matched headings, so the exact incident that motivated
+// FU-49 would have passed it silently (reproduced by the consumer against
+// belong #29's real body). Pinned verbatim, including the scn range form.
+test('FU-49: the live blockquote amendment shape aborts (belong #29 verbatim)', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Plan\n\nSome plan text.\n\n> **Scope amendment (2026-06-04):** this issue also owns the idempotency-replay hardening scenarios **scn-067..070** (encrypted-store TTL, key rotation, replay rate-limit, audit invariant). Budget bumped to `budget:250k`.\n\nMore plan text.\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-047+048\nbudget:250k',
+    });
+    assert.notEqual(status, 0, 'the live shape must abort — it passed the heading-only matcher');
+    assert.match(out, /scn-067/, 'range endpoints extracted, enough to abort');
+    assert.match(out, /Rotate the label/);
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
+  });
+});
+
+// Dependency amendments had the SAME blind spot (belong #31's blockquote
+// never entered the dep graph → fed the FU-48 incomplete-base incident).
+test('FU-49: deps_from_body reads blockquote dependency amendments', () => {
+  const r = spawnSync('bash', ['-c', [
+    `source "${join(TEMPLATES, 'ralph-lib.sh')}"`,
+    `printf '%s\\n' '## Depends on' '- #2 (foundation)' '' '## Plan' '' '> **Dependency amendment (2026-06-04):** this issue ALSO depends on #3 (replay service).' '' 'prose mentioning #99 outside any section' | ralph_deps_from_body`,
+  ].join('\n')], { encoding: 'utf8' });
+  assert.equal(r.stdout.trim().split('\n').join(','), '2,3', `amendment dep joined the graph, prose #99 did not: got '${r.stdout.trim()}'`);
+});
+
+// Consumer-review nit: the ephemeral integration branch is cleaned up after a
+// successful chained run (its commits stay reachable from the child branch).
+test('FU-48: queue-integration/<n> branch is deleted after the child run', () => {
+  withConsumer((dir) => {
+    const git = diamondRepo(dir, false);
+    const { status } = runRalph(dir, [], diamondEnv);
+    assert.equal(status, 0);
+    assert.equal(git('branch', '--list', 'queue-integration/4').stdout.trim(), '', 'ephemeral base cleaned up');
+  });
+});

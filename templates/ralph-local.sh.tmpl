@@ -251,6 +251,12 @@ if [ -z "$ISSUE_NUM" ]; then
         "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
       fi
       PROCESSED="${PROCESSED}${n} "
+      # Housekeeping (consumer-review nit): the ephemeral integration base
+      # served its purpose once the child branched from it — its commits
+      # stay reachable from the child's branch.
+      if [ -n "$pr_base" ]; then
+        git branch -q -D "queue-integration/${n}" 2>/dev/null || true
+      fi
       progress=1
       break   # re-evaluate eligibility (fresh snapshot) after every item
     done
@@ -342,8 +348,17 @@ fi
 # rotated (the budget label was — a half-rotation, proving the contract
 # was missing, not skipped once). If the body's scenario sections own
 # scns the label doesn't, abort BEFORE iteration 1, pre-spend.
+# Two capture shapes (the consumer review caught the second): the canonical
+# heading sections, AND the legacy blockquote/bold inline form the live
+# incident actually used (`> **Scope amendment (date):** … scn-067..070`),
+# which closes on a blank line or the next heading.
 BODY_SCNS=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' \
-  | awk 'tolower($0) ~ /^#+[[:space:]]+(scenarios covered|scope amendment)/{f=1; next} /^#/{f=0} f' \
+  | awk '{ low = tolower($0) }
+      low ~ /^#+[ \t]+(scenarios covered|scope amendment)/ { mode = "h"; next }
+      low ~ /^>?[ \t]*\**scope amendment/ { mode = "b"; print; next }
+      /^#/ { mode = "" }
+      mode == "b" && /^[ \t]*$/ { mode = "" }
+      mode != "" { print }' \
   | grep -oE 'scn-[0-9]+' | sort -u || true)
 if [ -n "$BODY_SCNS" ]; then
   LABEL_SCNS_SORTED=$(ralph_expand_scns "$SCENARIOS" | tr ' ' '\n' | grep . | sort -u || true)
