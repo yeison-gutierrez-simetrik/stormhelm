@@ -492,6 +492,21 @@ repos:
 zero remote re-verification. Each promise now maps to an installed artifact:
 
 ```bash
+# 0. Consumer prerequisites the workflow + hook assume (FOLLOW-UP 44 — all
+#    of them broke the first live adoption). Add to package.json when
+#    missing (//= only fills absent fields, never overwrites):
+#    - packageManager: pnpm/action-setup@v4 hard-fails without it
+#      ("No pnpm version is specified");
+#    - test:acceptance / test:smoke scripts OWNING the tag scoping — the
+#      workflow and the hook invoke them PLAINLY. Never
+#      `pnpm script -- --tags x`: npm strips the `--`, pnpm passes it
+#      through LITERALLY and cucumber reads it as a feature path
+#      (ENOENT: open '…/@release').
+jq '.packageManager //= "pnpm@9.15.0"
+    | .scripts["test:acceptance"] //= "cucumber-js --tags @release"
+    | .scripts["test:smoke"]      //= "cucumber-js --tags @smoke"' \
+  package.json > package.json.tmp && mv package.json.tmp package.json
+
 # 1. @release runs in CI before merge → the acceptance workflow:
 mkdir -p .github/workflows
 cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows/acceptance.yml
@@ -499,11 +514,12 @@ cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows
 #  external-sandbox specs are gated by secret presence and self-skip
 #  visibly, so the workflow is green out-of-the-box.)
 
-# 2. @smoke runs on every push → the pre-push hook (stack-tuned command):
+# 2. @smoke runs on every push → the pre-push hook (plain invocation —
+#    the test:smoke script owns the tag, see prerequisite 0):
 cat > .git/hooks/pre-push <<'EOF'
 #!/bin/sh
 # §60: smoke scenarios gate every push. Keep it fast (@smoke only).
-pnpm test:acceptance -- --tags @smoke
+pnpm test:smoke
 EOF
 chmod +x .git/hooks/pre-push
 ```
@@ -530,7 +546,7 @@ After generation, the skill runs a self-check:
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
-8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve — otherwise `@release` runs nowhere after merge and `@smoke` gates nothing on push (FOLLOW-UP 42).
+8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44).
 9. Print a summary:
 
 ```
