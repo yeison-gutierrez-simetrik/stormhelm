@@ -11,9 +11,9 @@ case "$sub" in
 scenarios:scn-001
 budget:50k}"
     if printf '%s\n' "$@" | grep -q "labels,title"; then
-      # Combined fetch (FOLLOW-UP 36): real JSON, parsed client-side with jq.
-      jq -n --arg l "$labels" --arg t "${MOCK_TITLE:-Feature X}" \
-        '{labels: ($l | split("\n") | map(select(length > 0) | {name: .})), title: $t}'
+      # Combined fetch (FOLLOW-UP 36, +body since FOLLOW-UP 49): real JSON.
+      jq -n --arg l "$labels" --arg t "${MOCK_TITLE:-Feature X}" --arg b "${MOCK_BODY:-}" \
+        '{labels: ($l | split("\n") | map(select(length > 0) | {name: .})), title: $t, body: $b}'
     elif printf '%s\n' "$@" | grep -q labels; then
       printf '%s\n' "$labels"
     elif printf '%s\n' "$@" | grep -q title; then

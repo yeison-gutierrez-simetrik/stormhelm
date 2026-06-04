@@ -1011,3 +1011,41 @@ test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, cl
     assert.equal(skip?.details?.reason, 'dep-branches-conflict');
   });
 });
+
+// ── FOLLOW-UP 49: label ↔ body scenario-set backstop ──────────────────────────
+
+// Live: a body amendment added scn-067..070; the budget label rotated but the
+// scenarios label didn't — the gate ran 8/8 "green" while four SECURITY
+// scenarios shipped ungated on a require-human-review slice. The engine now
+// refuses to start when the body owns scenarios the label doesn't.
+test('FU-49: body scenarios ⊃ label → abort pre-iteration naming the ungated scns', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Scenarios covered\n- scn-001\n\n## Scope amendment\nThis issue also owns scn-067 and scn-068.\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k',
+    });
+    assert.notEqual(status, 0);
+    assert.match(out, /scn-067 scn-068.*ship UNGATED|own scn-067/s, out);
+    assert.match(out, /Rotate the label/, 'actionable: the exact gh command');
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0, 'pre-spend');
+  });
+});
+
+test('FU-49: label == body scenario set → runs normally', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Scenarios covered\n- scn-001\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k',
+    });
+    assert.equal(status, 0);
+  });
+});
+
+test('FU-49: body without scenario sections → label is authoritative (pinned)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: 'Some prose mentioning scn-999 outside any scenario section.\n## Depends on\nNone (foundation)\n',
+    });
+    assert.equal(status, 0, 'prose mentions outside the sections must not trip the gate');
+  });
+});

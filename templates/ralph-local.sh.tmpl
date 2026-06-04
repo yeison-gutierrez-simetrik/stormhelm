@@ -296,9 +296,10 @@ fi
 # One combined fetch: labels (the contract) + title (slug + PR title,
 # FOLLOW-UP 36) — the engine used to hit the API twice for one issue.
 # ──────────────────────────────────────────────────────────────────────
-ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title 2>/dev/null || true)
+ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title,body 2>/dev/null || true)
 LABELS=$(printf '%s' "$ISSUE_JSON" | jq -r '.labels[].name' 2>/dev/null || true)
 ISSUE_TITLE=$(printf '%s' "$ISSUE_JSON" | jq -r '.title // empty' 2>/dev/null || true)
+ISSUE_BODY=$(printf '%s' "$ISSUE_JSON" | jq -r '.body // empty' 2>/dev/null || true)
 
 if [ -z "$LABELS" ]; then
   echo "❌ Issue #$ISSUE_NUM does not exist or gh CLI is not authenticated" >&2
@@ -332,6 +333,25 @@ BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 if [ -n "$SCENARIOS" ] && [ -z "$(ralph_expand_scns "$SCENARIOS")" ]; then
   echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6). Fix the label and relaunch." >&2
   exit 1
+fi
+
+# FOLLOW-UP 49 backstop: the GATE runs what the LABEL says, but scope
+# amendments are written to the BODY (the FU-17 channel) — live, four
+# security scenarios were implemented from a body amendment and shipped
+# WITHOUT ever passing acceptance because the scenarios label was never
+# rotated (the budget label was — a half-rotation, proving the contract
+# was missing, not skipped once). If the body's scenario sections own
+# scns the label doesn't, abort BEFORE iteration 1, pre-spend.
+BODY_SCNS=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' \
+  | awk 'tolower($0) ~ /^#+[[:space:]]+(scenarios covered|scope amendment)/{f=1; next} /^#/{f=0} f' \
+  | grep -oE 'scn-[0-9]+' | sort -u || true)
+if [ -n "$BODY_SCNS" ]; then
+  LABEL_SCNS_SORTED=$(ralph_expand_scns "$SCENARIOS" | tr ' ' '\n' | grep . | sort -u || true)
+  UNGATED=$(comm -23 <(printf '%s\n' "$BODY_SCNS") <(printf '%s\n' "$LABEL_SCNS_SORTED") | tr '\n' ' ')
+  if [ -n "${UNGATED// /}" ]; then
+    echo "❌ Issue #$ISSUE_NUM: the body's scenario sections own ${UNGATED}but the scenarios label only covers '${SCENARIOS}' — those scenarios would ship UNGATED. Rotate the label (gh issue edit --remove-label 'scenarios:<old>' --add-label 'scenarios:<new>') or fix the body, then relaunch." >&2
+    exit 1
+  fi
 fi
 
 # ──────────────────────────────────────────────────────────────────────
