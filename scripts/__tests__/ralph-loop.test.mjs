@@ -232,6 +232,29 @@ test('FU-18: testcontainers + docker up → normal run', () => {
   });
 });
 
+// T15b — placeholder secrets in .env → fail fast before iteration 1, keys named.
+test('FU-18/Adj-3: .env with REPLACE_ME sentinel → fail fast naming the key', () => {
+  withConsumer((dir) => {
+    writeFileSync(join(dir, '.env'), '# comment with REPLACE_ME is fine\nSTRIPE_KEY=REPLACE_ME\nDB_URL=postgres://real:cred@host/db\n');
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.notEqual(status, 0);
+    assert.match(out, /placeholder values/);
+    assert.match(out, /STRIPE_KEY/, 'the offending key is named');
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.iteration.started'), 'no iteration burned');
+    assert.ok(!names(ev).includes('ralph.issue.blocked'), 'env failure must not ralph-block the issue');
+  });
+});
+
+// T15c — a real-valued .env (sentinel only in a comment) passes.
+test('FU-18/Adj-3: .env with real values (sentinel only in comments) → normal run', () => {
+  withConsumer((dir) => {
+    writeFileSync(join(dir, '.env'), '# replace REPLACE_ME before prod\nSTRIPE_KEY=sk_test_real\n');
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+  });
+});
+
 // T15 — RALPH_PREFLIGHT_CMD consumer hook: non-zero blocks the launch.
 test('FU-18: RALPH_PREFLIGHT_CMD failing → fail fast with the command named', () => {
   withConsumer((dir) => {
