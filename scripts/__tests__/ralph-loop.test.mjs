@@ -460,6 +460,24 @@ test('FU-33: green result claiming blocking reviewer → retry, never a PR', () 
   });
 });
 
+// ── FOLLOW-UP 34: the failure diagnosis feeds the next /tdd prompt ────────────
+
+// The gate already produced an actionable failure_reason; before this fix the
+// next session had to re-discover it from scratch (or miss it).
+test('FU-34: iteration N\'s failure_reason lands in iteration N+1\'s /tdd prompt', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_FAIL_FIRST: '1' });
+    assert.equal(status, 0, 'fail→green arc must still deliver the PR');
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8')
+      .split('―――').map((s) => s.trim()).filter(Boolean);
+    const tdd = prompts.filter((p) => p.includes('/tdd'));
+    assert.ok(tdd.length >= 2, 'two tdd iterations ran');
+    assert.doesNotMatch(tdd[0], /PREVIOUS ITERATION failed/, 'first prompt is clean');
+    assert.match(tdd[1], /PREVIOUS ITERATION failed acceptance with: exit_code=1: mock forced failure/,
+      'the diagnosis reached the retry prompt');
+  });
+});
+
 // ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
 
 // T29 — a pre-seeded GREEN result file + a session that skips the mandatory

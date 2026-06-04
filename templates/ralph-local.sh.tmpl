@@ -44,6 +44,11 @@ source "$RALPH_LIB"
 # the ralph-blocked comment when reviewer findings drive the block.
 LAST_REVIEWER_OUTPUT=""
 LAST_REVIEWER_SEVERITY=""
+# FOLLOW-UP 34: the previous iteration's failure_reason — an actionable
+# diagnosis the gate already produced — feeds the NEXT /tdd prompt instead
+# of forcing the session to re-discover the failure from scratch (or miss
+# it). Cleared after a green iteration.
+LAST_FAIL_REASON=""
 
 # ──────────────────────────────────────────────────────────────────────
 # Argument parsing
@@ -250,7 +255,13 @@ for i in $(seq 1 "$MAX_ITER"); do
   # diagnosis. (Capturing into never-read variables implied the prose
   # mattered — it does not.)
   TDD_RC=0
-  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice." >/dev/null || TDD_RC=$?
+  # FU-34: hand the gate's own diagnosis to the implementer (truncated —
+  # it is a pointer, not a transcript; the full trail is in the NDJSON).
+  FAIL_FEEDBACK=""
+  if [ -n "$LAST_FAIL_REASON" ]; then
+    FAIL_FEEDBACK=" PREVIOUS ITERATION failed acceptance with: ${LAST_FAIL_REASON:0:600}. Address this FIRST, then continue."
+  fi
+  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -305,6 +316,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   # ran >= expected + exit_code == 0. Never the session's prose.
   if ACCEPT_STATUS=$(ralph_acceptance_result_check "$ACCEPT_RESULT_FILE" "$ISSUE_NUM" "$ITER_EPOCH"); then
     ralph_iteration_end "green"
+    LAST_FAIL_REASON=""   # FU-34: the diagnosis was consumed; don't leak it forward
 
     # Per-scenario truth from the result file's scenarios{} map
     # (NOT blanket-passing every labeled scenario).
@@ -465,6 +477,7 @@ EOF
           "{\"severity\":\"blocking\",\"source\":\"result-file\",\"posted_to_issue\":true}"
       fi ;;
   esac
+  LAST_FAIL_REASON="$ACCEPT_STATUS"   # FU-34: feeds the next /tdd prompt
   ralph_iteration_end "acceptance-failing" "$ACCEPT_STATUS"
   echo "⚠️  Iteration $i did not reach green (${ACCEPT_STATUS}). Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuing…"
   ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"

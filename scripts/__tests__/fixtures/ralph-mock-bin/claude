@@ -41,6 +41,9 @@ if echo "$prompt" | grep -q "/run-acceptance"; then
   green=1
   if [ -n "${MOCK_FAIL_ISSUE:-}" ] && [ "$issue" = "${MOCK_FAIL_ISSUE}" ]; then green=0; fi
   if [ -n "${MOCK_ACCEPT:-}" ] && [ "${MOCK_ACCEPT}" != "exit code: 0" ]; then green=0; fi
+  # MOCK_FAIL_FIRST: fail only the FIRST acceptance run (fail→green arcs, FU-34)
+  if [ -n "${MOCK_FAIL_FIRST:-}" ] && [ ! -f .mock-acc-ran ]; then green=0; fi
+  touch .mock-acc-ran
   reviewer="${MOCK_ACCEPT_REVIEWER:-clean}"
   if [ -z "${MOCK_NO_RESULT_FILE:-}" ]; then
     mkdir -p .planning/acceptance
