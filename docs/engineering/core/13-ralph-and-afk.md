@@ -347,6 +347,33 @@ The launch pattern for a chained group, in topological order from `group-slice-i
 ./ralph-isolated.sh 16 --base agent/feature-<slug15>-15
 ```
 
+### Accumulate-and-drain: the dependency-aware queue (FOLLOW-UP 43)
+
+The supported multi-slice pattern: the Day Shift specifies slices ahead
+(`/specify → … → /to-issues` per slice), `ralph-ready` issues **accumulate**,
+and one nightly `./ralph-local.sh` (no issue number — or `ralph-isolated`
+per worker) **drains the backlog in dependency order**. Eligibility comes
+from each issue body's `## Depends on` section (`/to-issues` writes it
+structured precisely so automation can read it):
+
+- **Default (merged-deps):** an issue is runnable ⟺ every dependency issue
+  is `CLOSED` (its PR merged). A dependent whose foundation has a draft PR
+  awaiting review **waits** — that pause *is* the `require-human-review`
+  gate. Runnable issues execute ASC by number (foundations are created
+  first by construction).
+- **`RALPH_QUEUE_CHAINED=1` (opt-in):** a dependency that is OPEN but
+  labeled `ralph-done` (draft PR delivered) also satisfies — the dependent
+  launches `--base <the dependency's PR branch>`, i.e. this section's
+  chaining exception applied automatically. Off by default: stacking
+  unreviewed work is a per-night operator choice, never a silent one.
+- Eligibility **re-evaluates after every completed item** (a foundation
+  delivering mid-night unlocks its dependents in chained mode); whatever
+  never becomes runnable is skipped **loudly** — one stdout line plus a
+  `ralph.queue.skipped {issue, blocked_on, mode}` event in the queue-level
+  NDJSON log (`queue-<ts>.log`) — and a mutual dependency pair is called
+  out as a cycle by name. A dependency referencing a nonexistent issue is
+  treated as blocked, never run.
+
 ---
 
 ## §68. Ralph respects `git-guardrails`: destructive Git operations are blocked at the tool level
