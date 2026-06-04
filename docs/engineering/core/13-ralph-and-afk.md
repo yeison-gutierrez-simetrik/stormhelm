@@ -29,8 +29,8 @@ Scenarios covered: scn-001, scn-002, scn-003
 # Issue labels (GitHub)
 ralph-ready
 shift:afk
-scenarios:scn-001,scn-002,scn-003
-budget:50k
+scenarios:scn-001+002+003
+budget:150k
 ```
 
 ### Bad
