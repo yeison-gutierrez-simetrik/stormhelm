@@ -118,24 +118,46 @@ THIS_SCNS=$(gh issue view "$ISSUE_NUM" --json labels \
   --jq '[.labels[].name | select(startswith("scenarios:"))] | join(",")' \
   | tr ',+' '\n' | sed -E 's/^scenarios://; s/^scn-//; /^$/d; s/^/scn-/' \
   | grep -E '^scn-[0-9]+$' | sort -u)
-EXPECTED_COUNT=$(echo "$THIS_SCNS" | grep -c .)
-TAG_EXPR=$(echo "$THIS_SCNS" | sed 's/^/@/' | tr '\n' '|' | sed 's/|$//; s/|/ or /g')
 
-$BDD_RUNNER --tags "$TAG_EXPR"      # e.g. --tags "@scn-042 or @scn-043"
+# Partition out @manual scenarios (§60: documented-not-automated — they have
+# no step definitions BY DESIGN). Executing one yields undefined steps → a
+# false failure; counting one distorts the sanity check below. A scn is
+# manual iff its tag line in the .feature carries @manual.
+MANUAL_SCNS=""; AUTO_SCNS=""
+for scn in $THIS_SCNS; do
+  if grep -rhE "@${scn}([^0-9]|\$)" features/ | grep -q '@manual'; then
+    MANUAL_SCNS="${MANUAL_SCNS}${MANUAL_SCNS:+ }${scn}"
+  else
+    AUTO_SCNS="${AUTO_SCNS}${AUTO_SCNS:+ }${scn}"
+  fi
+done
+
+if [ -z "$AUTO_SCNS" ]; then
+  echo "All labeled scenarios are @manual — nothing to execute (expected 0); record them as \"manual\" in Step 10."
+else
+  EXPECTED_COUNT=$(echo "$AUTO_SCNS" | wc -w | tr -d ' ')
+  # 'and not @manual' is belt-and-braces: even if the partition above missed
+  # one (e.g. an unreadable .feature), the runner still won't execute it.
+  TAG_EXPR="($(echo "$AUTO_SCNS" | tr ' ' '\n' | sed 's/^/@/' | tr '\n' '|' | sed 's/|$//; s/|/ or /g')) and not @manual"
+  $BDD_RUNNER --tags "$TAG_EXPR"    # e.g. --tags "(@scn-042 or @scn-043) and not @manual"
+fi
 ```
 
-This runs **all** scenarios the issue's labels claim (the `@release` subset
-included — an extra `and @release` conjunct would only blur the count check
-below; re-running a `@smoke`-tagged scenario already covered by Step 2 is
-harmless).
+This runs **all automatable** scenarios the issue's labels claim (the
+`@release` subset included — an extra `and @release` conjunct would only blur
+the count check below; re-running a `@smoke`-tagged scenario already covered
+by Step 2 is harmless). `@manual` scenarios are excluded from execution AND
+from the expected count, and surface in Step 10's result file as `"manual"`.
 
 **MANDATORY sanity check.** The run must report **exactly `EXPECTED_COUNT`
-scenarios**. `0 scenarios` (or any count below `EXPECTED_COUNT`) means the
+scenarios** (the labeled set **minus** the `@manual` ones). `0 scenarios`
+when `AUTO_SCNS` is non-empty (or any count below `EXPECTED_COUNT`) means the
 filter is wrong or a `.feature` file is missing its `@scn-NNN` tag — treat it
 as **FAIL**, never as pass. An empty selection exits 0 in cucumber-js; this
 check is what prevents that false green.
 
-Report pass/fail per scenario, plus `ran/expected` counts.
+Report pass/fail per scenario, plus `ran/expected` counts and the manual
+exclusions.
 
 ### Step 4 — Visual acceptance gate (§104) — if UI involved
 
@@ -292,8 +314,8 @@ EOF
 Field rules:
 - `issue` — the issue number being gated (consumers validate it; a result for another issue is rejected).
 - `exit_code` — `0` **only** if every gate passed AND `ran == expected` (Step 3's sanity check). Anything else → non-zero.
-- `scenarios` — one entry per `@scn-NNN` from the issue's labels, value `"passed"` or `"failed: <one-line reason>"`. Omit a scenario only if it was never attempted.
-- `ran` / `expected` — scenario counts from Step 3. `ran < expected` means the tag filter was wrong; consumers treat it as failure even if `exit_code` says 0.
+- `scenarios` — one entry per `@scn-NNN` from the issue's labels, value `"passed"`, `"failed: <one-line reason>"`, or `"manual"` (§60 scenario excluded from execution by Step 3 — explicit, so a manual scn is never mistaken for a filter bug). Omit a scenario only if it was never attempted.
+- `ran` / `expected` — scenario counts from Step 3 (**both exclude `@manual` scenarios**). `ran < expected` means the tag filter was wrong; consumers treat it as failure even if `exit_code` says 0.
 - `gates` — per-gate `"pass"` / `"fail"` / `"n/a"`; `reviewer` carries the severity (`clean` / `suggestion` / `should-fix` / `blocking`).
 - `failure_reason` — `null` on success; on failure, a **single actionable line** (this lands in the session NDJSON and is often the only forensic trace).
 
