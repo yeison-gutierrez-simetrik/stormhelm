@@ -88,7 +88,8 @@ test('one draft among N → fail naming the offending file', () => {
     const { status, out } = run(dir, 'feature-approved', 'f');
     assert.notEqual(status, 0);
     assert.match(out, /two\.feature.*'draft'/);
-    assert.ok(!/one\.feature.*approved'?,/.test(out.replace(/\n/g, ' ')) || true);
+    // The approved sibling must NOT be listed among the offenders.
+    assert.doesNotMatch(out, /one\.feature/);
   });
 });
 

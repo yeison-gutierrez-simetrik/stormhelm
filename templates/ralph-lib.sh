@@ -367,6 +367,13 @@ ralph_expand_scns() {
       scn-*) : ;;
       *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
     esac
+    # Drop non-numeric garbage (scn-foo) — keeps this expander consistent
+    # with check-invariants.mjs' parser, which ignores such segments; the
+    # two auditors must agree on what a label means.
+    case "$scn" in
+      scn-*[!0-9]*) continue ;;
+      scn-) continue ;;
+    esac
     out="${out}${out:+ }${scn}"
   done
   echo "$out"
