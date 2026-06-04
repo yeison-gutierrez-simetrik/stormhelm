@@ -116,6 +116,23 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
   add('CONFIG', '§63', 'fail',
     `${issueFiles.length} issue file(s) found but none carry a "**Labels:**" line — the label-driven invariants cannot run and would silently pass. Emit a "**Labels:** \`ralph-ready\` ..." line per issue (see /to-issues).`);
 
+// CONFIG (FOLLOW-UP 35): a scenarios:* label in an unsupported grammar (live
+// near-miss: a range form `scn-031..038`) expands to ZERO scenarios with no
+// error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
+// Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
+{
+  const SCN_VALUE = /^((scn-)?\d+)([+,](scn-)?\d+)*$/;
+  const malformed = [];
+  for (const f of issueFiles) {
+    for (const m of read(f).matchAll(/scenarios:([^\s`'")\]]+)/gi)) {
+      if (!SCN_VALUE.test(m[1])) malformed.push(`${f}: 'scenarios:${m[1]}'`);
+    }
+  }
+  if (malformed.length)
+    add('CONFIG', '§63', 'fail',
+      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6): ${malformed.join('; ')}`);
+}
+
 // INV-1: multi-module ⇒ SAD exists
 if (!issues.some((i) => i.multiModule)) add('INV-1', '§107', 'na', 'no multi-module issue');
 else if (sads.length) add('INV-1', '§107', 'pass', `SAD present (${sads.length})`);

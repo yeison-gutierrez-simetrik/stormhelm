@@ -478,6 +478,28 @@ test('FU-34: iteration N\'s failure_reason lands in iteration N+1\'s /tdd prompt
   });
 });
 
+// ── FOLLOW-UP 35: unparseable scenarios label fails loudly, pre-iteration ─────
+
+// A range form (live near-miss: scn-031..038) expanded to ZERO scenarios with
+// no error — the engine must refuse BEFORE iteration 1 with the canonical form.
+test('FU-35: range-form scenarios label → engine aborts pre-iteration with the canonical form named', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-031..038\nbudget:150k' });
+    assert.notEqual(status, 0);
+    assert.match(out, /unparseable scenarios label 'scn-031\.\.038'/);
+    assert.match(out, /scn-NNN\+NNN/, 'the canonical form is named');
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.iteration.started'), 'no iteration burned');
+  });
+});
+
+test('FU-35: canonical compact label still runs normally', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k' });
+    assert.equal(status, 0);
+  });
+});
+
 // ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
 
 // T29 — a pre-seeded GREEN result file + a session that skips the mandatory

@@ -378,10 +378,13 @@ ralph_expand_scns() {
     esac
     # Drop non-numeric garbage (scn-foo) — keeps this expander consistent
     # with check-invariants.mjs' parser, which ignores such segments; the
-    # two auditors must agree on what a label means.
+    # two auditors must agree on what a label means. FU-35: warn on the
+    # drop (stderr — never pollutes the stdout the callers capture) so an
+    # unsupported grammar is at least visible in the console/transcript.
     case "$scn" in
-      scn-*[!0-9]*) continue ;;
-      scn-) continue ;;
+      scn-*[!0-9]*|scn-)
+        echo "ralph_expand_scns: dropping unparseable segment '${scn#scn-}' (canonical form: scn-NNN+NNN)" >&2
+        continue ;;
     esac
     out="${out}${out:+ }${scn}"
   done

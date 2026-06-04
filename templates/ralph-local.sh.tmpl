@@ -140,6 +140,15 @@ SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
 BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
 BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 
+# FOLLOW-UP 35: an unsupported label grammar (live near-miss: a range form
+# scn-031..038) expands to ZERO scenarios with no error — downstream that is
+# catastrophic-but-quiet (empty Step-3 selection, blind summaries). Fail
+# loudly BEFORE iteration 1, same class as the env pre-flight.
+if [ -n "$SCENARIOS" ] && [ -z "$(ralph_expand_scns "$SCENARIOS")" ]; then
+  echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6). Fix the label and relaunch." >&2
+  exit 1
+fi
+
 # ──────────────────────────────────────────────────────────────────────
 # Initialize session log (§69) — from here on, every action is recorded
 # ──────────────────────────────────────────────────────────────────────
