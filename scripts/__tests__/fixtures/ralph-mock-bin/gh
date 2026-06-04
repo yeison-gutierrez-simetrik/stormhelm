@@ -14,7 +14,15 @@ case "$sub" in
       printf '%s\n' "${MOCK_TITLE:-Feature X}"
     fi ;;
   "issue list") printf '%s\n' "${MOCK_READY:-1}" ;;
-  "pr create") echo "https://github.com/acme/app/pull/9" ;;
+  "pr create")
+    # Real gh contract (FOLLOW-UP 29): creating a PR for a branch that was
+    # never pushed aborts. The sentinel is written by the mock git's `push`.
+    if [ -f .mock-pushed ]; then
+      echo "https://github.com/acme/app/pull/9"
+    else
+      echo "aborted: you must first push the current branch to a remote, or use the --head flag" >&2
+      exit 1
+    fi ;;
   "issue edit"|"issue comment") : ;;
   *) : ;;
 esac

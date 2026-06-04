@@ -26,7 +26,7 @@ const TEMPLATES = join(here, '..', '..', 'templates');
 const MOCK_BIN = join(here, 'fixtures', 'ralph-mock-bin');
 
 // Make sure the mock executables are runnable even if the checkout dropped the bit.
-for (const m of ['gh', 'claude', 'docker']) chmodSync(join(MOCK_BIN, m), 0o755);
+for (const m of ['gh', 'claude', 'docker', 'git']) chmodSync(join(MOCK_BIN, m), 0o755);
 
 // Stand up a throwaway consumer with the Ralph engine co-located at its root, a git
 // repo (the loop runs `git checkout -b`), and a session-log dir.
@@ -312,6 +312,39 @@ test('FU-22: ASCII title unchanged in spirit (lowercased, dashed)', () => {
   withConsumer((dir) => {
     const { out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: 'Add Webhook Retry' });
     assert.match(out, /on branch agent\/feature-add-webhook-retry-1/);
+  });
+});
+
+// ── FOLLOW-UP 29: the branch must be pushed before gh pr create ───────────────
+// (The mock gh now enforces the real CLI's contract: `pr create` aborts unless
+// the mock git recorded a `push` — so EVERY happy-path test in this file also
+// pins the push-before-create order.)
+
+// T22 — push precedes PR creation, in the NDJSON order too.
+test('FU-29: green path pushes the branch before gh pr create', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const ev = readEvents(dir, 1);
+    const idxPush = ev.findIndex((e) => e.event === 'ralph.git.action' && e.details.action === 'push' && e.details.status === 'success');
+    const idxPr = ev.findIndex((e) => e.event === 'ralph.pr.opened');
+    assert.ok(idxPush !== -1, 'a push event is logged');
+    assert.ok(idxPr !== -1, 'the PR opens');
+    assert.ok(idxPush < idxPr, 'push happens BEFORE pr create');
+  });
+});
+
+// T23 — a failing push takes the block path with a structured reason (never a
+// silent finish-line death like the live issue-15 run).
+test('FU-29: push failure → blocked with reason git-push-failed, no PR', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '1'], { MOCK_PUSH_FAIL: '1' });
+    assert.notEqual(status, 0);
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.issue.blocked'));
+    assert.ok(!names(ev).includes('ralph.pr.opened'), 'no PR without a pushed branch');
+    assert.equal(ev.find((e) => e.event === 'ralph.session.ended')?.details?.reason, 'git-push-failed');
   });
 });
 

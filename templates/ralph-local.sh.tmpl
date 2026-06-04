@@ -363,7 +363,28 @@ $REVIEWER_SECTION
 EOF
 )
 
-    if gh pr create --draft --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+    # Push BEFORE creating the PR: non-interactive `gh pr create` aborts on
+    # an unpushed branch ("you must first push the current branch…"). This
+    # is the first instruction every successful run reaches — and it had
+    # never executed until the issue-15 run, where it failed at the finish
+    # line. --head makes the call worktree/detached-HEAD-proof.
+    if ! git push -u origin "$BRANCH"; then
+      ralph_git_action "push" "failed" "git push -u origin $BRANCH"
+      ralph_error_tool "git" "git push failed before PR creation"
+      REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
+      ralph_block_issue "$ISSUE_NUM" \
+        "git-push-failed" \
+        "$BRANCH" \
+        "$RALPH_SESSION_LOG" \
+        "$SCENARIOS" \
+        "$REVIEWER_SECTION" \
+        "$BLOCKED_COMMENT_TEMPLATE"
+      ralph_end_session "blocked" "git-push-failed"
+      exit 1
+    fi
+    ralph_git_action "push" "success" "git push -u origin $BRANCH"
+
+    if gh pr create --draft --head "$BRANCH" --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \
