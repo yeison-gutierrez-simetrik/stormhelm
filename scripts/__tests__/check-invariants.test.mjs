@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, rmSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -74,6 +74,28 @@ test('INV-3 fails (exit 1) when a ralph-ready scn is in a non-approved feature',
   });
   assert.equal(status, 1);
   assert.match(out, /❌ INV-3/);
+});
+
+// FOLLOW-UP 39: 'implemented' is the §58 post-approval state INV-8 itself
+// demands at close-out — INV-3 must accept it (the live close-out flagged all
+// 18 shipped scenarios as non-approved). draft/clarifying still reject (the
+// test above pins that half).
+test('FU-39: INV-3 accepts a ralph-ready scn in an IMPLEMENTED feature (close-out state)', () => {
+  const { status, out } = runMutated((dir) => {
+    // The realistic close-out state: feature flipped to implemented AND the
+    // -final matrix INV-8 demands is present. Pre-fix, INV-3 and INV-8
+    // CONTRADICTED each other in exactly this state.
+    const p = join(dir, 'features/identity/auth.feature');
+    const text = readFileSync(p, 'utf8');
+    writeFileSync(p, text.replace('# status: approved', '# status: implemented'));
+    const scns = [...text.matchAll(/@(scn-\d+)/g)].map((m) => m[1]);
+    mkdirSync(join(dir, 'docs/audit'), { recursive: true });
+    writeFileSync(join(dir, 'docs/audit/traceability-v1.0.0-final.md'),
+      `# Traceability v1.0.0 (final)\n${scns.map((s) => `- ${s}: shipped`).join('\n')}\n`);
+  });
+  assert.equal(status, 0, `INV-3 and INV-8 must hold SIMULTANEOUSLY at close-out:\n${out}`);
+  assert.match(out, /INV-3 §63: all ralph-ready scns defined and approved/);
+  assert.match(out, /INV-8 §58: .*pinned|INV-8 §58: pass|✅ INV-8/, 'INV-8 satisfied in the same state');
 });
 
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
