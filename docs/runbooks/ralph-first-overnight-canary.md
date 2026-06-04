@@ -2,7 +2,7 @@
 
 **Purpose.** This runbook walks through the **first real overnight Ralph session** end-to-end so that the four bloqueante validations (#1-#4 in the Night-Shift readiness audit) are exercised in production conditions on a low-risk canary issue. After this runbook passes, Ralph is approved for daily overnight use against real issues.
 
-**Pre-condition.** The Ralph hardening PR (Slices 1-7 of `docs/specs/ralph-hardening.md`) is merged to `main`. `ralph-local.sh`, `ralph-lib.sh`, `ralph-blocked-comment.md.tmpl`, and `hooks/git-guardrails.js` are present in the project.
+**Pre-condition.** The Ralph hardening PR (Slices 1-7 of `docs/specs/ralph-hardening.md`) is merged to `main`. `ralph-local.sh`, `ralph-lib.sh`, `ralph-blocked-comment.md.tmpl`, and `hooks/git-guardrails.cjs` are present in the project.
 
 **Time budget.** 60-90 minutes of attended Day-Shift work to prepare and execute. The canary itself is a single issue with `max-iterations=5`, so wall-clock is typically 5-15 minutes once started.
 
@@ -25,8 +25,8 @@ Run from your project root (a freshly `/setup`-ed project for the first test, th
 
 ### Stormhelm scaffolding
 
-- [ ] **`.claude/settings.json` registers `git-guardrails`.** Open the file and confirm a `PreToolUse` entry with `matcher: "Bash"` pointing at `$CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js`. If missing, re-run `/setup` — it writes that `PreToolUse` entry (see `skills/setup`, §113 hook wiring).
-- [ ] **Hook is executable.** `ls -l .claude/hooks/git-guardrails.js` shows execute bits.
+- [ ] **`.claude/settings.json` registers `git-guardrails`.** Open the file and confirm a `PreToolUse` entry with `matcher: "Bash"` pointing at `$CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.cjs`. If missing, re-run `/setup` — it writes that `PreToolUse` entry (see `skills/setup`, §113 hook wiring).
+- [ ] **Hook is executable.** `ls -l .claude/hooks/git-guardrails.cjs` shows execute bits.
 - [ ] **`ralph-local.sh` is executable.** `ls -l ralph-local.sh` (project root; `/setup` delivers it there beside `ralph-lib.sh`).
 - [ ] **`ralph-lib.sh` is in the same directory** as `ralph-local.sh`.
 - [ ] **`ralph-blocked-comment.md.tmpl` is in the same directory.**
@@ -43,7 +43,7 @@ Run from your project root (a freshly `/setup`-ed project for the first test, th
 ```bash
 # Hook responds correctly
 echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}' \
-  | node .claude/hooks/git-guardrails.js
+  | node .claude/hooks/git-guardrails.cjs
 echo "exit: $?"   # expect 2
 ```
 
@@ -241,7 +241,7 @@ Read Terminal 1's stdout carefully and the session log. Common causes:
 | "❌ ralph-lib.sh no encontrado" | Confirm `ralph-lib.sh` is present beside `ralph-local.sh` (both at project root; re-run `/setup` if missing) |
 | "claude: command not found" inside iteration | Install/relink `claude` CLI |
 | Bash syntax error / unexpected token | Bash version too old; install Bash ≥ 4 |
-| Hook returned 2 on a non-destructive command (false positive) | Edit `hooks/git-guardrails.js` regex; file an issue |
+| Hook returned 2 on a non-destructive command (false positive) | Edit `hooks/git-guardrails.cjs` regex; file an issue |
 
 After fixing the cause, re-run the canary from Phase 2.
 

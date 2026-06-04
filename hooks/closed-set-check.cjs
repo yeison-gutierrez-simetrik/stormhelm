@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hooks/closed-set-check.js
+// hooks/closed-set-check.cjs
 // PostToolUse hook (matcher: Write|Edit|MultiEdit). Implements §36 continuous verification.
 //
 // After a Markdown file is written, if it contains a closed-set block

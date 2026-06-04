@@ -37,10 +37,10 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 ├── skills/                             — SKILL.md files (canonical, copied to .claude/skills/ in consumers)
 ├── agents/                             — sub-agent definitions (canonical, copied to .claude/agents/)
 ├── hooks/                              — Node.js hooks (canonical, copied to .claude/hooks/)
-│   ├── git-guardrails.js               — PreToolUse(Bash) blocking destructive git ops (§68)
-│   ├── webfetch-cache-pre/post.js      — §108 WebFetch caching
-│   ├── context-monitor.js              — PostToolUse(*) §112 context tracking
-│   └── closed-set-check.js             — PostToolUse(Write|Edit) §36 drift detection
+│   ├── git-guardrails.cjs               — PreToolUse(Bash) blocking destructive git ops (§68)
+│   ├── webfetch-cache-pre/post.cjs      — §108 WebFetch caching
+│   ├── context-monitor.cjs              — PostToolUse(*) §112 context tracking
+│   └── closed-set-check.cjs             — PostToolUse(Write|Edit) §36 drift detection
 ├── templates/                          — operational templates (ralph-local.sh.tmpl, ralph-lib.sh, etc.)
 ├── scripts/                            — Node helpers, two kinds (see "scripts/ taxonomy" below)
 │   ├── check-framework-metadata.mjs    — [self-maint]       self-consistency linter (PR-A)

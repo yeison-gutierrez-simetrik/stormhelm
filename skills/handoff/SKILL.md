@@ -3,7 +3,7 @@ name: handoff
 description: |
   Compacts the current session into a structured handoff document so a fresh
   agent can pick up where this one left off without context loss. Triggered
-  manually OR automatically by `context-monitor.js` hook (§112) when context
+  manually OR automatically by `context-monitor.cjs` hook (§112) when context
   drops below thresholds. Adopted from Matt Pocock's `/handoff` pattern.
   Use when: context is approaching saturation, work needs to pause across
   sessions, or transferring an in-flight task to another developer/agent.
@@ -19,7 +19,7 @@ This is the **safety net** for long Ralph sessions, multi-day features, and any 
 
 ## When to invoke
 
-- The `context-monitor.js` hook (§112) emits a WARNING or CRITICAL — handoff before context fails.
+- The `context-monitor.cjs` hook (§112) emits a WARNING or CRITICAL — handoff before context fails.
 - End of day if work is mid-issue.
 - Before invoking `/clear` to start a fresh context.
 - When handing a branch to another developer.
@@ -145,7 +145,7 @@ And then continue from "Next concrete action".
 
 ## Integration with the framework
 
-- **Invoked manually OR by `context-monitor.js` hook (§112)** when context drops.
+- **Invoked manually OR by `context-monitor.cjs` hook (§112)** when context drops.
 - **Invoked by Ralph** when hitting `max-iterations` (§66) with partial work — preserves the state for human review.
 - **Read by the next session's main agent** as the first input after `/clear`.
 

@@ -256,3 +256,29 @@ test('FU-44: workflow invokes the script PLAINLY and documents both prerequisite
   assert.match(yml, /packageManager/, 'prerequisite 1 documented in the header');
   assert.match(yml, /test:acceptance.*script|script.*test:acceptance/i, 'prerequisite 2 documented');
 });
+
+// ── FOLLOW-UP 45: hooks must run under "type": "module" consumers ─────────────
+
+// The live failure: CJS hooks with a .js extension die with 'require is not
+// defined in ES module scope' the moment the consumer's package.json declares
+// "type": "module" — and hook failures are NON-BLOCKING, so the consumer ran
+// since adoption with ZERO functioning guardrails. .cjs forces CJS regardless.
+test('FU-45: every shipped hook runs (rc=0) inside a type:module consumer', () => {
+  withDir((dir) => {
+    writeFileSync(join(dir, 'package.json'), '{ "type": "module" }');
+    const hooksDir = join(TEMPLATES, '..', 'hooks');
+    const hooks = readdirSync(hooksDir).filter((f) => f.endsWith('.cjs'));
+    assert.equal(hooks.length, 5, `5 shipped hooks expected, found: ${hooks.join(', ')}`);
+    mkdirSync(join(dir, '.claude', 'hooks'), { recursive: true });
+    for (const h of hooks) {
+      copyFileSync(join(hooksDir, h), join(dir, '.claude', 'hooks', h));
+      const r = spawnSync('node', [join(dir, '.claude', 'hooks', h)], {
+        cwd: dir, encoding: 'utf8', input: '{}',
+      });
+      assert.equal(r.status, 0, `${h} must run under type:module — got rc=${r.status}\n${r.stderr}`);
+    }
+    // And no shipped hook keeps the .js extension (the regression vector):
+    assert.equal(readdirSync(hooksDir).filter((f) => f.endsWith('.js')).length, 0,
+      'a .js hook would silently die under type:module');
+  });
+});

@@ -110,7 +110,7 @@ Convention — in the doc, the list lives between markers that name the canonica
 ```
 
 - `scripts/sync-closed-sets.mjs` regenerates the block from the named symbol — `--check` (verify, for CI / pre-commit), or write mode to refresh. Prose outside the markers is untouched.
-- `hooks/closed-set-check.js` (PostToolUse) surfaces a non-blocking warning when a written doc's list drifts from code.
+- `hooks/closed-set-check.cjs` (PostToolUse) surfaces a non-blocking warning when a written doc's list drifts from code.
 
 The set still lives **once** in the domain (the union/`as const` above); the docs are a generated *view* of it, so they cannot drift independently.
 

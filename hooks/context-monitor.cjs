@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hooks/context-monitor.js
+// hooks/context-monitor.cjs
 // PostToolUse hook (matcher: *). Implements rule §112.
 //
 // Reads context usage telemetry from an opt-in bridge file and, when

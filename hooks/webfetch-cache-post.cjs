@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hooks/webfetch-cache-post.js
+// hooks/webfetch-cache-post.cjs
 // PostToolUse hook (matcher: WebFetch). Implements rule §108.
 //
 // After a real WebFetch returns, attempts to retrieve HTTP validators

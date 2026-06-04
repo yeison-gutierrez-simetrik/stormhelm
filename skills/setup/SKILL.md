@@ -251,7 +251,7 @@ docs/perf-baselines/.keep            # consumed by /optimize, /traceability-matr
 features/.keep                       # consumed by /to-scenarios, /run-acceptance
 issues/.keep                         # consumed by /to-issues, /plan, Ralph
 scripts/<consumer-runtime>.mjs       # copied from $STORMHELM_PATH (see below) — skills invoke these by relative path
-.claude/hooks/*.js                   # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
+.claude/hooks/*.cjs                   # copied from $STORMHELM_PATH (see below) — wired in .claude/settings.json per §113
 .claude/hooks/README.md              # install + per-hook config reference
 ralph-local.sh                       # Night Shift entry point (materialized from template; tailored to stack)
 ralph-lib.sh                         # Night Shift engine — sourced by ralph-local.sh (verbatim)
@@ -326,13 +326,13 @@ done
 # Consumer-runtime hooks. Installed at `${CLAUDE_PROJECT_DIR}/.claude/hooks/<x>.js`
 # — the conventional Claude Code project-hook location, matching the README Phase 0
 # adoption path and existing consumers; the `.claude/settings.json` wiring below
-# references it. All 5 are consumer-runtime: git-guardrails.js is mandatory whenever
+# references it. All 5 are consumer-runtime: git-guardrails.cjs is mandatory whenever
 # Ralph runs; the other four are opt-in (§113). They are copied here; wiring them is
 # the settings.json step below. Same "broken on adoption if missing" class as scripts.
 mkdir -p .claude/hooks
-cp "$STORMHELM_PATH"/hooks/*.js  .claude/hooks/
+cp "$STORMHELM_PATH"/hooks/*.cjs  .claude/hooks/
 cp "$STORMHELM_PATH/hooks/README.md" .claude/hooks/README.md   # install + per-hook config reference
-chmod +x .claude/hooks/*.js
+chmod +x .claude/hooks/*.cjs
 
 # Provenance stamp (cheap, optional): record which framework commit each copied
 # script/hook came from, so a later re-sync (see "Re-running /setup") can tell what
@@ -341,10 +341,10 @@ chmod +x .claude/hooks/*.js
 # rule drops any pre-existing `// stormhelm:` line first, so it is **idempotent** —
 # safe to re-run on already-stamped files (a re-sync re-copies pristine files anyway).
 SH="$(git -C "$STORMHELM_PATH" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-for f in scripts/*.mjs .claude/hooks/*.js; do
+for f in scripts/*.mjs .claude/hooks/*.cjs; do
   awk -v s="// stormhelm: $SH" '/^\/\/ stormhelm:/{next} NR==1&&/^#!/{print;print s;st=1;next} !st{print s;st=1} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 done
-chmod +x .claude/hooks/*.js   # re-assert after rewrite
+chmod +x .claude/hooks/*.cjs   # re-assert after rewrite
 
 # Night Shift engine (Ralph). `ralph-local.sh` SOURCES `ralph-lib.sh` and RENDERS
 # `ralph-blocked-comment.md.tmpl` — all three must be CO-LOCATED or the loop aborts
@@ -443,20 +443,20 @@ COVERAGE_CMD="uv run pytest --cov"
 
 ### `.claude/settings.json` — hooks + MCP servers
 
-The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `.claude/hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.js`. `git-guardrails.js` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
+The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `.claude/hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.js`. `git-guardrails.cjs` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
 
 ```jsonc
 {
   "permissions": { /* ... */ },
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js" }] },
-      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }] }
+      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs" }] },
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs" }] }
     ],
     "PostToolUse": [
-      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }] },
-      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }] },
-      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/closed-set-check.js" }] }
+      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs" }] },
+      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs" }] },
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/closed-set-check.cjs" }] }
     ]
   },
   "mcpServers": {
@@ -543,7 +543,7 @@ After generation, the skill runs a self-check:
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
-5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
+5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.cjs .claude/hooks/closed-set-check.cjs .claude/hooks/context-monitor.cjs .claude/hooks/webfetch-cache-pre.cjs .claude/hooks/webfetch-cache-post.cjs` all resolve, and `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs` — otherwise the destructive-git guard is silently absent.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
 8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44).

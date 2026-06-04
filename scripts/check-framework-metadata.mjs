@@ -60,7 +60,10 @@ for (const f of walk('docs/engineering/core'))
 
 const A = {
   skills: skills.length,
-  hooks: ls('hooks', /\.js$/).length,
+  // .cjs since FOLLOW-UP 45: a `"type": "module"` consumer makes Node load
+  // every .js as ESM → CJS hooks died on require() at every invocation,
+  // silently (hook failures are non-blocking). .cjs forces CJS everywhere.
+  hooks: ls('hooks', /\.cjs$/).length,
   agents: ls('agents', /\.md$/).length,
   coreFiles: ls('docs/engineering/core', /\.md$/).length,
   coreRules: coreDefined.size,
@@ -160,6 +163,33 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
   const rel = relative(ROOT, f);
   for (const r of defd) if (!declared.has(r)) block.push(`${rel}  [rule-header] defines ${r} but "Rules in this file" omits it`);
   for (const r of declared) if (!defd.has(r)) block.push(`${rel}  [rule-header] header lists ${r} but no such rule is defined here`);
+}
+
+// --- hook-extension consistency (FOLLOW-UP 45): every shipped reference to a
+// hook must use the extension the file actually has. A `.js` mention is how
+// the type:module breakage regresses: /setup copies a glob, settings wire a
+// path, and a stale `.js` resurrects a hook that silently never runs.
+{
+  const hookStems = ls('hooks', /\.cjs$/).map((h) => h.replace(/\.cjs$/, ''));
+  if (hookStems.length) {
+    const staleRe = new RegExp(`(?:${hookStems.join('|')})\\.js\\b|hooks/\\*\\.js\\b`, 'g');
+    const SCAN_EXT = /\.(md|mjs|yml|yaml|json|sh|tmpl|cjs)$/;
+    const walkAny = (dir, acc = []) => {
+      if (!existsSync(dir)) return acc;
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walkAny(p, acc); }
+        else if (SCAN_EXT.test(e.name)) acc.push(p);
+      }
+      return acc;
+    };
+    const files = ['README.md', ...['docs', 'skills', 'agents', 'hooks', 'templates', 'scripts'].flatMap((d) => walkAny(d))];
+    for (const f of files) {
+      for (const m of readFileSync(f, 'utf8').matchAll(staleRe)) {
+        block.push(`${relative(ROOT, f)}  [hook-ext] stale '.js' hook reference '${m[0]}' — shipped hooks are .cjs (FOLLOW-UP 45: .js dies under type:module consumers)`);
+      }
+    }
+  }
 }
 
 const dump = (a) => a.forEach((x) => console.log('  ' + x));

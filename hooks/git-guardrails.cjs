@@ -15,7 +15,7 @@
  *         {
  *           "matcher": "Bash",
  *           "hooks": [
- *             { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.js" }
+ *             { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.cjs" }
  *           ]
  *         }
  *       ]
