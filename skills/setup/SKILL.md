@@ -358,6 +358,16 @@ cp "$STORMHELM_PATH/templates/ralph-blocked-comment.md.tmpl" ralph-blocked-comme
 cp "$STORMHELM_PATH/templates/ralph-local.sh.tmpl"           ralph-local.sh
 chmod +x ralph-local.sh
 
+# Night Shift operator tooling (FOLLOW-UP 32, graduated from a consumer):
+# - ralph-isolated.sh — runs the loop in a git worktree so the Night Shift
+#   never hijacks the developer's checkout (pairs with --worker-id);
+# - ralph-watch.sh — NDJSON tail → notifications (RALPH_NOTIFY_CMD is the
+#   integration point; Slack example in its header; webhook URL belongs in
+#   the consumer's .env, never hardcoded).
+cp "$STORMHELM_PATH/templates/ralph-isolated.sh" ralph-isolated.sh
+cp "$STORMHELM_PATH/templates/ralph-watch.sh"    ralph-watch.sh
+chmod +x ralph-isolated.sh ralph-watch.sh
+
 # Provision the Ralph lifecycle labels (FOLLOW-UP 30a). The engine applies
 # ralph-done / ralph-blocked and the §63 contract requires ralph-ready — but
 # a fresh repo has none of them, and `gh issue edit --add-label` fails
@@ -373,6 +383,7 @@ cat >> .gitignore <<'EOF'
 # Stormhelm ephemeral working state
 .planning/
 .claude/webfetch-cache/
+.worktrees/
 EOF
 ```
 
@@ -483,7 +494,7 @@ After generation, the skill runs a self-check:
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
-6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
+6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
 8. Print a summary:
 
