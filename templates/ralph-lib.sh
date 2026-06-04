@@ -390,6 +390,7 @@ ralph_log_scenarios_from_result() {
     status=$(jq -r --arg s "$scn" '.scenarios[$s] // "missing"' "$file" 2>/dev/null || echo "missing")
     case "$status" in
       passed) ralph_scenario_passed "$scn" ;;
+      manual) : ;;   # §60 documented-not-automated — excluded by design, not a failure
       missing) : ;;
       *) ralph_scenario_failed "$scn" "$status" ;;
     esac

@@ -292,6 +292,32 @@ test('FU-22: ASCII title unchanged in spirit (lowercased, dashed)', () => {
   });
 });
 
+// ── Review adjustment 1: @manual scenarios in the result contract (§60) ───────
+
+// A scenarios{} entry of "manual" is a §60 exclusion, not a failure — it must
+// produce NO scenario event (pre-fix the catch-all case logged scenario.failed
+// with reason "manual").
+test('Adj-1: scenarios{} value "manual" emits no passed/failed event', () => {
+  withConsumer((dir) => {
+    const file = join(dir, 'r.json');
+    writeFileSync(file, JSON.stringify({
+      issue: 7, exit_code: 0,
+      scenarios: { 'scn-001': 'passed', 'scn-002': 'manual' },
+      ran: 1, expected: 1, failure_reason: null,
+    }));
+    const r = spawnSync('bash', ['-c', [
+      `source "${join(TEMPLATES, 'ralph-lib.sh')}"`,
+      `RALPH_SESSION_LOG="${join(dir, 's.log')}"; RALPH_SESSION_ID=t; RALPH_ISSUE_NUMBER=7`,
+      `ralph_log_scenarios_from_result "${file}" "scn-001,scn-002"`,
+    ].join('\n')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const log = readFileSync(join(dir, 's.log'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(log.filter((e) => e.event === 'ralph.scenario.passed').length, 1);
+    assert.equal(log.filter((e) => e.event === 'ralph.scenario.failed').length, 0,
+      'a manual scenario must not be logged as failed');
+  });
+});
+
 // ── FOLLOW-UP 21: scenarios:* label expansion (shared lib helper) ─────────────
 
 // T20 — ralph_expand_scns normalizes compact/spelled/comma label forms.
