@@ -26,6 +26,9 @@ case "$sub" in
   "issue comment")
     # Record posted comments so tests can assert on them (FOLLOW-UP 26).
     printf '%s\n―――\n' "$*" >> .mock-gh-comments ;;
+  "label create")
+    # Record label provisioning so tests can assert on it (FOLLOW-UP 30a).
+    printf '%s\n' "$*" >> .mock-gh-labels ;;
   "issue edit") : ;;
   *) : ;;
 esac

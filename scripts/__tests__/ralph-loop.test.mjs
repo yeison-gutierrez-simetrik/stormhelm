@@ -430,6 +430,36 @@ test('FU-28: stale green seed + no rewrite → result-file-missing, never green'
   });
 });
 
+// ── FOLLOW-UP 30: block-path robustness ───────────────────────────────────────
+
+// T30a — blocking an issue in a label-less repo provisions ralph-blocked first
+// (gh issue edit --add-label fails SILENTLY on a missing label).
+test('FU-30a: block path creates the ralph-blocked label idempotently', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '1'], { MOCK_ACCEPT: 'exit code: 1' });
+    const labels = readFileSync(join(dir, '.mock-gh-labels'), 'utf8');
+    assert.match(labels, /ralph-blocked.*--force/, 'label provisioned with --force before the add');
+  });
+});
+
+// T30b — a budget block right AFTER a green acceptance run must report the
+// scenarios from the RESULT FILE (✅ passed), not "⚪ not attempted" (the
+// NDJSON events are only emitted on the green path, which the budget guard
+// preempts — the live blocked comment contradicted the result file).
+test('FU-30b: blocked comment reads scenario truth from the result file', () => {
+  withConsumer((dir) => {
+    // tdd (1540) stays under 2k; acceptance (3080 cumulative) exceeds →
+    // budget-block fires right after a GREEN acceptance wrote the file.
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:2k' });
+    assert.notEqual(status, 0);
+    const ev = readEvents(dir, 1);
+    assert.equal(endStatus(ev), 'budget_exceeded');
+    const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
+    assert.match(comments, /✅ `scn-001` — passed/, 'scenario truth from the result file');
+    assert.doesNotMatch(comments, /⚪ `scn-001`/, 'never "not attempted" when the file says passed');
+  });
+});
+
 // ── Review adjustment 1: @manual scenarios in the result contract (§60) ───────
 
 // A scenarios{} entry of "manual" is a §60 exclusion, not a failure — it must

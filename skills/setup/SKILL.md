@@ -358,6 +358,15 @@ cp "$STORMHELM_PATH/templates/ralph-blocked-comment.md.tmpl" ralph-blocked-comme
 cp "$STORMHELM_PATH/templates/ralph-local.sh.tmpl"           ralph-local.sh
 chmod +x ralph-local.sh
 
+# Provision the Ralph lifecycle labels (FOLLOW-UP 30a). The engine applies
+# ralph-done / ralph-blocked and the §63 contract requires ralph-ready — but
+# a fresh repo has none of them, and `gh issue edit --add-label` fails
+# SILENTLY on a missing label: a blocked issue would carry no queryable
+# signal. --force is idempotent (re-runs just update color/description).
+gh label create ralph-ready   --force --color 0E8A16 --description "Contract complete; Ralph may pick this up (§63)"
+gh label create ralph-done    --force --color 5319E7 --description "Ralph delivered a draft PR for this issue"
+gh label create ralph-blocked --force --color D93F0B --description "Ralph blocked: needs human intervention (§66)"
+
 # .gitignore additions for ephemeral directories
 cat >> .gitignore <<'EOF'
 
