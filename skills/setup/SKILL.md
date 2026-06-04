@@ -485,6 +485,40 @@ repos:
   # ... language-specific hooks based on stack
 ```
 
+### §60 CI surface — acceptance workflow + pre-push smoke (FOLLOW-UP 42)
+
+§60 promises three behaviors; until now NO artifact installed them (the
+"broken-on-adoption" class of FOLLOW-UP 1) — three live slices merged with
+zero remote re-verification. Each promise now maps to an installed artifact:
+
+```bash
+# 1. @release runs in CI before merge → the acceptance workflow:
+mkdir -p .github/workflows
+cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows/acceptance.yml
+# (tune the steps to the active stack — the template default is TS+pnpm;
+#  external-sandbox specs are gated by secret presence and self-skip
+#  visibly, so the workflow is green out-of-the-box.)
+
+# 2. @smoke runs on every push → the pre-push hook (stack-tuned command):
+cat > .git/hooks/pre-push <<'EOF'
+#!/bin/sh
+# §60: smoke scenarios gate every push. Keep it fast (@smoke only).
+pnpm test:acceptance -- --tags @smoke
+EOF
+chmod +x .git/hooks/pre-push
+```
+
+(3. "untagged scenarios fail" is the BDD runner's strict mode, asserted in
+the workflow's acceptance step.)
+
+> **Bash convention for every skill that runs a gate (folded in from the
+> same close-out):** never pipe a gate command into formatting —
+> `cmd | tail` swallows the exit code and a red gate reads as green. Two
+> live incidents in one day (a red `pnpm typecheck` piped to `tail` let a
+> broken commit through). Capture the rc explicitly (`out=$(cmd) || rc=$?`)
+> or `set -o pipefail` first; inside an unattended session the silent
+> variant would pass a gate with no human to notice.
+
 ## Validation step
 
 After generation, the skill runs a self-check:
@@ -496,7 +530,8 @@ After generation, the skill runs a self-check:
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.js .claude/hooks/closed-set-check.js .claude/hooks/context-monitor.js .claude/hooks/webfetch-cache-pre.js .claude/hooks/webfetch-cache-post.js` all resolve, and `.claude/settings.json` registers at least `git-guardrails.js` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js` — otherwise the destructive-git guard is silently absent.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
-8. Print a summary:
+8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve — otherwise `@release` runs nowhere after merge and `@smoke` gates nothing on push (FOLLOW-UP 42).
+9. Print a summary:
 
 ```
 ✅ Stormhelm configured for <ProjectName>

@@ -139,6 +139,16 @@ For each behavior in the plan's "Tests" section:
 
 For step definitions of `.feature` scenarios (§61), follow the same pattern: write the step definitions calling the use cases that don't exist yet → confirm they fail compilation or fail at runtime → commit.
 
+**Shared steps (FOLLOW-UP 40, §61 addendum):** before defining ANY step,
+grep `features/` for its expression. Generic/flow-agnostic expressions
+(`the response has status {int}`, error-code assertions, …) belong in
+`features/support/` as ONE canonical definition — duplicating them in your
+slice's steps file is green on your branch and `ambiguous` after the
+siblings merge (cucumber refuses to guess between multiple matches; live:
+9/38 scenarios). If the shared step needs flow-specific World state,
+resolve the union of the flows' fields — exactly one is populated per
+scenario. Slice-specific steps stay in your `features/<context>/steps/`.
+
 **Anti-pattern (forbidden):** Writing tests that "happen to pass" because they don't actually exercise the new behavior. Per §92, the Write→Pass→Revert→Fail→Restore→Pass sequence verifies this.
 
 ### Step 3 — Green phase: implement minimally

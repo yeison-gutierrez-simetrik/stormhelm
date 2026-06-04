@@ -89,7 +89,13 @@ const definedScns = new Set();
 for (const f of featureFiles) {
   const t = read(f);
   const status = (t.match(/^#\s*status:\s*([a-zA-Z]+)/im) || [, null])[1]?.toLowerCase();
-  for (const m of t.matchAll(/@(scn-\d+)/g)) { definedScns.add(m[1]); scnApproved[m[1]] = status === 'approved'; }
+  // FOLLOW-UP 39: 'implemented' is post-approval BY DEFINITION (§58 lifecycle:
+  // draft → clarifying → approved → implemented; a feature cannot reach it
+  // without the human checkpoint) — and INV-8 *requires* close-outs to flip
+  // features to it. The old strict equality made INV-3 and INV-8 contradict
+  // each other: a correct close-out flagged every shipped scenario as
+  // "non-approved" (live: all 18 of slice-02). draft/clarifying still reject.
+  for (const m of t.matchAll(/@(scn-\d+)/g)) { definedScns.add(m[1]); scnApproved[m[1]] = status === 'approved' || status === 'implemented'; }
 }
 const releaseScns = new Set();
 for (const f of featureFiles) {

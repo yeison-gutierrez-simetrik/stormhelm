@@ -302,6 +302,38 @@ test("scn-002: expired quote fails", async () => {
 });
 ```
 
+### Shared step expressions live in `features/support/` (FOLLOW-UP 40)
+
+Generic, flow-agnostic expressions — `the response has status {int}`,
+`the response is {int} with code {string}`, and similar cross-slice
+assertions — are needed by **every** slice. If each slice's `/tdd` session
+defines them in its own `features/<context>/steps/` file (each reading its
+own flow's World state), every branch is green **in isolation** and the
+collision only exists **after the siblings merge**: cucumber sees multiple
+matching definitions and marks every affected scenario `ambiguous` (live:
+9/38 scenarios ambiguous on the first post-merge full-suite run). Rewording
+the `.feature` to disambiguate is forbidden — approved files are read-only
+(§58).
+
+The convention:
+
+- **Generic/cross-slice expressions** → ONE canonical definition in
+  `features/support/*.steps.ts`. When it must read flow-specific World
+  state, it resolves the **union** of the flows' fields (exactly one source
+  is populated per scenario — each scenario belongs to one flow).
+- **Slice-specific steps** → the slice's own `features/<context>/steps/`
+  file, as before.
+- Before writing a new step definition, **grep `features/` for the
+  expression** — if it exists anywhere, reuse or generalize it in
+  `features/support/`, never duplicate it.
+
+Detection is cheap and runs in `/run-acceptance`'s pre-flight: a
+`--dry-run` pass greps the output for ambiguity (**never the exit code** —
+dry-run also exits non-zero for sibling slices' undefined steps, which are
+§61-by-design). Under slice-group chaining (§123 Night Shift exception)
+the collision surfaces during the second sibling's own gate instead of
+post-merge — one more reason that model was chosen.
+
 ### Bad: step definition driving HTTP
 
 ```ts

@@ -212,7 +212,13 @@ After `/tdd` Green + `/run-acceptance` pass on an issue, but **before** `gh pr c
 
 The reviewer's report is always attached to the PR description regardless of outcome, so the human Day-Shift review starts with the same information.
 
-Shipped implementation: `templates/ralph-local.sh` invokes the reviewer (`claude -p "/code-review …"`) immediately after `/run-acceptance` returns green. The lib's `ralph_reviewer_severity` classifies stdout into `blocking | should-fix | suggestion | clean`; `ralph_format_reviewer_section` produces a markdown section (with collapsible `<details>` wrapping for long reports) that is embedded in the PR body alongside iteration count and session log path. Log events `ralph.reviewer.invoked`, `ralph.reviewer.findings`, and (on retry) `ralph.reviewer.retry` are emitted.
+Shipped implementation (post-FOLLOW-UP 33): the §114 reviewer runs ONCE, **inside** `/run-acceptance` (its Step 8); the session writes the severity to the result file's `gates.reviewer` and the full report to `issue-<N>-reviewer.md`. The loop **reads** both — it never invokes `/code-review` itself (a result file without the field triggers a one-shot legacy fallback, event `ralph.reviewer.fallback_invocation`). `ralph_format_reviewer_section` produces a markdown section (with collapsible `<details>` wrapping for long reports) embedded in the PR body alongside iteration count, per-scenario outcomes and session log path. Log events: `ralph.reviewer.findings` (with `source: result-file | fallback-invocation`) and, on a green-with-blocking contract violation, `ralph.reviewer.retry`.
+
+> **Gate-command bash convention (every skill, every unattended session):**
+> never pipe a gate into formatting — `cmd | tail` swallows the exit code and
+> a red gate reads as green (two live incidents in one day; inside an AFK
+> session nobody is watching). Capture the rc explicitly
+> (`out=$(cmd) || rc=$?`) or `set -o pipefail` first.
 
 ### Required behavior on `max-iterations` exceeded
 

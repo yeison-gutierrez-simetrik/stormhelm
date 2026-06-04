@@ -234,3 +234,13 @@ test('isolated: --resume refuses with no worktree, then reuses the kept one (no 
       'fresh secrets win on resume');
   });
 });
+
+// ── FOLLOW-UP 42: the §60 CI surface ships as a template ─────────────────────
+
+test('FU-42: acceptance.yml template exists and maps §60\'s three promises', () => {
+  const yml = readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8');
+  assert.match(yml, /on:\s*\n\s*pull_request:/, 'runs on every PR (pre-merge)');
+  assert.match(yml, /--tags @release/, '@release acceptance step present');
+  assert.match(yml, /secrets\./, 'sandbox specs gated by secret presence');
+  assert.match(yml, /ubuntu-latest/, 'testcontainers-capable runner');
+});

@@ -1,0 +1,51 @@
+# Acceptance gate in CI (§60): @release scenarios run BEFORE merge, on every PR.
+#
+# Installed by /setup into .github/workflows/acceptance.yml. This default is
+# TypeScript + pnpm; for Python swap the setup/test steps (uv + pytest/behave —
+# /setup tailors it to the active capability stack).
+#
+# §60's three promises, each mapped to an artifact (FOLLOW-UP 42):
+#   @smoke on every push      → the pre-push hook /setup installs
+#   @release in CI pre-merge  → THIS workflow
+#   untagged scenarios fail   → the BDD runner's strict mode in this job
+#
+# External-sandbox specs (Stripe sandbox, etc.) are gated by SECRET PRESENCE:
+# without repo secrets they must self-skip with a visible note, so this
+# workflow is green out-of-the-box and consumers opt into sandbox CI by adding
+# the secrets. testcontainers (§31 test-real) work natively on ubuntu-latest —
+# the docker daemon is present.
+name: acceptance
+
+on:
+  pull_request:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit + integration tests
+        run: pnpm test
+
+      - name: "@release acceptance (§60)"
+        env:
+          # Sandbox secrets — absent on a fresh adoption: dependent specs must
+          # self-skip visibly (never fail, never silently pass).
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: pnpm test:acceptance -- --tags @release
