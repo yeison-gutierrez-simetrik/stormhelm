@@ -805,3 +805,103 @@ test('FU-38a: --base with a non-existent ref refuses before any work', () => {
     assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
   });
 });
+
+// ── FOLLOW-UP 43: dependency-aware queue (accumulate-and-drain) ───────────────
+
+const qBody = (deps) => deps === null
+  ? '## Depends on\nNone (foundation)\n\n## Branch\nx'
+  : `## Depends on\n${deps.map((d) => `- #${d} (foundation)`).join('\n')}\n\n## Branch\nx`;
+const qJson = (entries) => JSON.stringify(entries.map(([n, deps]) => ({ number: n, body: qBody(deps) })));
+const allJson = (entries) => JSON.stringify(entries.map(([n, state, labels = []]) => ({ number: n, state, labels: labels.map((l) => ({ name: l })) })));
+const queueLog = (dir) => {
+  const sdir = join(dir, '.planning', 'ralph-sessions');
+  const f = readdirSync(sdir).filter((x) => x.startsWith('queue-')).sort().pop();
+  return f ? readFileSync(join(sdir, f), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+};
+
+// T-43a — A(foundation) ← B(#A) ← C(#A,#B), all OPEN: only A runs (the old
+// created-DESC order would have picked C first); B and C skip LOUDLY with the
+// right blockers. B waits even though A delivered (default merged-deps mode:
+// the human-merge pause IS the gate).
+test('FU-43: default mode runs only the foundation; dependents skip loudly with blocked_on', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: qJson([[1, null], [2, [1]], [3, [1, 2]]]),
+      MOCK_ALL_JSON: allJson([[1, 'OPEN'], [2, 'OPEN'], [3, 'OPEN']]),
+    });
+    assert.match(out, /════════ Issue #1 ════════/, 'foundation ran');
+    assert.doesNotMatch(out, /════════ Issue #2/, 'dependent must not run on an unmerged foundation');
+    assert.doesNotMatch(out, /════════ Issue #3/);
+    assert.match(out, /Issue #2 skipped — waiting on: #1/);
+    assert.match(out, /Issue #3 skipped — waiting on: #1,2/);
+    const skips = queueLog(dir).filter((e) => e.event === 'ralph.queue.skipped');
+    assert.deepEqual(skips.map((s) => [s.details.issue, s.details.blocked_on]), [[2, [1]], [3, [1, 2]]]);
+    assert.equal(skips[0].details.mode, 'merged-deps');
+  });
+});
+
+// T-43b — dep CLOSED (merged) → the dependent becomes runnable; the grandchild
+// still waits on the middle sibling.
+test('FU-43: a CLOSED dep unblocks its dependent; transitive deps still wait', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: qJson([[2, [1]], [3, [1, 2]]]),
+      MOCK_ALL_JSON: allJson([[1, 'CLOSED'], [2, 'OPEN'], [3, 'OPEN']]),
+    });
+    assert.match(out, /════════ Issue #2 ════════/, '#2 runnable: its only dep is merged');
+    assert.doesNotMatch(out, /════════ Issue #3/, '#3 still waits on #2');
+    assert.match(out, /Issue #3 skipped — waiting on: #2/);
+  });
+});
+
+// T-43c — chained mode: a ralph-done dep satisfies via --base <its PR branch>;
+// with the flag unset the same state waits (stacking is never a silent default).
+test('FU-43: RALPH_QUEUE_CHAINED runs the dependent --base the foundation branch; off by default', () => {
+  withConsumer((dir) => {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('checkout', '-qb', 'agent/feature-found-1');
+    writeFileSync(join(dir, 'found.txt'), 'wiring'); git('add', '-A');
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'foundation');
+    git('checkout', '-q', '-');
+    const env = {
+      MOCK_QUEUE_JSON: qJson([[2, [1]]]),
+      MOCK_ALL_JSON: allJson([[1, 'OPEN', ['ralph-done']], [2, 'OPEN']]),
+      MOCK_PR_LIST: 'agent/feature-found-1',
+    };
+    // default: waits
+    const off = runRalph(dir, [], env);
+    assert.doesNotMatch(off.out, /════════ Issue #2/, 'stacking must be opt-in');
+    assert.match(off.out, /Issue #2 skipped/);
+    // opt-in: chains
+    const on = runRalph(dir, [], { ...env, RALPH_QUEUE_CHAINED: '1' });
+    assert.match(on.out, /Issue #2 \(chained on agent\/feature-found-1\)/, on.out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-found-1/, 'the child PR targets the foundation branch');
+  });
+});
+
+// T-43d — a mutual pair never runs and the cycle is NAMED; the queue exits cleanly.
+test('FU-43: dependency cycle → both skipped, cycle named, clean exit', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: qJson([[2, [3]], [3, [2]]]),
+      MOCK_ALL_JSON: allJson([[2, 'OPEN'], [3, 'OPEN']]),
+    });
+    assert.doesNotMatch(out, /════════ Issue #2/);
+    assert.doesNotMatch(out, /════════ Issue #3/);
+    assert.match(out, /DEPENDENCY CYCLE: #2 ↔ #3|DEPENDENCY CYCLE: #3 ↔ #2/);
+    assert.equal(queueLog(dir).filter((e) => e.event === 'ralph.queue.skipped').length, 2);
+  });
+});
+
+// T-43e — independent issues listed newest-first run oldest-first (ASC pin).
+test('FU-43: independent issues run ASC by number (the DESC footgun is dead)', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: JSON.stringify([{ number: 2, body: '' }, { number: 1, body: '' }]),
+      MOCK_ALL_JSON: '[]',
+    });
+    const i1 = out.indexOf('Issue #1'); const i2 = out.indexOf('Issue #2');
+    assert.ok(i1 !== -1 && i2 !== -1 && i1 < i2, `oldest first, got order: #1@${i1} #2@${i2}`);
+  });
+});

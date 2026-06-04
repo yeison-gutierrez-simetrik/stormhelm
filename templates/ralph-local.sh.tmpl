@@ -90,28 +90,118 @@ MAX_ITER="${MAX_ITER:-30}"
 export RALPH_WORKER_ID="$WORKER_ID"
 BRANCH_PREFIX="agent/feature"
 
-# Queue mode (§63/§107): no issue → process every OPEN `ralph-ready` issue in turn.
-# Each issue is run via a self-invocation, so the per-issue path is byte-identical
-# to a single-issue run; a blocked issue (exit≠0) does not stop the queue. This is
-# what makes the Night Shift "run it and walk away" against the whole backlog.
+# Queue mode (§63/§107, dependency-aware since FOLLOW-UP 43): no issue →
+# drain the whole OPEN `ralph-ready` backlog, foundations first. Each issue
+# runs via a self-invocation (per-issue path byte-identical to a single run;
+# a blocked issue does not stop the queue). Eligibility comes from the
+# `## Depends on` section /to-issues writes into every issue body:
+#   - default (merged-deps): runnable ⟺ every dep issue is CLOSED. A
+#     dependent whose foundation has a draft PR awaiting review WAITS —
+#     that pause IS the require-human-review gate.
+#   - RALPH_QUEUE_CHAINED=1 (opt-in): a dep that is OPEN but labeled
+#     ralph-done (draft PR delivered) also satisfies — the dependent runs
+#     --base <the dep's PR branch> (the §123 Night Shift stacking
+#     exception; never a silent default).
+# Runnable set is ordered ASC by number (foundations are created first by
+# construction); skipped issues are LOUD (stdout + ralph.queue.skipped
+# NDJSON); eligibility re-evaluates after every completed item so a
+# foundation that delivers mid-night unlocks its dependents (chained mode).
 if [ -z "$ISSUE_NUM" ]; then
-  READY=$(gh issue list --label ralph-ready --state open --json number --jq '.[].number' 2>/dev/null || true)
-  if [ -z "$READY" ]; then
+  CANDIDATES_JSON=$(gh issue list --label ralph-ready --state open --json number,body --limit 1000 2>/dev/null || echo '[]')
+  READY_NUMS=$(printf '%s' "$CANDIDATES_JSON" | jq -r '.[].number' 2>/dev/null | sort -n || true)
+  if [ -z "$READY_NUMS" ]; then
     echo "✅ No open 'ralph-ready' issues. Nothing to do."
     exit 0
   fi
-  echo "🤖 Queue mode (worker ${WORKER_ID}): $(echo "$READY" | tr '\n' ' ')"
-  # ⚠️ Order caveat: issues are processed in `gh issue list` order (created DESC),
-  # NOT slice-dependency order. If a dependent slice runs before its foundation
-  # lands, its gate/acceptance blocks → wasted iterations. Until dependency-aware
-  # ordering ships (the DAG already exists via group-slice-issues.mjs /
-  # parse-layers-affected.mjs), queue mode ASSUMES order-tolerant / independent
-  # slices — queue a dependent backlog and you may wake up to ralph-blocked issues.
-  echo "⚠️  Queue mode processes in gh default order (not dependency order) — it assumes independent/order-tolerant slices. For a foundation→dependents backlog, run the foundation issue(s) first by number." >&2
+  QUEUE_MODE_NAME=$([ -n "${RALPH_QUEUE_CHAINED:-}" ] && echo chained || echo merged-deps)
+  echo "🤖 Queue mode (worker ${WORKER_ID}, ${QUEUE_MODE_NAME}): $(echo "$READY_NUMS" | tr '\n' ' ')"
+
+  # Queue-level NDJSON log (the per-issue runs create their own).
+  QUEUE_STAMP=$(date -u +%Y%m%d-%H%M%S)
+  RALPH_SESSION_ID="ralph-queue-${QUEUE_STAMP}-${WORKER_ID}"
+  RALPH_SESSION_LOG=".planning/ralph-sessions/queue-${QUEUE_STAMP}.log"
+  mkdir -p .planning/ralph-sessions
+  : > "$RALPH_SESSION_LOG"
+
+  queue_deps_of() {  # candidate number → its dep numbers (section-scoped)
+    printf '%s' "$CANDIDATES_JSON" \
+      | jq -r --argjson n "$1" '.[] | select(.number == $n) | .body // ""' \
+      | ralph_deps_from_body
+  }
+  queue_state_of() {  # issue number → OPEN | CLOSED | MISSING
+    printf '%s' "$ALL_JSON" | jq -r --argjson n "$1" 'first(.[] | select(.number == $n) | .state) // "MISSING"'
+  }
+  queue_dep_done() {  # dep number labeled ralph-done?
+    printf '%s' "$ALL_JSON" | jq -e --argjson n "$1" 'any(.[] | select(.number == $n) | .labels[].name; . == "ralph-done")' >/dev/null 2>&1
+  }
+  queue_base_branch_of() {  # dep number → its open PR's head branch (chained)
+    gh pr list --state open --json headRefName,body \
+      --jq ".[] | select(.body | contains(\"Closes #${1}\")) | .headRefName" 2>/dev/null | head -1
+  }
+
+  PROCESSED=" "
   queue_rc=0
-  for n in $READY; do
-    echo ""; echo "════════ Issue #$n ════════"
-    "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
+  progress=1
+  while [ "$progress" = "1" ]; do
+    progress=0
+    # Fresh satisfaction snapshot each pass — a foundation that just
+    # delivered (ralph-done) or merged must unlock dependents this night.
+    ALL_JSON=$(gh issue list --state all --json number,state,labels --limit 1000 2>/dev/null || echo '[]')
+    for n in $READY_NUMS; do
+      case "$PROCESSED" in *" $n "*) continue ;; esac
+      blocked_on=""
+      base_branch=""
+      for d in $(queue_deps_of "$n"); do
+        [ "$d" = "$n" ] && continue
+        st=$(queue_state_of "$d")
+        if [ "$st" = "CLOSED" ]; then continue; fi
+        if [ "$st" = "MISSING" ]; then
+          echo "⚠️  Issue #$n depends on #$d which does not exist — treating as blocked (fix the Depends-on section)." >&2
+          blocked_on="${blocked_on}${blocked_on:+,}$d"
+          continue
+        fi
+        if [ -n "${RALPH_QUEUE_CHAINED:-}" ] && queue_dep_done "$d"; then
+          # ralph-done = draft PR delivered, awaiting human merge → chain on it.
+          if [ -z "$base_branch" ]; then
+            base_branch=$(queue_base_branch_of "$d" || true)
+          fi
+          if [ -n "$base_branch" ]; then continue; fi
+          echo "⚠️  Issue #$n: dep #$d is ralph-done but its PR branch could not be discovered — treating as blocked." >&2
+        fi
+        blocked_on="${blocked_on}${blocked_on:+,}$d"
+      done
+      if [ -n "$blocked_on" ]; then
+        continue   # not runnable this pass; reported after the queue settles
+      fi
+      echo ""; echo "════════ Issue #$n ${base_branch:+(chained on ${base_branch}) }════════"
+      if [ -n "$base_branch" ]; then
+        "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" --base "$base_branch" || queue_rc=$?
+      else
+        "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
+      fi
+      PROCESSED="${PROCESSED}${n} "
+      progress=1
+      break   # re-evaluate eligibility (fresh snapshot) after every item
+    done
+  done
+
+  # Whatever never became runnable: LOUD per-issue skips (never silent caps),
+  # naming the blockers; a mutual pair is called out as a cycle explicitly.
+  ALL_JSON=$(gh issue list --state all --json number,state,labels --limit 1000 2>/dev/null || echo '[]')
+  for n in $READY_NUMS; do
+    case "$PROCESSED" in *" $n "*) continue ;; esac
+    blocked_on=""
+    for d in $(queue_deps_of "$n"); do
+      [ "$d" = "$n" ] && continue
+      [ "$(queue_state_of "$d")" = "CLOSED" ] && continue
+      blocked_on="${blocked_on}${blocked_on:+,}$d"
+      if printf '%s\n' "$READY_NUMS" | grep -qx "$d" && queue_deps_of "$d" | grep -qx "$n"; then
+        echo "⚠️  DEPENDENCY CYCLE: #$n ↔ #$d — neither can run; fix the Depends-on sections." >&2
+      fi
+    done
+    echo "⏭  Issue #$n skipped — waiting on: #${blocked_on:-?} (mode: ${QUEUE_MODE_NAME})"
+    ralph_log_event "warn" "ralph.queue.skipped" \
+      "{\"issue\":${n},\"blocked_on\":[${blocked_on:-}],\"mode\":\"${QUEUE_MODE_NAME}\"}"
   done
   exit "$queue_rc"
 fi

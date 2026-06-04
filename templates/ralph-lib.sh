@@ -217,6 +217,22 @@ ralph_scenario_failed() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# deps_from_body   (stdin: an issue body → stdout: dep issue numbers)
+#
+# FOLLOW-UP 43: extract the issue numbers from the body's `## Depends on`
+# section ONLY — never the whole body, where `Closes #N`, scenario
+# references and prose would false-positive. /to-issues writes the
+# section as `- #N (…)` bullets, or `None (foundation)` for roots (no
+# `#N` → empty output). Section ends at the next markdown header.
+# CRLF-safe (gh bodies carry \r). Output: unique, ASC, one per line.
+# ──────────────────────────────────────────────────────────────────────
+ralph_deps_from_body() {
+  tr -d '\r' \
+    | awk '/^##[[:space:]]+Depends on/{f=1; next} /^#/{f=0} f' \
+    | grep -oE '#[0-9]+' | tr -d '#' | sort -un
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # env_preflight
 #
 # Validate the EXECUTION ENVIRONMENT before iteration 1: a down Docker
@@ -1046,6 +1062,7 @@ scenario_passed() { ralph_scenario_passed "$@"; }
 scenario_failed() { ralph_scenario_failed "$@"; }
 file_mtime() { ralph_file_mtime "$@"; }
 env_preflight() { ralph_env_preflight "$@"; }
+deps_from_body() { ralph_deps_from_body "$@"; }
 acceptance_result_check() { ralph_acceptance_result_check "$@"; }
 log_scenarios_from_result() { ralph_log_scenarios_from_result "$@"; }
 expand_scns() { ralph_expand_scns "$@"; }
