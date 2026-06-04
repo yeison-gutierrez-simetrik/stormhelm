@@ -175,7 +175,7 @@ Append to the issue **body** (amendments to an existing plan go as comments — 
 8. Add step definitions (depends on 4).
 
 ### Estimated tokens
-~50000 (matches issue's budget:50k label).
+~150000 (matches issue's budget:150k label — see /to-issues Step 4's measured anatomy: ≈55-80k per full iteration).
 
 ### Open questions for /tdd
 - None.

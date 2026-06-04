@@ -148,21 +148,40 @@ After the first successful PR for a new capability lands, the team may follow up
 
 ### Step 4 — Estimate budget per issue
 
-Estimate tokens needed per issue using heuristics:
+Budgets are calibrated against **measured** Night Shift consumption (first
+live runs with real token accounting, 2026-06-04) — not guesses. The measured
+anatomy of ONE full iteration (`/tdd` + `/run-acceptance` + reviewer), even
+for the smallest slice (one use case + one route):
 
-- Greenfield isolated module: ~50k (`budget:50k`).
-- Brownfield modification with tests: ~80k.
-- Brownfield no tests (characterization first): ~120k.
-- Multi-file feature (>5 files): scale linearly.
+| Call | Measured tokens |
+|---|---|
+| `/tdd` | 25–45k |
+| `/run-acceptance` | 15–20k |
+| reviewer (`/code-review`) | ~15k |
+| **Total per iteration** | **≈ 55–80k** |
 
-Use coarse buckets (50k, 80k, 100k, 150k, 200k). Round up.
+Input tokens dominate (each session re-reads the issue, the skills, and the
+code), so small slices do NOT proportionally shrink the cost.
+
+**Rule: `budget ≈ expected_iterations × 80k`, floor `budget:150k` for any
+slice.** A 50k budget killed a *successful* live run mid-flight — the work
+was green; the label blocked it.
+
+- Smallest slice, expected to land in 1–2 iterations: `budget:150k`.
+- Typical slice (2–3 iterations): `budget:200k`–`budget:250k`.
+- Brownfield no tests (characterization first): add one iteration (`+80k`).
+- Multi-file feature (>5 files): scale by expected iterations, not file count.
+
+Use coarse buckets (150k, 200k, 250k, 300k, 400k). Round up. Note budgets
+are **per session**: a blocked-then-relaunched issue spends a fresh budget
+(the ledger does not carry over).
 
 ### Step 5 — Generate issue body per slice
 
 ```markdown
 # Issue NNN — <slice title>
 
-**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+043` `budget:50k` `severity:p2`
+**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+043` `budget:150k` `severity:p2`
 
 ## Scenarios covered
 - scn-042, scn-043 (see `features/listings/listing-publication.feature`)
@@ -217,7 +236,7 @@ For each slice:
 gh issue create \
   --title "<slug> — <slice title>" \
   --body "$(cat <generated-body>)" \
-  --label "ralph-ready,shift:afk,scenarios:scn-042+043,budget:50k,severity:p2,slice-group:<slug>"
+  --label "ralph-ready,shift:afk,scenarios:scn-042+043,budget:150k,severity:p2,slice-group:<slug>"
 ```
 
 > **Canonical `scenarios:` label form: `scenarios:scn-042+043`** — the first
