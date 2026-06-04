@@ -811,3 +811,15 @@ and iterates **in `gh issue list` default order: created DESC** — for a founda
 - ASC pin: two independent issues created newest-first run oldest-first.
 
 **Acceptance.** Queue mode never starts an issue with unsatisfied dependencies in either mode; the template's ⚠️ order-caveat comment is REPLACED by the real behavior's documentation (and `core/13`'s queue-mode section updated to describe accumulate-and-drain as the supported pattern); `RALPH_QUEUE_CHAINED` is documented next to the §123 exception it leverages; all fixtures above pinned; suite green. A consumer can then specify slices 3-4-5 by day, run `./ralph-local.sh` (or `ralph-isolated` per worker) by night, and wake to a topologically-ordered stack of draft PRs.
+
+---
+
+## FOLLOW-UP 45 — Vendored hooks are CJS with `.js` extension: silently broken under every `"type": "module"` consumer  ·  **Severity: MEDIUM-HIGH (silent — every hook invocation failed since adoption)**
+
+**Problem.** The 5 hooks in `hooks/` use CommonJS (`require(...)`) with a `.js` extension. A consumer whose `package.json` declares `"type": "module"` (the modern default — belong does) makes Node load every `.js` under the project tree as ESM: each hook invocation dies with `ReferenceError: require is not defined in ES module scope` (surfaced as `PostToolUse hook error … cjs/loader:1423`). Because hook failures are NON-BLOCKING, this is invisible-but-total: belong ran since adoption with **zero functioning hooks** — no git-guardrails (C.10's mechanical enforcement!), no closed-set-check, no context-monitor — and nobody noticed until the operator asked about the recurring error line. Pairs with FOLLOW-UP 1 (hooks aren't even copied by /setup); this one says: when they ARE present, they must work regardless of the consumer's module type.
+
+**Verify:** in any `type:module` repo: `echo '{}' | node .claude/hooks/context-monitor.js` → ReferenceError. Belong fix PR #28 (rename to `.cjs` + settings paths) → all 5 exit 0.
+
+**Fix.** Ship the hooks as **`.cjs`** (forces CJS regardless of consumer type; zero code changes — belong validated all 5 run as-is) and update every reference: the framework's own `.claude/settings.json`, `/setup`'s copy step + settings wiring (coordinate with FOLLOW-UP 1, same surface), and any docs naming `hooks/*.js`. Add a metadata-gate or test asserting the shipped hook extensions match the settings references. Consumers that already renamed (belong) re-converge byte-identical.
+
+**Acceptance.** A fresh `type:module` consumer has working hooks out of the box (`echo '{}' | node .claude/hooks/<each>.cjs` → 0); framework settings/docs reference `.cjs`; the FU-1 copy step (when done) copies the `.cjs` names.
