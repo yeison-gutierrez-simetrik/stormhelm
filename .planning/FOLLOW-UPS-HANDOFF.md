@@ -811,3 +811,15 @@ and iterates **in `gh issue list` default order: created DESC** — for a founda
 - ASC pin: two independent issues created newest-first run oldest-first.
 
 **Acceptance.** Queue mode never starts an issue with unsatisfied dependencies in either mode; the template's ⚠️ order-caveat comment is REPLACED by the real behavior's documentation (and `core/13`'s queue-mode section updated to describe accumulate-and-drain as the supported pattern); `RALPH_QUEUE_CHAINED` is documented next to the §123 exception it leverages; all fixtures above pinned; suite green. A consumer can then specify slices 3-4-5 by day, run `./ralph-local.sh` (or `ralph-isolated` per worker) by night, and wake to a topologically-ordered stack of draft PRs.
+
+---
+
+## FOLLOW-UP 44 — `templates/github-workflows/acceptance.yml`: three undocumented assumptions broke the first live adoption  ·  **Severity: MEDIUM (adoption class; first-run evidence)**
+
+**Problem.** belong adopted the FU-42 workflow; its first three CI runs failed on three stacked template assumptions, none documented: (1) `pnpm/action-setup@v4` hard-fails without a `packageManager` field in the consumer's `package.json` ("No pnpm version is specified"); (2) the step invokes a `test:acceptance` script name no rule/skill tells consumers to define; (3) the invocation `pnpm test:acceptance -- --tags @release` relies on **npm's** `--`-stripping — **pnpm passes the literal `--` through**, cucumber receives it as a positional and dies with `ENOENT: open '…/@release'` (a feature-path read). Consumer resolution (belong PR #26, CI now green end-to-end incl. testcontainers on ubuntu-latest): add `packageManager`; define `test:acceptance` owning the `--tags @release` scoping; change the workflow step to invoke **plainly** (`pnpm test:acceptance`) — a conscious one-line divergence from the template until it's fixed here.
+
+**Verify:** belong runs 26962143611 → 26962289029 (failures, logs show all three) → 26962448328 (green); `grep -n "test:acceptance" templates/github-workflows/acceptance.yml`.
+
+**Fix.** In the template: invoke plainly and let the script own tag scoping (works under npm AND pnpm); document the two consumer prerequisites (`packageManager` field, `test:acceptance` script) in the workflow header AND in `/setup`'s CI step — `/setup` should ADD both to the consumer's `package.json` when missing (it already edits consumer files). Add a fixture test if the workflow gains any logic worth pinning; otherwise the header contract + setup wiring suffice.
+
+**Acceptance.** A fresh pnpm consumer's first CI run is green without manual fixes; belong's divergent line re-converges byte-identical on the next re-sync.
