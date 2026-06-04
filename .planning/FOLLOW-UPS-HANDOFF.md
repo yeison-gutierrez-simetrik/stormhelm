@@ -766,3 +766,48 @@ grep -n "label create" templates/ralph-lib.sh templates/ralph-local.sh.tmpl
 11. **Items 39–42 (batch 5 — slice close-out class; first /gates run on a real merged slice):** **41 first** (bites EVERY successful run: the PR-open label rotation half-fails silently on re-sync-adopted consumers), then **40** (HIGH for slice-groups: sibling step collisions are invisible until merge — convention + cheap dry-run detection; interplay with the pending 38a ruling recorded), **39** (INV-3 vs INV-8 lifecycle contradiction — small checker fix), **42** (adoption class: ship the §60 CI workflow + pre-push smoke; coordinate with item 1's hook-install step; fold in the pipe-exit-swallowing bash-convention warning). All four carry live forensics: belong close-out PR #23 + issues #14-#16 label history.
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
+
+---
+
+# Multi-slice operation batch 6 — FOLLOW-UP 43 (the accumulate-and-drain queue, 2026-06-04)
+
+**Context.** With batches 1-5 closed, the consumer's operating pattern evolves: the Day Shift specifies SEVERAL slices ahead (`/specify → … → /to-issues` per slice), `ralph-ready` issues ACCUMULATE across slices, and the Night Shift should drain the whole backlog unattended. The engine's queue mode is the right entry point — and its own source admits the missing piece. This is the last structural gap between "launch issues by hand, in order" and the fully-AFK multi-slice night the maintainer explicitly wants. Note: 38a (base-branch chaining) is now SHIPPED (`426010a`, the §123 Night Shift exception) — this item composes with it rather than re-litigating it.
+
+---
+
+## FOLLOW-UP 43 — Queue mode is dependency-blind: created-DESC order runs leaf dependents FIRST against an unmerged foundation  ·  **Severity: HIGH for multi-slice operation (the engine documents the gap itself)**
+
+**Problem.** Queue mode (`templates/ralph-local.sh.tmpl`, the `if [ -z "$ISSUE_NUM" ]` block, ~lines 95-117) selects work with:
+```bash
+READY=$(gh issue list --label ralph-ready --state open --json number --jq '.[].number')
+```
+and iterates **in `gh issue list` default order: created DESC** — for a foundation-first decomposition (the only order `/to-issues` produces: root issue created first, dependents after), DESC is the **pessimal** order: the newest leaf dependent runs first, its gate fails against a missing foundation, budget burns until `ralph-blocked`, and the queue moves on to the next-worst choice. The engine *says so itself* — its ⚠️ comment (lines ~104-110) warns "processes in gh default order … you may wake up to ralph-blocked issues" and even points at the DAG machinery (`group-slice-issues.mjs` / `parse-layers-affected.mjs`) as the known fix direction. There is **zero** `Depends on` parsing anywhere in the engine (verify: `grep -ci depends templates/ralph-local.sh.tmpl templates/ralph-lib.sh` → 0).
+
+**Live operating evidence (belong, slices 01-02):** every multi-issue run was launched **by number, manually, in dependency order** specifically to dodge this (#14 → then #15 → then #16); the maintainer's stated target workflow — "I finish slice 3, continue with slice 4, issues accumulate and Ralph takes them" — is exactly the pattern queue mode cannot yet serve safely.
+
+**The assets ALREADY exist — this is assembly, not invention:**
+1. Every `/to-issues` issue body carries a structured `## Depends on` section: `- #<N> (…)` per dependency, or `None (foundation)` for roots (the format is explicitly "structured `#N` so the grouping graph can read it").
+2. GitHub knows dependency satisfaction: a dep issue `CLOSED` = its PR merged (the human gate passed).
+3. 38a chaining is shipped: `--base <branch>` runs a sibling on top of an unmerged foundation's branch.
+4. `ralph-done` (post-FU-41 reliably applied) marks "draft PR delivered, awaiting human merge" — the precise intermediate state chaining needs.
+
+**Fix — dependency-aware eligibility in the queue block:**
+1. **Fetch candidates WITH bodies** (one call): `gh issue list --label ralph-ready --state open --json number,body --limit 1000` (the FU-15 `--limit` lesson applies here too).
+2. **Parse deps section-scoped:** extract `#\d+` ONLY from the `## Depends on` section of each body (never the whole body — `Closes #N`, scenario references and prose elsewhere would false-positive). `None (foundation)` or a missing section ⇒ no deps.
+3. **Resolve satisfaction in one batched lookup** (`gh issue list --state all --json number,state,labels --limit 1000` → a number→{state,labels} map; never N×`gh issue view`).
+4. **Two eligibility modes:**
+   - **Default (merged-deps, conservative):** runnable ⟺ every dep is `CLOSED`. A dependent whose foundation has a draft PR awaiting human review correctly WAITS — that pause *is* the `require-human-review` gate.
+   - **Chained (`RALPH_QUEUE_CHAINED=1`, opt-in):** a dep that is OPEN **but labeled `ralph-done`** also satisfies — the dependent runs `--base <foundation-branch>` (discover the branch from the dep's open PR: `gh pr list --state open --json headRefName,body --jq '.[] | select(.body | contains("Closes #<dep>")) | .headRefName'`). Composes with shipped 38a; default OFF because stacking unreviewed work is §123's *documented exception*, an operator's per-night choice — never silent default.
+5. **Order the runnable set ASC by number** — foundations precede dependents by construction; also fixes the DESC footgun for fully independent issues.
+6. **Skipped ≠ silent (the no-silent-caps rule):** per skipped issue, a stdout line AND an NDJSON event `ralph.queue.skipped {"issue": N, "blocked_on": [M, …], "mode": "merged-deps|chained"}` — the watcher can surface "3 queued, 1 runnable, 2 waiting on #25".
+7. **Re-evaluate eligibility after each completed item** — in chained mode, a foundation that just delivered (`ralph-done`) unlocks its dependents within the same night.
+8. **Fail-safe edges:** a dep referencing a nonexistent issue ⇒ treat as blocked + loud warning (never run on a broken graph); a dependency cycle (A↔B) ⇒ skip both + warning naming the cycle (never spin).
+
+**Tests (mock-gh fixtures with issue bodies):**
+- A(foundation, `None`) ← B(`#A`) ← C(`#A`, `#B`), created in order A,B,C: assert the old DESC order would have picked C; the new queue runs ONLY A, emits `queue.skipped` for B and C with the right `blocked_on`.
+- Close A ⇒ B becomes runnable on the next evaluation; C still waits on B.
+- Chained mode: A open + `ralph-done` + a mock open PR carrying `Closes #A` ⇒ B runs and the mock records `--base <A's headRefName>`; with the flag unset, B waits.
+- Cycle fixture (A deps B, B deps A) ⇒ both skipped, warning names the cycle, queue exits cleanly.
+- ASC pin: two independent issues created newest-first run oldest-first.
+
+**Acceptance.** Queue mode never starts an issue with unsatisfied dependencies in either mode; the template's ⚠️ order-caveat comment is REPLACED by the real behavior's documentation (and `core/13`'s queue-mode section updated to describe accumulate-and-drain as the supported pattern); `RALPH_QUEUE_CHAINED` is documented next to the §123 exception it leverages; all fixtures above pinned; suite green. A consumer can then specify slices 3-4-5 by day, run `./ralph-local.sh` (or `ralph-isolated` per worker) by night, and wake to a topologically-ordered stack of draft PRs.
