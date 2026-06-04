@@ -476,6 +476,107 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 
 ---
 
+# Night Shift live-run batch 3 — FOLLOW-UPs 26–32 (from the belong-marketplace issue-#15 run, 2026-06-04)
+
+**Context.** First end-to-end run on the hardened engine (post #63–#81). Outcome: **draft PR delivered** (belong PR #19) — the agent coded, gated, and self-reviewed correctly; every failure below is harness, found live across 3 sessions. Items 26–29 were each diagnosed in MINUTES thanks to FU-14's `reason` field (vs hours on the #14 run) — the structured-forensics investment already paid for itself. **Items 27/28 were consumer-patched in belong's throwaway worktree to finish the run; 29 was completed manually. Those patches die with the worktree — the next slice (#16) hits all of them again until fixed here.** Forensics: belong issue #15 comments, session logs `15-20260604-{020645,022735,030121}.log`, belong PR #19 body. Line numbers = consumer copies @2606ddf.
+
+---
+
+## FOLLOW-UP 26 — Reviewer-retry is BLIND: `$LAST_REVIEWER_OUTPUT` is never passed to the retry `/tdd`  ·  **Severity: HIGH**
+
+**Problem.** On `blocking` findings, the loop logs `ralph.reviewer.retry` and `continue`s to the top of the for-loop (`templates/ralph-local.sh.tmpl` ~line 320-326) — which re-runs the **standard** `/tdd` prompt (line ~246). The findings live only in the in-memory `LAST_REVIEWER_OUTPUT` variable: the retry session has **no way to know what to fix**. Live: the retry iteration committed nothing (it couldn't), then died on an unrelated stale-file failure; if it had gone green, the reviewer would have re-flagged the same findings → ping-pong until budget/max-iter death. The findings are also unrecoverable post-mortem (session memory only).
+
+**Verify:** `sed -n '318,328p' templates/ralph-local.sh.tmpl` → `continue` with no findings handoff; `grep -n "LAST_REVIEWER_OUTPUT" templates/ralph-local.sh.tmpl` → set, formatted for the PR/block paths, never for the retry.
+
+**Fix.** Before the retry `continue`, persist the findings to the channel the implementer already reads (FU-17's contract — elegant reuse):
+```bash
+gh issue comment "$ISSUE_NUM" --body "$(printf '## Reviewer findings (iteration %s — fix these, then the gate re-runs)\n\n%s' "$i" "$REVIEWER_OUTPUT")"
+```
+This simultaneously: (a) gives the retry `/tdd` (which reads body+comments) the exact findings; (b) makes findings survive session death (the forensic gap we hit). Optionally also append a one-line hint to the retry's tdd prompt ("reviewer findings are in the latest issue comment").
+
+**Acceptance.** ralph-loop test: mock reviewer returns blocking once → assert a `gh issue comment` call carrying the findings happens before the retry iteration; the retry tdd prompt run sees it (mock gh records calls). Findings text recoverable from the issue after a kill.
+
+---
+
+## FOLLOW-UP 27 — `ralph_reviewer_severity` is an emoji grep: a CLEAN report's own section header classifies as BLOCKING  ·  **Severity: HIGH**
+
+**Problem.** `templates/ralph-lib.sh` `ralph_reviewer_severity` greps `🛑|⚠️|💡` anywhere in the output. The reviewer agent's standard structured report **always** contains `## 🛑 Blocking findings (0)` and a summary table row `| 🛑 Blocking | 0 |` — so a CLEAN verdict parses as **blocking**. Confirmed live: in-loop "blocking" on a diff an independent §114 re-audit scored CLEAN 0/0; the false signal triggered the (blind, FU-26) retry. Same fragile-prose-contract class as FU-14/exit-code — third instance.
+
+**Verify:** `bash -c 'source templates/ralph-lib.sh; ralph_reviewer_severity "## 🛑 Blocking findings (0)"'` → `blocking`.
+
+**Fix (consumer-validated live — lift it).** Two halves, mirroring FU-14's pattern:
+1. The engine's reviewer prompt demands an explicit terminal line: *"MANDATORY: end with the literal line `VERDICT: CLEAN` or `VERDICT: SHOULD-FIX` or `VERDICT: BLOCKING` (automation parses this exact line)."*
+2. `ralph_reviewer_severity` parses the VERDICT line FIRST (last occurrence wins, case-insensitive, tolerate `**` markdown); emoji grep stays as fallback for legacy outputs. The belong worktree patch (validated: clean-with-emoji-header → `clean`, real blocking → `blocking`) can be lifted verbatim.
+
+**Acceptance.** Unit tests: clean-report-with-emoji-headers fixture → `clean`; `VERDICT: BLOCKING` → `blocking`; no-verdict legacy → fallback behavior pinned. ralph-loop test: mock reviewer CLEAN report with emoji headers → PR path taken, no retry.
+
+---
+
+## FOLLOW-UP 28 — Acceptance sessions skip the MANDATORY result-file rewrite when "nothing changed" → `result-file-stale` burns an iteration  ·  **Severity: MEDIUM**
+
+**Problem.** The skill's Step 10 says write the file ALWAYS, and the engine prompt repeats it — yet a live retry-iteration session, seeing the suite already green and no code changes, concluded **without rewriting** the file; the loop's (correct) mtime staleness check rejected the previous iteration's file → `acceptance-failing (result-file-stale)` → ~45k tokens wasted. The fail-safe worked; the iteration was still lost to an avoidable LLM judgment lapse.
+
+**Verify:** belong session log `15-20260604-022735.log`, iteration 2: `reason: result-file-stale (mtime … < iteration start …)`.
+
+**Fix — make it structural, not prompt-hopeful:** the engine deletes the old file BEFORE invoking `/run-acceptance` (`rm -f "$ACCEPT_RESULT_FILE"`); now a session that skips the write produces `result-file-missing` (unambiguous contract violation) and can never be confused with staleness. Keep (consumer-validated) the prompt reinforcement: *"ALWAYS rewrite that file fresh in THIS run — even if nothing changed since a previous green run."*
+
+**Acceptance.** ralph-loop test: pre-seed a stale green result file + mock acceptance that does write → green via the FRESH file; mock that doesn't write (`MOCK_NO_RESULT_FILE`) → `result-file-missing` (existing T10 still passes with the pre-delete in place).
+
+---
+
+## FOLLOW-UP 29 — `gh pr create` aborts: the engine never pushes the branch  ·  **Severity: CRITICAL (hard-blocks every successful run at the finish line)**
+
+**Problem.** The green path runs `gh pr create --draft …` without ever pushing `$BRANCH`. Non-interactive `gh` aborts: `aborted: you must first push the current branch to a remote, or use the --head flag`. **This was the first time in the framework's history the PR step executed** (every prior run died earlier) — and it failed. Live: belong #15 run 3 completed green + reviewer, decided "Creating PR…", aborted, ended `blocked·gh-pr-create-failed`; Day Shift had to push+create manually.
+
+**Verify:** `grep -n "git push" templates/ralph-local.sh.tmpl` → no hit before the `gh pr create` block.
+
+**Fix.**
+```bash
+git push -u origin "$BRANCH" || { ralph_error_tool "git" "push failed"; …block path…; }
+gh pr create --draft --head "$BRANCH" …
+```
+(`--head` makes the call worktree/detached-HEAD-proof too.) Extend the mock `gh` to track pushed-state: `pr create` fails unless a prior `git push` happened (mock git or a sentinel file) so the regression is pinned.
+
+**Acceptance.** ralph-loop happy-path test asserts the push precedes `pr create` and the PR opens; an injected push failure takes the block path with a structured reason.
+
+---
+
+## FOLLOW-UP 30 — Block-path robustness: `ralph-blocked` label add fails silently; blocked comment contradicts the result file  ·  **Severity: MEDIUM**
+
+**Problem.** Two live defects in `ralph_block_issue`: (a) if the consumer repo lacks the `ralph-blocked` label, `gh issue edit --add-label` fails **silently** — belong had no such label (nothing provisions it) → no label, watcher/queries can't see the blocked state (the comment did post). (b) The blocked comment's scenario summary is built from NDJSON `scenario.passed/failed` events — which are only emitted on the GREEN path; a budget block right after a green acceptance run printed `⚪ not attempted` for 5 scenarios whose result file said `passed` — actively misleading the morning reviewer.
+
+**Verify:** belong issue #15's first blocked comment (all ⚪) vs `issue-15-result.json` (5/5 passed) from the same minute; `grep -n "label create" templates/ralph-lib.sh` → none in the block path.
+
+**Fix.** (a) `gh label create ralph-blocked --force …` (idempotent) before the add — or `/setup` provisions it (pairs with FOLLOW-UP 1's hook gap; both are "adoption provisions the runtime's GitHub surface"). (b) `ralph_summarize_scenarios` reads `issue-<N>-result.json` FIRST when present-and-fresh, NDJSON events as fallback.
+
+**Acceptance.** Block in a label-less fixture repo → label exists + applied; blocked comment over a green result file shows ✅ per scenario, not ⚪.
+
+---
+
+## FOLLOW-UP 31 — `/to-issues` budget heuristics are ~2-4x under measured reality  ·  **Severity: MEDIUM (docs)**
+
+**Problem.** The skill's Step 4 table ("greenfield isolated ~50k", buckets 50-200k) predates working token accounting — the numbers were invented. Measured on belong (first runs with real accounting): a full iteration = tdd + acceptance + reviewer ≈ **55-78k tokens** even for the SMALLEST slice (one use case + one route); a 50k budget blocked a *successful* run mid-flight (work was green; the label killed it).
+
+**Verify:** belong #15 session logs — run 1: 78,007 by end of acceptance; run 3 (no-op tdd!): 55,541 incl. reviewer.
+
+**Fix.** Recalibrate Step 4: `budget ≈ expected_iterations × 80k`, floor 150k for any slice; document the measured anatomy (tdd 25-45k · acceptance 15-20k · reviewer ~15k) and that input tokens dominate (session reads issue+skills+code each time). Note budgets are per-SESSION (a blocked-then-resumed issue re-spends).
+
+**Acceptance.** Skill table updated with measured numbers + source note; no consumer-invented budget below 150k in examples.
+
+---
+
+## FOLLOW-UP 32 — Graduate the consumer Night Shift tooling: `ralph-isolated.sh` + `ralph-watch.sh`  ·  **Severity: decision (additive)**
+
+**Problem/opportunity.** belong built and battle-tested two wrappers the framework lacks: **isolation** (worktree-per-worker so the Night Shift never hijacks the developer's checkout — pairs with the engine's own `--worker-id`) and **observability** (Slack notifier over the NDJSON: per-iteration outcome+commit-delta+`reason`, terminal PR/blocked alerts, an environmental-blocker heuristic — ≥2 failing iterations with 0 new commits — that back-tested as catching the #14 Docker outage at iteration 3 vs 25 minutes of manual archaeology). Sources at belong repo root (untracked): `ralph-isolated.sh`, `ralph-watch.sh`.
+
+**Lessons to bake in if adopted** (all hit live): jq `.[0]` on an empty `gh pr list` renders `"null null"` → false PR-opened (use `.[] | …' | head -1`); blocked detection must be NDJSON-`session.ended`-first (labels can be missing, FU-30a); on relaunch the watcher must bind to the NEW session log (the old log's `session.ended` fires a false terminal alert); notifier needs `SLACK_WEBHOOK_URL` in consumer `.env` (+ `.env.example` entry).
+
+**Fix (if adopted).** Ship both as `templates/` (English, stamped), wire `/setup` to offer them, add ralph-loop-style tests for the watcher's parsing (fixture NDJSON) and the wrapper's preflight. Alternatively: document as a recipe in `core/13`. Maintainer call.
+
+**Acceptance.** A consumer adopting via `/setup` can run an isolated, Slack-monitored Night Shift without writing tooling; the four lesson-bugs are pinned by tests.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.
@@ -486,5 +587,6 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 6. ~~**Items 14–17 (Night Shift kill chain)**~~ — ✅ **DONE** (#63, #64, #65+#66, #68) — see the PR map banner above.
 7. ~~**Items 18–19** (pre-flight + budget accounting)~~ — ✅ **DONE** (#69, #70).
 8. ~~**Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization)~~ — ✅ **DONE** (#72, #73, #71).
+9. **Items 26–30 (batch 3 — BLOCKS the next consumer Night Shift run, belong #16):** 29 first (CRITICAL — every successful run dies at `gh pr create`), then 27 (false-blocking severity; consumer patch liftable verbatim), 26 (findings → issue comment; reuses FU-17's channel), 28 (pre-delete result file), 30 (block-path robustness). All five carry live forensics: belong issue #15 comments + session logs + PR #19 body. **31** (budget-heuristics docs) and **32** (tooling graduation — maintainer decision) ride along, non-blocking.
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
