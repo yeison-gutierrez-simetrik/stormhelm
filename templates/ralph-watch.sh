@@ -14,7 +14,15 @@
 #
 # Usage:
 #   ./ralph-watch.sh <issue-number> [root-dir]      # live tail (poll loop)
-#   RALPH_WATCH_REPLAY=<log> ./ralph-watch.sh <issue-number> [root-dir]
+#   ./ralph-watch.sh --queue [root-dir]             # follow a whole queue
+#                                                   # night (FOLLOW-UP 46b):
+#                                                   # rebinds across per-issue
+#                                                   # logs, surfaces
+#                                                   # queue.skipped, exits on
+#                                                   # queue.completed (a
+#                                                   # child's session.ended is
+#                                                   # informational)
+#   RALPH_WATCH_REPLAY=<log> ./ralph-watch.sh <issue-number|--queue> [root-dir]
 #                                                   # parse one log fully and
 #                                                   # exit (tests / post-mortem)
 # Tuning (env):
@@ -48,10 +56,12 @@
 
 set -euo pipefail
 
-ISSUE="${1:?usage: ./ralph-watch.sh <issue-number> [root-dir]}"
+ISSUE="${1:?usage: ./ralph-watch.sh <issue-number|--queue> [root-dir]}"
 ROOT="${2:-.}"
 INTERVAL="${RALPH_WATCH_INTERVAL:-15}"
 REPLAY="${RALPH_WATCH_REPLAY:-}"
+QUEUE_MODE=""
+if [ "$ISSUE" = "--queue" ]; then QUEUE_MODE=1; ISSUE="queue"; fi
 
 notify() {
   local msg="$1"
@@ -63,7 +73,14 @@ notify() {
 }
 
 newest_log() {
-  ls -t "${ROOT}/.planning/ralph-sessions/${ISSUE}-"*.log 2>/dev/null | head -1
+  if [ -n "$QUEUE_MODE" ]; then
+    # FOLLOW-UP 46b: a queue night spans the queue-level log AND every
+    # per-issue child log — follow whichever is newest (the existing
+    # rebind-per-tick mechanism does the switching).
+    ls -t "${ROOT}/.planning/ralph-sessions/"*.log 2>/dev/null | head -1
+  else
+    ls -t "${ROOT}/.planning/ralph-sessions/${ISSUE}-"*.log 2>/dev/null | head -1
+  fi
 }
 
 # Heuristic state: ≥2 consecutive acceptance-failing iterations with the same
@@ -186,6 +203,15 @@ process_line() {
     ralph.preflight.failed)
       notify "❌ environment pre-flight failed: $(printf '%s' "$line" | jq -r '.details.reason // "?"')"
       ;;
+    ralph.queue.skipped)
+      # FOLLOW-UP 46b: the queue's own forensics, surfaced — nobody read
+      # these events before.
+      notify "⏭ queue: $(printf '%s' "$line" | jq -r '"#\(.details.issue) skipped — blocked on \(.details.blocked_on | map("#\(.)") | join(", ")) (\(.details.mode))"')"
+      ;;
+    ralph.queue.completed)
+      notify "🌅 queue COMPLETED — $(printf '%s' "$line" | jq -r '"\(.details.processed) processed, \(.details.skipped) skipped, rc \(.details.rc) (\(.details.mode))"')"
+      return 10   # terminal for the whole night
+      ;;
     ralph.budget.exceeded)
       notify "💸 budget exceeded: $(printf '%s' "$line" | jq -r '"\(.details.cumulative)/\(.details.budget)"')"
       ;;
@@ -204,6 +230,9 @@ process_line() {
       else
         notify "🛑 session ended: ${status}${reason:+ (${reason})}"
       fi
+      # FOLLOW-UP 46b: in queue mode a CHILD ending is informational —
+      # the night ends on ralph.queue.completed, not here.
+      if [ -n "$QUEUE_MODE" ]; then return 0; fi
       return 10   # terminal
       ;;
   esac

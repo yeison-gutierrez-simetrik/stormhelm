@@ -36,6 +36,11 @@ function setupConsumer() {
   copyFileSync(join(TEMPLATES, 'ralph-blocked-comment.md.tmpl'), join(dir, 'ralph-blocked-comment.md.tmpl'));
   copyFileSync(join(TEMPLATES, 'ralph-local.sh.tmpl'), join(dir, 'ralph-local.sh'));
   chmodSync(join(dir, 'ralph-local.sh'), 0o755); // queue mode self-invokes "$0"
+  // Mirror a real consumer's .gitignore (/setup writes it): .planning/ is
+  // ephemeral. Without this, a mock tdd `git add -A` tracks the QUEUE LOG
+  // into a slice commit and the parent's still-appending log then blocks
+  // the FU-46a detach ('local changes would be overwritten').
+  writeFileSync(join(dir, '.gitignore'), '.planning/\n.mock-*\n.worktrees/\n');
   mkdirSync(join(dir, '.planning', 'ralph-sessions'), { recursive: true });
   const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
   git('init', '-q');
@@ -903,5 +908,48 @@ test('FU-43: independent issues run ASC by number (the DESC footgun is dead)', (
     });
     const i1 = out.indexOf('Issue #1'); const i2 = out.indexOf('Issue #2');
     assert.ok(i1 !== -1 && i2 !== -1 && i1 < i2, `oldest first, got order: #1@${i1} #2@${i2}`);
+  });
+});
+
+// ── FOLLOW-UP 46a: branch-base hygiene between independent queue items ────────
+
+// The live-risk: item A's child leaves HEAD on A's branch (shared worktree);
+// independent item B then branched from A's TIP — B's PR carried A's commits.
+// The queue now detaches back to the night's start ref before every
+// non-chained item.
+test('FU-46a: second independent queue item branches clean — zero commits of the first', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: JSON.stringify([{ number: 1, body: '' }, { number: 2, body: '' }]),
+      MOCK_ALL_JSON: '[]',
+      MOCK_TDD_COMMIT: '1',
+    });
+    assert.equal(status, 0, out);
+    assert.match(out, /════════ Issue #1 ════════/);
+    assert.match(out, /════════ Issue #2 ════════/);
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    const branches = git('branch', '--list', 'agent/*').stdout.trim().split('\n').map((b) => b.replace(/^[* ]+/, ''));
+    const b2 = branches.find((b) => b.endsWith('-2'));
+    assert.ok(b2, `branch for issue 2 exists, got: ${branches.join(', ')}`);
+    const log2 = git('log', '--oneline', b2).stdout;
+    assert.match(log2, /tdd work for issue 2/, 'issue 2 committed its own work');
+    assert.doesNotMatch(log2, /tdd work for issue 1/,
+      'issue 2\'s branch must NOT carry issue 1\'s commits (the drift bug)');
+  });
+});
+
+// ── FOLLOW-UP 46b: the queue emits a terminal completed event ─────────────────
+
+test('FU-46b: the queue log ends with ralph.queue.completed {processed, skipped}', () => {
+  withConsumer((dir) => {
+    runRalph(dir, [], {
+      MOCK_QUEUE_JSON: qJson([[1, null], [2, [1]]]),
+      MOCK_ALL_JSON: allJson([[1, 'OPEN'], [2, 'OPEN']]),
+    });
+    const done = queueLog(dir).find((e) => e.event === 'ralph.queue.completed');
+    assert.ok(done, 'terminal queue event present');
+    assert.equal(done.details.processed, 1);
+    assert.equal(done.details.skipped, 1);
+    assert.equal(done.details.mode, 'merged-deps');
   });
 });

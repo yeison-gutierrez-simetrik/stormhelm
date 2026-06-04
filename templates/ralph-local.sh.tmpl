@@ -106,6 +106,12 @@ BRANCH_PREFIX="agent/feature"
 # construction); skipped issues are LOUD (stdout + ralph.queue.skipped
 # NDJSON); eligibility re-evaluates after every completed item so a
 # foundation that delivers mid-night unlocks its dependents (chained mode).
+#
+# ⚠️ ONE queue worker per repo (FOLLOW-UP 46c): nothing claims an issue
+# for a worker — two concurrent queue workers would list the same
+# ralph-ready set and double-process it. Parallelism = explicit per-issue
+# `ralph-isolated` launches. (A ralph-claimed:<worker> label scheme is the
+# designed fix if multi-worker queues are ever needed.)
 if [ -z "$ISSUE_NUM" ]; then
   CANDIDATES_JSON=$(gh issue list --label ralph-ready --state open --json number,body --limit 1000 2>/dev/null || echo '[]')
   READY_NUMS=$(printf '%s' "$CANDIDATES_JSON" | jq -r '.[].number' 2>/dev/null | sort -n || true)
@@ -122,6 +128,11 @@ if [ -z "$ISSUE_NUM" ]; then
   RALPH_SESSION_LOG=".planning/ralph-sessions/queue-${QUEUE_STAMP}.log"
   mkdir -p .planning/ralph-sessions
   : > "$RALPH_SESSION_LOG"
+
+  # FOLLOW-UP 46a: the night's start snapshot. Every NON-chained item
+  # branches from here — never from whatever branch the previous item's
+  # child left HEAD on (shared worktree).
+  QUEUE_START_REF=$(git rev-parse HEAD)
 
   queue_deps_of() {  # candidate number → its dep numbers (section-scoped)
     printf '%s' "$CANDIDATES_JSON" \
@@ -177,6 +188,13 @@ if [ -z "$ISSUE_NUM" ]; then
       if [ -n "$base_branch" ]; then
         "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" --base "$base_branch" || queue_rc=$?
       else
+        # FOLLOW-UP 46a: the previous item's child left HEAD on ITS branch
+        # (shared worktree) — an independent item must branch from the
+        # night's start snapshot, never from a sibling's tip (the second
+        # PR would carry the first's commits). Detach, don't re-fetch:
+        # the night is ONE consistent snapshot.
+        git checkout -q --detach "$QUEUE_START_REF" 2>/dev/null \
+          || echo "⚠️  could not reset to the queue start ref ${QUEUE_START_REF} — issue #$n may branch from the previous item's tip" >&2
         "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
       fi
       PROCESSED="${PROCESSED}${n} "
@@ -203,6 +221,12 @@ if [ -z "$ISSUE_NUM" ]; then
     ralph_log_event "warn" "ralph.queue.skipped" \
       "{\"issue\":${n},\"blocked_on\":[${blocked_on:-}],\"mode\":\"${QUEUE_MODE_NAME}\"}"
   done
+  # FOLLOW-UP 46b: terminal queue event — the --queue watcher exits on it
+  # (a CHILD's session.ended is not terminal for the night).
+  PROCESSED_COUNT=$(echo "$PROCESSED" | wc -w | tr -d ' ')
+  TOTAL_COUNT=$(printf '%s\n' "$READY_NUMS" | grep -c .)
+  ralph_log_event "info" "ralph.queue.completed" \
+    "{\"processed\":${PROCESSED_COUNT},\"skipped\":$((TOTAL_COUNT - PROCESSED_COUNT)),\"rc\":${queue_rc},\"mode\":\"${QUEUE_MODE_NAME}\"}"
   exit "$queue_rc"
 fi
 

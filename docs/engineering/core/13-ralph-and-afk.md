@@ -372,7 +372,28 @@ structured precisely so automation can read it):
   `ralph.queue.skipped {issue, blocked_on, mode}` event in the queue-level
   NDJSON log (`queue-<ts>.log`) — and a mutual dependency pair is called
   out as a cycle by name. A dependency referencing a nonexistent issue is
-  treated as blocked, never run.
+  treated as blocked, never run. The night ends with a
+  `ralph.queue.completed {processed, skipped, rc, mode}` event — the
+  terminal signal `ralph-watch.sh --queue` exits on.
+- **Branch hygiene between items (FOLLOW-UP 46a):** the queue records the
+  night's start ref once; every NON-chained item is preceded by a detach
+  back to it — a child run leaves HEAD on its own branch (shared
+  worktree), and without the reset the next independent item would branch
+  from a sibling's tip and ship its commits in the wrong PR. Chained items
+  keep their explicit `--base`. No mid-night re-fetch: one consistent
+  snapshot per night.
+- **One queue worker per repo (FOLLOW-UP 46c):** nothing claims an issue
+  for a worker, so two concurrent queue workers would double-process the
+  same `ralph-ready` set. Run ONE queue per repo; parallelism is explicit
+  per-issue `ralph-isolated` launches. (If multi-worker queues are ever
+  actually needed, the designed fix is a `ralph-claimed:<worker>` label
+  applied before processing and cleared after — build it then, not
+  speculatively.)
+- **Watching the night:** `./ralph-watch.sh --queue [root]` follows the
+  whole queue — it rebinds to the newest session log regardless of issue,
+  surfaces `queue.skipped` reasons as notifications, treats a CHILD's
+  `session.ended` as informational (not terminal), and exits on
+  `queue.completed`.
 
 ---
 
