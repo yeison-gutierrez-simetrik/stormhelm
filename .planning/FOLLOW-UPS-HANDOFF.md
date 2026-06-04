@@ -454,6 +454,28 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 
 ---
 
+# Post-batch review round (2026-06-03) — FOLLOW-UPs 24–25 + fast-follows
+
+**Two reviews ran over the merged batch:** (a) the consumer-side review by the agent that authored items 14–22 (`.planning/REVIEW-PRS-62-76.md` — verdict: all 9 correctly resolved, 3 adjustments), and (b) an adversarial multi-agent code review of the cumulative diff `0c26c5d..main` (10 findings: 4 confirmed fixable, the rest altitude/maintenance). **Fast-follow PRs, open for maintainer review (not self-merged):** #77 (Adjustment 1 — `@manual` scenarios in Step 3 + result contract), #78 (Adjustment 2 — `--limit 1000` on the sibling query), #79 (Adjustment 3 — `.env` placeholder sentinels in env_preflight), #80 (self-review fixes: last Spanish remnant, tautological test assert, regex escape, expander numeric guard, dead stores). The altitude-class findings stay open as items 24–25 below.
+
+## FOLLOW-UP 24 — scn-label expansion + executable gate logic live in 4 places, two of them prose  ·  **Severity: LOW-MEDIUM (decision)**
+
+**Problem.** The `scenarios:*` expansion exists in `ralph-lib.sh` (`expand_scns`, bash), `check-invariants.mjs` (inline JS), and TWICE as sed/tr pipelines inside `skills/run-acceptance/SKILL.md` (Step 2 sibling-scoping, Step 3 this-slice selection). The skill copies are **prose an LLM re-interprets every run** — the exact drift class that caused FOLLOW-UP 16 ("sessions copy skill examples literally") — and have no test coverage. The framework's own pattern for executable gate logic is consumer-runtime `scripts/*.mjs` (preflight/check-invariants).
+
+**Fix (proposed).** A `scripts/scope-scenarios.mjs` (or similar) owning: label expansion (canonical + legacy forms), sibling-scoping (the `gh issue list` query + exclusion), this-slice selection + expected-count (incl. the `@manual` partition from #77). The skill snippets become one-line `node scripts/...` calls; fixtures pin the behavior; bash/JS copies shrink to consumers of one implementation. Wire into `/setup`'s copy list (per [[stormhelm-new-runtime-script-wire-setup]] class) and the validation `ls`.
+
+**Acceptance.** One executable implementation; Step 2/3 snippets invoke it; tests cover compact/spelled/comma + @manual + sibling truncation; `/setup` ships it.
+
+## FOLLOW-UP 25 — no regression gates for two one-time fixes (English-only artifacts; result-file schema)  ·  **Severity: LOW**
+
+**Problem.** (a) "Shipped artifacts are English" was enforced by a one-time sweep (#67) — and its grep already missed a line (#80 fixed `Invocando…`); nothing stops Spanish re-entering. (b) The acceptance result-file contract is documented in skill prose and parsed in bash with no shared schema artifact — field drift (e.g. a renamed `ran`) is only caught by a human reading both sides.
+
+**Fix (proposed).** (a) Add a check to `check-framework-metadata.mjs` (or a test) flagging common Spanish words/accented chars in shipped files (`templates/`, `skills/`, `hooks/`, `agents/`). (b) Commit a small JSON Schema for `issue-<N>-result.json` next to the skill (or in `scripts/`), referenced by both the skill's Step 10 and `ralph_acceptance_result_check`'s header; optionally validate in the check itself via `jq`-expressible assertions.
+
+**Acceptance.** A Spanish string in a shipped template fails CI; the result-file schema has one canonical machine-readable definition both sides cite.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.
