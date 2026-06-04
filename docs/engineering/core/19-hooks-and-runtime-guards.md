@@ -39,8 +39,8 @@ Skills that quote external documentation (Hono, FastAPI, MDN, RFCs, framework ch
 
 This rule is implemented as two hooks in this repo:
 
-- `hooks/webfetch-cache-pre.js` — `PreToolUse` matcher `WebFetch`. On cache hit with validators, sends a `HEAD` request with conditional headers; on `304` serves the cached body via exit 2 + stderr.
-- `hooks/webfetch-cache-post.js` — `PostToolUse` matcher `WebFetch`. After a real fetch, retrieves validators via `HEAD` and stores the cache entry only when at least one validator is present.
+- `hooks/webfetch-cache-pre.cjs` — `PreToolUse` matcher `WebFetch`. On cache hit with validators, sends a `HEAD` request with conditional headers; on `304` serves the cached body via exit 2 + stderr.
+- `hooks/webfetch-cache-post.cjs` — `PostToolUse` matcher `WebFetch`. After a real fetch, retrieves validators via `HEAD` and stores the cache entry only when at least one validator is present.
 
 ### Cache layout
 
@@ -84,7 +84,7 @@ Origins decide when their content changes. A TTL of "1 day" silently serves stal
       {
         "matcher": "WebFetch",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs" }
         ]
       }
     ],
@@ -92,7 +92,7 @@ Origins decide when their content changes. A TTL of "1 day" silently serves stal
       {
         "matcher": "WebFetch",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs" }
         ]
       }
     ]
@@ -167,7 +167,7 @@ Implement when the team observes the first case of a payload surviving `/handoff
 
 A `PostToolUse` hook (universal, no matcher) that watches context usage and, when remaining capacity drops below configured thresholds, **injects a message to the agent** (not just the user's statusline) suggesting it close the current work cleanly, run `/handoff`, or request a human checkpoint.
 
-This rule is implemented in `hooks/context-monitor.js`. The infrastructure for measuring context usage is **opt-in**: if no telemetry bridge file is present, the hook stays silent rather than producing false signals.
+This rule is implemented in `hooks/context-monitor.cjs`. The infrastructure for measuring context usage is **opt-in**: if no telemetry bridge file is present, the hook stays silent rather than producing false signals.
 
 ### Why notify the AGENT
 
@@ -209,7 +209,7 @@ This file is written by an external mechanism (custom statusline, MCP server, Cl
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs" }
         ]
       }
     ]
@@ -238,28 +238,28 @@ No hook is loaded automatically by Stormhelm. Each project explicitly enables ho
     "PreToolUse": [
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs" }]
       },
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs" }]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "WebFetch",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs" }]
       },
       {
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js" }]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs" }]
       }
     ]
   }
 }
 ```
 
-The `git-guardrails.js` referenced is the rule §68 implementation (out of scope for this file; lives in the `git-guardrails-claude-code` skill referenced from AI Hero).
+The `git-guardrails.cjs` referenced is the rule §68 implementation (out of scope for this file; lives in the `git-guardrails-claude-code` skill referenced from AI Hero).
 
 ### Verifying hooks are active
 
@@ -271,11 +271,11 @@ After editing `.claude/settings.json`, restart Claude Code. The first session-st
 
 | Hook | Event | Status | Purpose |
 |---|---|---|---|
-| `webfetch-cache-pre.js` | PreToolUse(WebFetch) | ✅ Shipped | Serve cache on `304 Not Modified` |
-| `webfetch-cache-post.js` | PostToolUse(WebFetch) | ✅ Shipped | Store validated cache entries |
-| `context-monitor.js` | PostToolUse(*) | ✅ Shipped (opt-in telemetry) | Notify agent on low context |
-| `git-guardrails.js` | PreToolUse(Bash) | ✅ Shipped (mandatory for Ralph, §68) | Block destructive Git commands |
-| `closed-set-check.js` | PostToolUse(Write\|Edit\|MultiEdit) | ✅ Shipped (opt-in) | Warn on closed-set ↔ doc drift (§36) |
+| `webfetch-cache-pre.cjs` | PreToolUse(WebFetch) | ✅ Shipped | Serve cache on `304 Not Modified` |
+| `webfetch-cache-post.cjs` | PostToolUse(WebFetch) | ✅ Shipped | Store validated cache entries |
+| `context-monitor.cjs` | PostToolUse(*) | ✅ Shipped (opt-in telemetry) | Notify agent on low context |
+| `git-guardrails.cjs` | PreToolUse(Bash) | ✅ Shipped (mandatory for Ralph, §68) | Block destructive Git commands |
+| `closed-set-check.cjs` | PostToolUse(Write\|Edit\|MultiEdit) | ✅ Shipped (opt-in) | Warn on closed-set ↔ doc drift (§36) |
 | `prompt-injection-guard.js` | PreToolUse(Write\|Edit\|MultiEdit) | 📋 Specified §110, not implemented | Defend writes |
 | `read-injection-scanner.js` | PostToolUse(Read) | 📋 Specified §111, not implemented | Defend reads |
 | `session-start.js` | SessionStart | 📋 Specified §109, deferred | Meta-skill routing |
@@ -285,6 +285,6 @@ After editing `.claude/settings.json`, restart Claude Code. The first session-st
 The hooks shipped in this iteration are composed from prior art:
 
 - `webfetch-cache-pre/post.js`: adapted from `sdd-cache-pre.sh` / `sdd-cache-post.sh` in [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills). MIT. Translated from bash to Node.js for runtime consistency with the rest of the hooks layer.
-- `context-monitor.js`: adapted from `gsd-context-monitor.js` in [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done). MIT. Simplified to remove GSD-specific config and made telemetry-bridge agnostic.
+- `context-monitor.cjs`: adapted from `gsd-context-monitor.cjs` in [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done). MIT. Simplified to remove GSD-specific config and made telemetry-bridge agnostic.
 
 Stormhelm did not invent these hooks; it composed the most useful pieces of existing open-source work and applies the rules (§108, §112) consistently.

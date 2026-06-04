@@ -10,11 +10,11 @@ Rules governing these hooks live in [`docs/engineering/core/19-hooks-and-runtime
 
 | File | Event | Matcher | Implements | Default state |
 |---|---|---|---|---|
-| `webfetch-cache-pre.js` | `PreToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
-| `webfetch-cache-post.js` | `PostToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
-| `context-monitor.js` | `PostToolUse` | `*` | §112 | Opt-in; silent without telemetry bridge file |
-| `git-guardrails.js` | `PreToolUse` | `Bash` | §68 | **Mandatory** whenever Ralph runs in this project |
-| `closed-set-check.js` | `PostToolUse` | `Write\|Edit\|MultiEdit` | §36 | Opt-in; warns when a doc's closed-set list drifts from code |
+| `webfetch-cache-pre.cjs` | `PreToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
+| `webfetch-cache-post.cjs` | `PostToolUse` | `WebFetch` | §108 | Opt-in via `.claude/settings.json` |
+| `context-monitor.cjs` | `PostToolUse` | `*` | §112 | Opt-in; silent without telemetry bridge file |
+| `git-guardrails.cjs` | `PreToolUse` | `Bash` | §68 | **Mandatory** whenever Ralph runs in this project |
+| `closed-set-check.cjs` | `PostToolUse` | `Write\|Edit\|MultiEdit` | §36 | Opt-in; warns when a doc's closed-set list drifts from code |
 
 ---
 
@@ -31,7 +31,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs"
           }
         ]
       }
@@ -42,7 +42,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs"
           }
         ]
       },
@@ -51,7 +51,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.js"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs"
           }
         ]
       }
@@ -63,7 +63,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
 Then ensure each hook is executable:
 
 ```bash
-chmod +x .claude/hooks/*.js
+chmod +x .claude/hooks/*.cjs
 ```
 
 Restart Claude Code. The session-start log emits the active hook list; if a hook fails to load, the failure appears immediately in stderr.
@@ -106,7 +106,7 @@ Array of regex strings (or plain substrings if regex parsing fails). URLs matchi
 
 ## How each hook behaves
 
-### `webfetch-cache-pre.js`
+### `webfetch-cache-pre.cjs`
 
 On every `WebFetch` tool call:
 
@@ -122,7 +122,7 @@ On every `WebFetch` tool call:
 
 Cache directory is created on demand by the post-hook. Add `.claude/webfetch-cache/` to `.gitignore`.
 
-### `webfetch-cache-post.js`
+### `webfetch-cache-post.cjs`
 
 After a real `WebFetch` returns:
 
@@ -134,7 +134,7 @@ After a real `WebFetch` returns:
 
 Always exits 0 — this hook never blocks.
 
-### `git-guardrails.js`
+### `git-guardrails.cjs`
 
 On every `Bash` tool call:
 
@@ -148,7 +148,7 @@ Latency budget per invocation: **< 50 ms** (NFR-1 in `docs/specs/ralph-hardening
 
 **Mandatory for any project where Ralph runs.** The Day-Shift human bypass exists for explicit cleanup work (e.g., dropping a malformed local branch after a failed rebase). Ralph **never** sets `GIT_GUARDRAILS_DISABLE`.
 
-### `context-monitor.js`
+### `context-monitor.cjs`
 
 After every tool call:
 
@@ -162,9 +162,9 @@ State is stored per session in `.claude/context-monitor-state-<session_id>.json`
 
 ---
 
-## Telemetry bridge for `context-monitor.js`
+## Telemetry bridge for `context-monitor.cjs`
 
-`context-monitor.js` is silent without telemetry. To feed it usage data, write `.claude/context-bridge.json` from an external source:
+`context-monitor.cjs` is silent without telemetry. To feed it usage data, write `.claude/context-bridge.json` from an external source:
 
 ```json
 {

@@ -378,7 +378,7 @@ structured precisely so automation can read it):
 
 ## §68. Ralph respects `git-guardrails`: destructive Git operations are blocked at the tool level
 
-Stormhelm ships its own `hooks/git-guardrails.js` (zero-dependency Node script) as a `PreToolUse(Bash)` hook that blocks dangerous Git commands. **Installation is mandatory** for any environment where Ralph runs. See `hooks/README.md` for the full behavior contract and installation snippet.
+Stormhelm ships its own `hooks/git-guardrails.cjs` (zero-dependency Node script) as a `PreToolUse(Bash)` hook that blocks dangerous Git commands. **Installation is mandatory** for any environment where Ralph runs. See `hooks/README.md` for the full behavior contract and installation snippet.
 
 ### Blocked operations
 

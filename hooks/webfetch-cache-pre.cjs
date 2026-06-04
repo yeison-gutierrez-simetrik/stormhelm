@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hooks/webfetch-cache-pre.js
+// hooks/webfetch-cache-pre.cjs
 // PreToolUse hook (matcher: WebFetch). Implements rule §108.
 //
 // On a cache hit with HTTP validators (ETag / Last-Modified), sends a HEAD
