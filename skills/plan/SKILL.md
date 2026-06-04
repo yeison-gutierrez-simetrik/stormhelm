@@ -187,6 +187,44 @@ Save the plan to the issue: **initial plan → `gh issue edit --body`; amendment
 to an already-planned issue → `gh issue comment`** (the channel contract in
 Outputs). Return path to workflow.
 
+**MANDATORY — amendment FORM is canonical (FOLLOW-UP 49, consumer review).**
+A scope or dependency amendment is MACHINE-READ (the engine's pre-iteration
+backstop, the queue's dep graph) — free-form prose created the live blind
+spot (a blockquote amendment that no parser saw). The canonical forms, in the
+issue **body** (`gh issue edit --body`; scope-changing amendments are too
+load-bearing for the comments channel):
+
+- **Scenario changes** → edit `## Scenarios covered` in place, or append a
+  literal `## Scope amendment` section listing the added `scn-NNN`.
+- **Dependency changes** → edit `## Depends on` in place (the queue reads
+  exactly that section).
+- Either way, a dated one-line note in `## Scope amendment` keeps the audit
+  trail human-readable.
+
+(The engine also tolerates the legacy inline form — a line starting with
+`> **Scope amendment…**` / `> **Dependency amendment…**` — but new
+amendments use the headings.)
+
+**MANDATORY — label rotation travels with every scope amendment (FOLLOW-UP
+49).** A body/comment amendment that changes the issue's scope is INCOMPLETE
+until the affected labels rotate **in the same operation**:
+
+```bash
+gh issue edit <N> \
+  --remove-label 'scenarios:<old>' --add-label 'scenarios:<new>' \
+  --remove-label 'budget:<old>'    --add-label 'budget:<new>'
+```
+
+The implementing session reads the BODY (and implements the amendment); the
+acceptance GATE reads the LABEL (and verifies only what it names). Rotating
+one without the other silently forks the two contract channels — live, four
+security-hardening scenarios were implemented from a body amendment and
+shipped WITHOUT ever passing acceptance on a `require-human-review` slice,
+because the budget label was rotated but the scenarios label was not. The
+engine refuses to start when the body owns scenarios the label doesn't
+(the FU-49 backstop), so an un-rotated amendment now blocks the night
+instead of shipping ungated work.
+
 ## Integration with the framework
 
 - **Invoked by `/feature` Step 9** for each issue from Step 8.

@@ -69,6 +69,7 @@ WORKER_ID="${RALPH_WORKER_ID:-w0}"
 # Deliberate §123 stacked exception for Night Shift slice-groups (merge-
 # commit required; finding-attribution mandatory; see core/13).
 BASE_REF=""
+PR_BASE_REF=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --max-iterations) MAX_ITER="${2:?--max-iterations requires a value}"; shift 2 ;;
@@ -77,6 +78,11 @@ while [ "$#" -gt 0 ]; do
     --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
     --base) BASE_REF="${2:?--base requires a ref}"; shift 2 ;;
     --base=*) BASE_REF="${1#*=}"; shift ;;
+    # --pr-base (FOLLOW-UP 48): when the queue builds an EPHEMERAL integration
+    # base (multi-dep chain), the branch starts from --base (local integration)
+    # but the PR must target a REAL remote branch — the chain anchor.
+    --pr-base) PR_BASE_REF="${2:?--pr-base requires a ref}"; shift 2 ;;
+    --pr-base=*) PR_BASE_REF="${1#*=}"; shift ;;
     --) shift; break ;;
     -*) echo "❌ unknown flag: $1" >&2; exit 2 ;;
     *)
@@ -106,6 +112,12 @@ BRANCH_PREFIX="agent/feature"
 # construction); skipped issues are LOUD (stdout + ralph.queue.skipped
 # NDJSON); eligibility re-evaluates after every completed item so a
 # foundation that delivers mid-night unlocks its dependents (chained mode).
+#
+# ⚠️ ONE queue worker per repo (FOLLOW-UP 46c): nothing claims an issue
+# for a worker — two concurrent queue workers would list the same
+# ralph-ready set and double-process it. Parallelism = explicit per-issue
+# `ralph-isolated` launches. (A ralph-claimed:<worker> label scheme is the
+# designed fix if multi-worker queues are ever needed.)
 if [ -z "$ISSUE_NUM" ]; then
   CANDIDATES_JSON=$(gh issue list --label ralph-ready --state open --json number,body --limit 1000 2>/dev/null || echo '[]')
   READY_NUMS=$(printf '%s' "$CANDIDATES_JSON" | jq -r '.[].number' 2>/dev/null | sort -n || true)
@@ -122,6 +134,11 @@ if [ -z "$ISSUE_NUM" ]; then
   RALPH_SESSION_LOG=".planning/ralph-sessions/queue-${QUEUE_STAMP}.log"
   mkdir -p .planning/ralph-sessions
   : > "$RALPH_SESSION_LOG"
+
+  # FOLLOW-UP 46a: the night's start snapshot. Every NON-chained item
+  # branches from here — never from whatever branch the previous item's
+  # child left HEAD on (shared worktree).
+  QUEUE_START_REF=$(git rev-parse HEAD)
 
   queue_deps_of() {  # candidate number → its dep numbers (section-scoped)
     printf '%s' "$CANDIDATES_JSON" \
@@ -140,6 +157,7 @@ if [ -z "$ISSUE_NUM" ]; then
   }
 
   PROCESSED=" "
+  CONFLICTED=" "
   queue_rc=0
   progress=1
   while [ "$progress" = "1" ]; do
@@ -149,8 +167,9 @@ if [ -z "$ISSUE_NUM" ]; then
     ALL_JSON=$(gh issue list --state all --json number,state,labels --limit 1000 2>/dev/null || echo '[]')
     for n in $READY_NUMS; do
       case "$PROCESSED" in *" $n "*) continue ;; esac
+      case "$CONFLICTED" in *" $n "*) continue ;; esac
       blocked_on=""
-      base_branch=""
+      done_branches=""
       for d in $(queue_deps_of "$n"); do
         [ "$d" = "$n" ] && continue
         st=$(queue_state_of "$d")
@@ -162,10 +181,15 @@ if [ -z "$ISSUE_NUM" ]; then
         fi
         if [ -n "${RALPH_QUEUE_CHAINED:-}" ] && queue_dep_done "$d"; then
           # ralph-done = draft PR delivered, awaiting human merge → chain on it.
-          if [ -z "$base_branch" ]; then
-            base_branch=$(queue_base_branch_of "$d" || true)
+          # FOLLOW-UP 48: collect EVERY delivered dep's branch — picking the
+          # first only ran a multi-dep issue on an incomplete base (live: a
+          # 3-dep diamond burned 118k tokens rediscovering the missing
+          # siblings, and converged byte-identical by luck, not contract).
+          b=$(queue_base_branch_of "$d" || true)
+          if [ -n "$b" ]; then
+            done_branches="${done_branches}${done_branches:+ }$b"
+            continue
           fi
-          if [ -n "$base_branch" ]; then continue; fi
           echo "⚠️  Issue #$n: dep #$d is ralph-done but its PR branch could not be discovered — treating as blocked." >&2
         fi
         blocked_on="${blocked_on}${blocked_on:+,}$d"
@@ -173,13 +197,66 @@ if [ -z "$ISSUE_NUM" ]; then
       if [ -n "$blocked_on" ]; then
         continue   # not runnable this pass; reported after the queue settles
       fi
+      # Resolve the chain base from the delivered deps (FOLLOW-UP 48):
+      #   0 → independent (start-snapshot path below)
+      #   1 → chain directly on it (the FU-43 single-dep path, unchanged)
+      #  ≥2 → EPHEMERAL INTEGRATION BASE: merge all dep branches (they share
+      #       the foundation by construction); a merge conflict between
+      #       siblings is a REAL divergence signal → blocked loudly, never
+      #       built on one side. The PR still targets the FIRST dep's branch
+      #       (the chain anchor — the integration branch is local-only); its
+      #       diff shows sibling code until the merge train advances (§123).
+      base_branch=""
+      pr_base=""
+      if [ -n "$done_branches" ]; then
+        set -- $done_branches
+        if [ "$#" -eq 1 ]; then
+          base_branch="$1"
+        else
+          INTEGRATION="queue-integration/${n}"
+          pr_base="$1"
+          git branch -q -D "$INTEGRATION" 2>/dev/null || true
+          if git checkout -q -b "$INTEGRATION" "$1" 2>/dev/null; then
+            base_branch="$INTEGRATION"
+            shift
+            for b in "$@"; do
+              if ! git merge -q --no-edit "$b" >/dev/null 2>&1; then
+                echo "⚠️  Issue #$n: dep branches diverge — 'git merge $b' conflicts on the integration base. Siblings must reconcile before this issue can run." >&2
+                git merge --abort >/dev/null 2>&1 || true
+                git checkout -q --detach "$QUEUE_START_REF" 2>/dev/null || true
+                git branch -q -D "$INTEGRATION" 2>/dev/null || true
+                base_branch=""
+                CONFLICTED="${CONFLICTED}${n} "
+                break
+              fi
+            done
+          else
+            echo "⚠️  Issue #$n: could not build the integration base from '$1' — treating as blocked." >&2
+            CONFLICTED="${CONFLICTED}${n} "
+          fi
+          case "$CONFLICTED" in *" $n "*) continue ;; esac
+        fi
+      fi
       echo ""; echo "════════ Issue #$n ${base_branch:+(chained on ${base_branch}) }════════"
       if [ -n "$base_branch" ]; then
-        "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" --base "$base_branch" || queue_rc=$?
+        "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" --base "$base_branch" ${pr_base:+--pr-base "$pr_base"} || queue_rc=$?
       else
+        # FOLLOW-UP 46a: the previous item's child left HEAD on ITS branch
+        # (shared worktree) — an independent item must branch from the
+        # night's start snapshot, never from a sibling's tip (the second
+        # PR would carry the first's commits). Detach, don't re-fetch:
+        # the night is ONE consistent snapshot.
+        git checkout -q --detach "$QUEUE_START_REF" 2>/dev/null \
+          || echo "⚠️  could not reset to the queue start ref ${QUEUE_START_REF} — issue #$n may branch from the previous item's tip" >&2
         "$0" "$n" --max-iterations "$MAX_ITER" --worker-id "$WORKER_ID" || queue_rc=$?
       fi
       PROCESSED="${PROCESSED}${n} "
+      # Housekeeping (consumer-review nit): the ephemeral integration base
+      # served its purpose once the child branched from it — its commits
+      # stay reachable from the child's branch.
+      if [ -n "$pr_base" ]; then
+        git branch -q -D "queue-integration/${n}" 2>/dev/null || true
+      fi
       progress=1
       break   # re-evaluate eligibility (fresh snapshot) after every item
     done
@@ -199,10 +276,23 @@ if [ -z "$ISSUE_NUM" ]; then
         echo "⚠️  DEPENDENCY CYCLE: #$n ↔ #$d — neither can run; fix the Depends-on sections." >&2
       fi
     done
+    case "$CONFLICTED" in
+      *" $n "*)
+        echo "⏭  Issue #$n skipped — dep branches CONFLICT on the integration base (siblings diverged; reconcile before this issue can run)"
+        ralph_log_event "warn" "ralph.queue.skipped" \
+          "{\"issue\":${n},\"blocked_on\":[${blocked_on:-}],\"mode\":\"${QUEUE_MODE_NAME}\",\"reason\":\"dep-branches-conflict\"}"
+        continue ;;
+    esac
     echo "⏭  Issue #$n skipped — waiting on: #${blocked_on:-?} (mode: ${QUEUE_MODE_NAME})"
     ralph_log_event "warn" "ralph.queue.skipped" \
       "{\"issue\":${n},\"blocked_on\":[${blocked_on:-}],\"mode\":\"${QUEUE_MODE_NAME}\"}"
   done
+  # FOLLOW-UP 46b: terminal queue event — the --queue watcher exits on it
+  # (a CHILD's session.ended is not terminal for the night).
+  PROCESSED_COUNT=$(echo "$PROCESSED" | wc -w | tr -d ' ')
+  TOTAL_COUNT=$(printf '%s\n' "$READY_NUMS" | grep -c .)
+  ralph_log_event "info" "ralph.queue.completed" \
+    "{\"processed\":${PROCESSED_COUNT},\"skipped\":$((TOTAL_COUNT - PROCESSED_COUNT)),\"rc\":${queue_rc},\"mode\":\"${QUEUE_MODE_NAME}\"}"
   exit "$queue_rc"
 fi
 
@@ -212,9 +302,10 @@ fi
 # One combined fetch: labels (the contract) + title (slug + PR title,
 # FOLLOW-UP 36) — the engine used to hit the API twice for one issue.
 # ──────────────────────────────────────────────────────────────────────
-ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title 2>/dev/null || true)
+ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title,body 2>/dev/null || true)
 LABELS=$(printf '%s' "$ISSUE_JSON" | jq -r '.labels[].name' 2>/dev/null || true)
 ISSUE_TITLE=$(printf '%s' "$ISSUE_JSON" | jq -r '.title // empty' 2>/dev/null || true)
+ISSUE_BODY=$(printf '%s' "$ISSUE_JSON" | jq -r '.body // empty' 2>/dev/null || true)
 
 if [ -z "$LABELS" ]; then
   echo "❌ Issue #$ISSUE_NUM does not exist or gh CLI is not authenticated" >&2
@@ -248,6 +339,34 @@ BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 if [ -n "$SCENARIOS" ] && [ -z "$(ralph_expand_scns "$SCENARIOS")" ]; then
   echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6). Fix the label and relaunch." >&2
   exit 1
+fi
+
+# FOLLOW-UP 49 backstop: the GATE runs what the LABEL says, but scope
+# amendments are written to the BODY (the FU-17 channel) — live, four
+# security scenarios were implemented from a body amendment and shipped
+# WITHOUT ever passing acceptance because the scenarios label was never
+# rotated (the budget label was — a half-rotation, proving the contract
+# was missing, not skipped once). If the body's scenario sections own
+# scns the label doesn't, abort BEFORE iteration 1, pre-spend.
+# Two capture shapes (the consumer review caught the second): the canonical
+# heading sections, AND the legacy blockquote/bold inline form the live
+# incident actually used (`> **Scope amendment (date):** … scn-067..070`),
+# which closes on a blank line or the next heading.
+BODY_SCNS=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' \
+  | awk '{ low = tolower($0) }
+      low ~ /^#+[ \t]+(scenarios covered|scope amendment)/ { mode = "h"; next }
+      low ~ /^>?[ \t]*\**scope amendment/ { mode = "b"; print; next }
+      /^#/ { mode = "" }
+      mode == "b" && /^[ \t]*$/ { mode = "" }
+      mode != "" { print }' \
+  | grep -oE 'scn-[0-9]+' | sort -u || true)
+if [ -n "$BODY_SCNS" ]; then
+  LABEL_SCNS_SORTED=$(ralph_expand_scns "$SCENARIOS" | tr ' ' '\n' | grep . | sort -u || true)
+  UNGATED=$(comm -23 <(printf '%s\n' "$BODY_SCNS") <(printf '%s\n' "$LABEL_SCNS_SORTED") | tr '\n' ' ')
+  if [ -n "${UNGATED// /}" ]; then
+    echo "❌ Issue #$ISSUE_NUM: the body's scenario sections own ${UNGATED}but the scenarios label only covers '${SCENARIOS}' — those scenarios would ship UNGATED. Rotate the label (gh issue edit --remove-label 'scenarios:<old>' --add-label 'scenarios:<new>') or fix the body, then relaunch." >&2
+    exit 1
+  fi
 fi
 
 # ──────────────────────────────────────────────────────────────────────
@@ -533,7 +652,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     # merges FIRST and with a MERGE COMMIT (squash breaks stacked diffs).
     STACK_NOTE=""
     if [ -n "$BASE_REF" ]; then
-      STACK_NOTE="> 🔗 **STACKED PR (slice-group chain, §123 Night Shift exception):** based on \`$BASE_REF\` — merge that PR first, and use a **merge commit** (squash breaks the stacked diffs). If the base changes after review, refresh this branch with \`git merge $BASE_REF\` and re-gate."
+      STACK_NOTE="> 🔗 **STACKED PR (slice-group chain, §123 Night Shift exception):** based on \`${PR_BASE_REF:-$BASE_REF}\` — merge that PR first, and use a **merge commit** (squash breaks the stacked diffs). If the base changes after review, refresh this branch with \`git merge ${PR_BASE_REF:-$BASE_REF}\` and re-gate.${PR_BASE_REF:+ Built on an ephemeral multi-dep integration base — the diff shows sibling code until the merge train advances.}"
     fi
 
     PR_BODY=$(cat <<EOF
@@ -579,8 +698,9 @@ EOF
     fi
     ralph_git_action "push" "success" "git push -u origin $BRANCH"
 
+    PR_TARGET="${PR_BASE_REF:-$BASE_REF}"
     PR_BASE_ARGS=()
-    [ -n "$BASE_REF" ] && PR_BASE_ARGS=(--base "$BASE_REF")
+    [ -n "$PR_TARGET" ] && PR_BASE_ARGS=(--base "$PR_TARGET")
     if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       # FOLLOW-UP 41: provision ralph-done just-in-time (mirror of the block

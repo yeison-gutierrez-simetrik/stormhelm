@@ -227,8 +227,16 @@ ralph_scenario_failed() {
 # CRLF-safe (gh bodies carry \r). Output: unique, ASC, one per line.
 # ──────────────────────────────────────────────────────────────────────
 ralph_deps_from_body() {
+  # Same two shapes as the FU-49 scenario matcher (the consumer review found
+  # the gap LIVE: a "Dependency amendment" written as a blockquote never
+  # entered the dep graph — which fed the FU-48 incomplete-base incident).
   tr -d '\r' \
-    | awk '/^##[[:space:]]+Depends on/{f=1; next} /^#/{f=0} f' \
+    | awk '{ low = tolower($0) }
+        low ~ /^##[ \t]+depends on/ { mode = "h"; next }
+        low ~ /^>?[ \t]*\**(dependency|scope) amendment/ { mode = "b"; print; next }
+        /^#[^0-9]/ { mode = "" }
+        mode == "b" && /^[ \t]*$/ { mode = "" }
+        mode != "" { print }' \
     | grep -oE '#[0-9]+' | tr -d '#' | sort -un
 }
 

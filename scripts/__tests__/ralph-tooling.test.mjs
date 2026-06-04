@@ -282,3 +282,43 @@ test('FU-45: every shipped hook runs (rc=0) inside a type:module consumer', () =
       'a .js hook would silently die under type:module');
   });
 });
+
+// ── FOLLOW-UP 46b: --queue mode follows the whole night ───────────────────────
+
+function replayQueue(dir, lines, env = {}) {
+  const log = join(dir, 'queue.log');
+  writeFileSync(log, lines.join('\n') + '\n');
+  const r = spawnSync('bash', [WATCH, '--queue', dir], {
+    cwd: dir, encoding: 'utf8',
+    env: { ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`, RALPH_WATCH_REPLAY: log, ...env },
+  });
+  return { status: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+test('watch --queue: surfaces queue.skipped reasons and exits on queue.completed', () => {
+  withDir((dir) => {
+    const { status, out } = replayQueue(dir, [
+      evt('ralph.queue.skipped', { issue: 29, blocked_on: [27], mode: 'merged-deps' }),
+      evt('ralph.queue.skipped', { issue: 30, blocked_on: [27, 29], mode: 'merged-deps' }),
+      evt('ralph.queue.completed', { processed: 1, skipped: 2, rc: 0, mode: 'merged-deps' }),
+    ]);
+    assert.equal(status, 0, out);
+    assert.match(out, /#29 skipped — blocked on #27/, 'skip events surfaced — nobody read them before');
+    assert.match(out, /#30 skipped — blocked on #27, #29/);
+    assert.match(out, /queue COMPLETED — 1 processed, 2 skipped, rc 0/);
+  });
+});
+
+test('watch --queue: a CHILD session.ended is informational, never terminal for the night', () => {
+  withDir((dir) => {
+    const { out } = replayQueue(dir, [
+      evt('ralph.session.started'),
+      evt('ralph.session.ended', { status: 'completed' }),     // a child finishing…
+      evt('ralph.queue.skipped', { issue: 9, blocked_on: [8], mode: 'merged-deps' }),  // …must not stop the watch
+      evt('ralph.queue.completed', { processed: 1, skipped: 1, rc: 0, mode: 'merged-deps' }),
+    ]);
+    assert.match(out, /session COMPLETED/, 'the child end is still notified');
+    assert.match(out, /#9 skipped/, 'processing CONTINUED past the child terminal');
+    assert.match(out, /queue COMPLETED/, 'the night ends on queue.completed');
+  });
+});

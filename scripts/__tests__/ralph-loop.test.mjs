@@ -36,6 +36,11 @@ function setupConsumer() {
   copyFileSync(join(TEMPLATES, 'ralph-blocked-comment.md.tmpl'), join(dir, 'ralph-blocked-comment.md.tmpl'));
   copyFileSync(join(TEMPLATES, 'ralph-local.sh.tmpl'), join(dir, 'ralph-local.sh'));
   chmodSync(join(dir, 'ralph-local.sh'), 0o755); // queue mode self-invokes "$0"
+  // Mirror a real consumer's .gitignore (/setup writes it): .planning/ is
+  // ephemeral. Without this, a mock tdd `git add -A` tracks the QUEUE LOG
+  // into a slice commit and the parent's still-appending log then blocks
+  // the FU-46a detach ('local changes would be overwritten').
+  writeFileSync(join(dir, '.gitignore'), '.planning/\n.mock-*\n.worktrees/\n');
   mkdirSync(join(dir, '.planning', 'ralph-sessions'), { recursive: true });
   const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
   git('init', '-q');
@@ -903,5 +908,184 @@ test('FU-43: independent issues run ASC by number (the DESC footgun is dead)', (
     });
     const i1 = out.indexOf('Issue #1'); const i2 = out.indexOf('Issue #2');
     assert.ok(i1 !== -1 && i2 !== -1 && i1 < i2, `oldest first, got order: #1@${i1} #2@${i2}`);
+  });
+});
+
+// ── FOLLOW-UP 46a: branch-base hygiene between independent queue items ────────
+
+// The live-risk: item A's child leaves HEAD on A's branch (shared worktree);
+// independent item B then branched from A's TIP — B's PR carried A's commits.
+// The queue now detaches back to the night's start ref before every
+// non-chained item.
+test('FU-46a: second independent queue item branches clean — zero commits of the first', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: JSON.stringify([{ number: 1, body: '' }, { number: 2, body: '' }]),
+      MOCK_ALL_JSON: '[]',
+      MOCK_TDD_COMMIT: '1',
+    });
+    assert.equal(status, 0, out);
+    assert.match(out, /════════ Issue #1 ════════/);
+    assert.match(out, /════════ Issue #2 ════════/);
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    const branches = git('branch', '--list', 'agent/*').stdout.trim().split('\n').map((b) => b.replace(/^[* ]+/, ''));
+    const b2 = branches.find((b) => b.endsWith('-2'));
+    assert.ok(b2, `branch for issue 2 exists, got: ${branches.join(', ')}`);
+    const log2 = git('log', '--oneline', b2).stdout;
+    assert.match(log2, /tdd work for issue 2/, 'issue 2 committed its own work');
+    assert.doesNotMatch(log2, /tdd work for issue 1/,
+      'issue 2\'s branch must NOT carry issue 1\'s commits (the drift bug)');
+  });
+});
+
+// ── FOLLOW-UP 46b: the queue emits a terminal completed event ─────────────────
+
+test('FU-46b: the queue log ends with ralph.queue.completed {processed, skipped}', () => {
+  withConsumer((dir) => {
+    runRalph(dir, [], {
+      MOCK_QUEUE_JSON: qJson([[1, null], [2, [1]]]),
+      MOCK_ALL_JSON: allJson([[1, 'OPEN'], [2, 'OPEN']]),
+    });
+    const done = queueLog(dir).find((e) => e.event === 'ralph.queue.completed');
+    assert.ok(done, 'terminal queue event present');
+    assert.equal(done.details.processed, 1);
+    assert.equal(done.details.skipped, 1);
+    assert.equal(done.details.mode, 'merged-deps');
+  });
+});
+
+// ── FOLLOW-UP 48: multi-dep chained base — integration, not first-wins ────────
+
+// Live: a 3-dep diamond chained on dep₁'s branch only, lacked the sibling
+// code, burned 118k tokens to ran-below-expected and converged byte-identical
+// BY LUCK. The queue now merges all delivered dep branches into an ephemeral
+// integration base; sibling divergence is a LOUD skip, never a half-base.
+const diamondRepo = (dir, conflicting) => {
+  const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+  // dep branches share the foundation (= initial commit) by construction:
+  git('checkout', '-qb', 'agent/feature-dep-2');
+  writeFileSync(join(dir, conflicting ? 'shared.txt' : 'dep2.txt'), 'from dep2\n');
+  git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'work of dep 2');
+  git('checkout', '-q', '-');
+  git('checkout', '-qb', 'agent/feature-dep-3');
+  writeFileSync(join(dir, conflicting ? 'shared.txt' : 'dep3.txt'), 'from dep3\n');
+  git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'work of dep 3');
+  git('checkout', '-q', '-');
+  return git;
+};
+const diamondEnv = {
+  MOCK_QUEUE_JSON: JSON.stringify([{ number: 4, body: '## Depends on\n- #2 (x)\n- #3 (y)\n' }]),
+  MOCK_ALL_JSON: JSON.stringify([
+    { number: 2, state: 'OPEN', labels: [{ name: 'ralph-done' }] },
+    { number: 3, state: 'OPEN', labels: [{ name: 'ralph-done' }] },
+    { number: 4, state: 'OPEN', labels: [] },
+  ]),
+  MOCK_PR_BRANCH_2: 'agent/feature-dep-2',
+  MOCK_PR_BRANCH_3: 'agent/feature-dep-3',
+  RALPH_QUEUE_CHAINED: '1',
+};
+
+test('FU-48: a 2-dep chained issue runs on an integration base carrying BOTH deps\' commits', () => {
+  withConsumer((dir) => {
+    const git = diamondRepo(dir, false);
+    const { status, out } = runRalph(dir, [], diamondEnv);
+    assert.equal(status, 0, out);
+    assert.match(out, /Issue #4 \(chained on queue-integration\/4\)/, 'ephemeral integration base used');
+    const b4 = git('branch', '--list', 'agent/*-4').stdout.trim().replace(/^[* ]+/, '');
+    assert.ok(b4, 'issue 4 branch exists');
+    const log4 = git('log', '--oneline', b4).stdout;
+    assert.match(log4, /work of dep 2/, 'dep₁ code present');
+    assert.match(log4, /work of dep 3/, 'dep₂ code present — the live gap');
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-dep-2/, 'PR targets the chain anchor, never the local integration branch');
+  });
+});
+
+test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, clean exit', () => {
+  withConsumer((dir) => {
+    diamondRepo(dir, true);   // both deps touch shared.txt → merge conflict
+    const { out } = runRalph(dir, [], diamondEnv);
+    assert.doesNotMatch(out, /════════ Issue #4/, 'never built on one side of a divergence');
+    assert.match(out, /dep branches CONFLICT|dep branches diverge/);
+    const skip = queueLog(dir).find((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.equal(skip?.details?.reason, 'dep-branches-conflict');
+  });
+});
+
+// ── FOLLOW-UP 49: label ↔ body scenario-set backstop ──────────────────────────
+
+// Live: a body amendment added scn-067..070; the budget label rotated but the
+// scenarios label didn't — the gate ran 8/8 "green" while four SECURITY
+// scenarios shipped ungated on a require-human-review slice. The engine now
+// refuses to start when the body owns scenarios the label doesn't.
+test('FU-49: body scenarios ⊃ label → abort pre-iteration naming the ungated scns', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Scenarios covered\n- scn-001\n\n## Scope amendment\nThis issue also owns scn-067 and scn-068.\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k',
+    });
+    assert.notEqual(status, 0);
+    assert.match(out, /scn-067 scn-068.*ship UNGATED|own scn-067/s, out);
+    assert.match(out, /Rotate the label/, 'actionable: the exact gh command');
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0, 'pre-spend');
+  });
+});
+
+test('FU-49: label == body scenario set → runs normally', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Scenarios covered\n- scn-001\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k',
+    });
+    assert.equal(status, 0);
+  });
+});
+
+test('FU-49: body without scenario sections → label is authoritative (pinned)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: 'Some prose mentioning scn-999 outside any scenario section.\n## Depends on\nNone (foundation)\n',
+    });
+    assert.equal(status, 0, 'prose mentions outside the sections must not trip the gate');
+  });
+});
+
+// ── FU-49 round-2 (consumer review): the LIVE amendment shape, verbatim ───────
+
+// The live amendment was a BLOCKQUOTE inside ## Plan — not a heading. The
+// first backstop only matched headings, so the exact incident that motivated
+// FU-49 would have passed it silently (reproduced by the consumer against
+// belong #29's real body). Pinned verbatim, including the scn range form.
+test('FU-49: the live blockquote amendment shape aborts (belong #29 verbatim)', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_BODY: '## Plan\n\nSome plan text.\n\n> **Scope amendment (2026-06-04):** this issue also owns the idempotency-replay hardening scenarios **scn-067..070** (encrypted-store TTL, key rotation, replay rate-limit, audit invariant). Budget bumped to `budget:250k`.\n\nMore plan text.\n',
+      MOCK_LABELS: 'ralph-ready\nscenarios:scn-047+048\nbudget:250k',
+    });
+    assert.notEqual(status, 0, 'the live shape must abort — it passed the heading-only matcher');
+    assert.match(out, /scn-067/, 'range endpoints extracted, enough to abort');
+    assert.match(out, /Rotate the label/);
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
+  });
+});
+
+// Dependency amendments had the SAME blind spot (belong #31's blockquote
+// never entered the dep graph → fed the FU-48 incomplete-base incident).
+test('FU-49: deps_from_body reads blockquote dependency amendments', () => {
+  const r = spawnSync('bash', ['-c', [
+    `source "${join(TEMPLATES, 'ralph-lib.sh')}"`,
+    `printf '%s\\n' '## Depends on' '- #2 (foundation)' '' '## Plan' '' '> **Dependency amendment (2026-06-04):** this issue ALSO depends on #3 (replay service).' '' 'prose mentioning #99 outside any section' | ralph_deps_from_body`,
+  ].join('\n')], { encoding: 'utf8' });
+  assert.equal(r.stdout.trim().split('\n').join(','), '2,3', `amendment dep joined the graph, prose #99 did not: got '${r.stdout.trim()}'`);
+});
+
+// Consumer-review nit: the ephemeral integration branch is cleaned up after a
+// successful chained run (its commits stay reachable from the child branch).
+test('FU-48: queue-integration/<n> branch is deleted after the child run', () => {
+  withConsumer((dir) => {
+    const git = diamondRepo(dir, false);
+    const { status } = runRalph(dir, [], diamondEnv);
+    assert.equal(status, 0);
+    assert.equal(git('branch', '--list', 'queue-integration/4').stdout.trim(), '', 'ephemeral base cleaned up');
   });
 });
