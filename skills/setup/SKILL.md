@@ -414,6 +414,25 @@ exclusions effective whichever analysis mode the consumer runs — including a
 later switch between modes. Re-run the same command after every re-sync that
 changes capabilities or `VENDORED_EXCLUSIONS`.
 
+**Sonar left-shift (FOLLOW-UP 47a).** Automatic Analysis posts its findings
+on the PR minutes AFTER Ralph's session ends — nothing in the loop can react
+to them. Give the local lint rule-parity so those classes fail inside `/tdd`
+instead:
+
+```bash
+pnpm add -D eslint-plugin-sonarjs
+# eslint config (flat): import sonarjs from 'eslint-plugin-sonarjs';
+#   …config…, sonarjs.configs.recommended
+```
+
+The three classes seen live (duplicated `case` blocks, nested ternaries,
+missing optional chains) are all covered by the plugin's recommended set.
+Post-PR findings that still appear are owned by HUMAN CHECKPOINT 2 (see
+`core/13`). **Coverage note:** under Automatic Analysis the
+"Coverage on New Code" tile reads 0.0% on every PR (no CI test run → no
+lcov) and the gate passes anyway — reviewers ignore that tile, or switch to
+CI-scanner mode with `sonar.javascript.lcov.reportPaths`.
+
 ### `ralph-local.sh`
 
 Delivered to the **project root** alongside its engine `ralph-lib.sh` and `ralph-blocked-comment.md.tmpl` (the copy step above) — all three must stay co-located; `ralph-local.sh` sources the lib and renders the template by `SCRIPT_DIR`. The wizard tailors the test-command block to the stack. For TypeScript + Hono + Drizzle + Zod, the script includes:

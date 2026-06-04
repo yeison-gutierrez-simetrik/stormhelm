@@ -319,6 +319,31 @@ Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
 
 The script is zero-deps, uses `gh` + `git` already required by the framework, and never touches state — pure read + assert. Skipping it is a §1 violation (proportionality: the cost is ~5 seconds; the consequence of skipping has been a half-day recovery in real use).
 
+### Post-PR analysis findings are owned by HUMAN CHECKPOINT 2 (FOLLOW-UP 47)
+
+Server-side analyzers (SonarCloud Automatic Analysis and kin) post their
+findings on the PR **minutes after Ralph's session has ended** — no engine
+step, gate or skill reads them, and a passing Quality Gate raises no flag.
+Without an owner those findings are orphaned by design (live: 7 findings
+across one slice-group's PRs, two of them duplicated across sibling
+branches). The contract:
+
+- **Reviewing and dispositioning post-PR analyzer findings is part of HUMAN
+  CHECKPOINT 2** — the human merger addresses, defers-with-comment, or
+  dismisses each finding before merging; an unreviewed analyzer comment is
+  an unfinished checkpoint.
+- **Left-shift what you can:** `/setup` adds `eslint-plugin-sonarjs` to the
+  consumer's lint config so the recurrent S-rule classes fail locally inside
+  `/tdd` — the loop that CAN iterate — instead of post-PR where nobody does.
+- **Coverage-on-new-code under Automatic Analysis reads 0.0% on every PR**
+  (no CI test run → no lcov) and the gate passes anyway: reviewers must
+  ignore that tile, or the consumer must switch to CI-scanner mode with
+  `sonar.javascript.lcov.reportPaths` for real coverage numbers.
+- A bounded post-PR feedback loop (poll checks N minutes after `pr create`,
+  re-add `ralph-ready` on new findings) is a recorded, deliberately
+  DEFERRED design — it costs wall-clock at the end of every green run;
+  build it when checkpoint-2 discipline proves insufficient, not before.
+
 ---
 
 ## §123. Cumulative vs stacked PRs (branch convention)
