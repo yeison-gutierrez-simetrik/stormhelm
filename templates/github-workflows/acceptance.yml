@@ -4,9 +4,23 @@
 # TypeScript + pnpm; for Python swap the setup/test steps (uv + pytest/behave —
 # /setup tailors it to the active capability stack).
 #
+# ── CONSUMER PREREQUISITES (FOLLOW-UP 44 — all three broke the first live
+# ── adoption; /setup adds the two package.json entries when missing):
+#   1. package.json MUST carry a `packageManager` field (e.g.
+#      "packageManager": "pnpm@9.15.0") — pnpm/action-setup@v4 hard-fails
+#      without it ("No pnpm version is specified").
+#   2. package.json MUST define a `test:acceptance` script that OWNS the tag
+#      scoping, e.g. "test:acceptance": "cucumber-js --tags @release".
+#   3. This workflow invokes the script PLAINLY (`pnpm test:acceptance`) —
+#      never `pnpm script -- --tags x`: npm strips the `--`, but pnpm passes
+#      it through LITERALLY and cucumber reads it as a feature path
+#      (ENOENT: open '…/@release'). The script owning the tags works under
+#      both package managers.
+#
 # §60's three promises, each mapped to an artifact (FOLLOW-UP 42):
 #   @smoke on every push      → the pre-push hook /setup installs
-#   @release in CI pre-merge  → THIS workflow
+#   @release in CI pre-merge  → THIS workflow (via the test:acceptance script,
+#                               which carries the `--tags @release` scoping)
 #   untagged scenarios fail   → the BDD runner's strict mode in this job
 #
 # External-sandbox specs (Stripe sandbox, etc.) are gated by SECRET PRESENCE:
@@ -48,4 +62,6 @@ jobs:
           # self-skip visibly (never fail, never silently pass).
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-        run: pnpm test:acceptance -- --tags @release
+        # Plain invocation — the test:acceptance script owns `--tags @release`
+        # (prerequisites 2/3 above; `-- --tags` breaks under pnpm).
+        run: pnpm test:acceptance

@@ -240,7 +240,19 @@ test('isolated: --resume refuses with no worktree, then reuses the kept one (no 
 test('FU-42: acceptance.yml template exists and maps §60\'s three promises', () => {
   const yml = readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8');
   assert.match(yml, /on:\s*\n\s*pull_request:/, 'runs on every PR (pre-merge)');
-  assert.match(yml, /--tags @release/, '@release acceptance step present');
+  assert.match(yml, /--tags @release/, '@release scoping documented (the script owns it)');
   assert.match(yml, /secrets\./, 'sandbox specs gated by secret presence');
   assert.match(yml, /ubuntu-latest/, 'testcontainers-capable runner');
+});
+
+// FOLLOW-UP 44: the three first-adoption assumptions, pinned. The live failure
+// chain: no packageManager → action-setup dies; no test:acceptance script →
+// unknown command; `pnpm script -- --tags x` → pnpm passes the literal `--`
+// through and cucumber ENOENTs on '@release' as a feature path.
+test('FU-44: workflow invokes the script PLAINLY and documents both prerequisites', () => {
+  const yml = readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8');
+  assert.doesNotMatch(yml, /test:acceptance -- --tags/, 'the pnpm `--` passthrough trap must never return');
+  assert.match(yml, /run: pnpm test:acceptance\s*$/m, 'plain invocation — the script owns the tags');
+  assert.match(yml, /packageManager/, 'prerequisite 1 documented in the header');
+  assert.match(yml, /test:acceptance.*script|script.*test:acceptance/i, 'prerequisite 2 documented');
 });
