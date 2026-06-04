@@ -348,6 +348,52 @@ test('FU-29: push failure → blocked with reason git-push-failed, no PR', () =>
   });
 });
 
+// ── FOLLOW-UP 27: VERDICT line beats emoji headers in severity parsing ────────
+
+const severity = (text) => spawnSync('bash', ['-c',
+  `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_reviewer_severity "$1"`, '_', text,
+], { encoding: 'utf8' }).stdout.trim();
+
+// The reviewer's structured report ALWAYS carries emoji section headers —
+// a clean report contains "## 🛑 Blocking findings (0)" — which the old
+// emoji grep classified as blocking (live false-blocking → wasted retry).
+const CLEAN_REPORT = `# Code review — slice
+## 🛑 Blocking findings (0)
+## ⚠️ Should fix (0)
+## 💡 Suggestions (0)
+| 🛑 Blocking | 0 |
+**Recommendation:** approve as-is
+VERDICT: CLEAN`;
+
+test('FU-27: clean report with emoji headers + VERDICT: CLEAN → clean', () => {
+  assert.equal(severity(CLEAN_REPORT), 'clean');
+});
+
+test('FU-27: VERDICT wins over emojis, last occurrence, markdown/case tolerated', () => {
+  assert.equal(severity('🛑 stuff\n**VERDICT: BLOCKING**'), 'blocking');
+  assert.equal(severity('mentions VERDICT: CLEAN early\n…later real one:\nverdict: should-fix'), 'should-fix');
+  assert.equal(severity('## 💡 Suggestions (2)\nVERDICT: SUGGESTION'), 'suggestion');
+});
+
+test('FU-27: legacy outputs without VERDICT keep the emoji fallback', () => {
+  assert.equal(severity('🛑 §27 Authorization missing'), 'blocking');
+  assert.equal(severity('💡 minor: extract a helper'), 'suggestion');
+  assert.equal(severity('all good, nothing to report'), 'clean');
+});
+
+// Loop-level: a clean-with-emoji-headers report must take the PR path (no retry).
+test('FU-27: loop takes the PR path on a clean report with emoji headers', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_REVIEW: CLEAN_REPORT });
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.reviewer.retry'), 'no false-blocking retry');
+    const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
+    assert.equal(findings?.details?.severity, 'clean');
+  });
+});
+
 // ── Review adjustment 1: @manual scenarios in the result contract (§60) ───────
 
 // A scenarios{} entry of "manual" is a §60 exclusion, not a failure — it must

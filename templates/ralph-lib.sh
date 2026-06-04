@@ -469,15 +469,19 @@ ralph_json_string() {
 # reviewer_severity <reviewer_output_text>
 #
 # Classify the reviewer agent's output into one of:
-#   blocking    — has any 🛑 marker or "BLOCKED:" line → must retry /tdd
-#   should-fix  — has any ⚠️ marker or "SHOULD FIX:" line → embed in PR, human decides
-#   suggestion  — only 💡 markers — proceed to PR
-#   clean       — no findings at all
+#   blocking | should-fix | suggestion | clean
 #
-# Conventions match the reviewer agent (agents/reviewer.md):
-# - 🛑 / "BLOCKED:" → blocking finding (must fix before merge)
-# - ⚠️ / "SHOULD FIX:" → significant but not blocking
-# - 💡 / "SUGGESTION:" → suggestion / nit
+# PRIMARY signal (FOLLOW-UP 27): the terminal "VERDICT: <CLEAN|SUGGESTION|
+# SHOULD-FIX|BLOCKING>" line that agents/reviewer.md mandates and the
+# loop's prompt demands. Last occurrence wins, case-insensitive, markdown
+# (**bold**) tolerated. This exists because the structured report ALWAYS
+# contains emoji section headers — "## 🛑 Blocking findings (0)" — so the
+# old emoji grep classified a CLEAN report as blocking (live: a false
+# blocking triggered a wasted retry on a diff a §114 re-audit scored 0/0).
+#
+# FALLBACK (legacy outputs without a VERDICT line): the emoji/keyword grep.
+# - 🛑 / "BLOCKED:" → blocking; ⚠️ / "SHOULD FIX:" → should-fix;
+# - 💡 / "SUGGESTION:" → suggestion; none → clean.
 # ──────────────────────────────────────────────────────────────────────
 ralph_reviewer_severity() {
   local output="${1:-}"
@@ -485,6 +489,16 @@ ralph_reviewer_severity() {
     echo "clean"
     return 0
   fi
+  local verdict
+  verdict=$(printf '%s\n' "$output" \
+    | grep -iEo 'VERDICT[^A-Za-z]*(CLEAN|SUGGESTION|SHOULD-FIX|BLOCKING)' \
+    | tail -1 \
+    | grep -iEo '(CLEAN|SUGGESTION|SHOULD-FIX|BLOCKING)$' \
+    | tr '[:upper:]' '[:lower:]')
+  case "$verdict" in
+    clean|suggestion|should-fix|blocking) echo "$verdict"; return 0 ;;
+  esac
+  # Legacy fallback — pre-VERDICT outputs only.
   if echo "$output" | grep -qE "🛑|^BLOCKED:|^\s*BLOCKING:"; then
     echo "blocking"
   elif echo "$output" | grep -qE "⚠️|^SHOULD FIX:|^\s*WARNING:"; then

@@ -307,7 +307,7 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "🧐 Invoking reviewer agent on the diff..."
     ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
 
-    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity." 2>&1 || true)
+    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity. MANDATORY: end your report with the literal line 'VERDICT: CLEAN' or 'VERDICT: SUGGESTION' or 'VERDICT: SHOULD-FIX' or 'VERDICT: BLOCKING' — automation parses that exact line." 2>&1 || true)
     check_budget_or_block "code-review"
     REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"

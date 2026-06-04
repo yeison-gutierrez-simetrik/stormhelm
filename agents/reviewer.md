@@ -164,7 +164,17 @@ Report format (always):
 | ✅ Compliant categories | N |
 
 **Recommendation:** [`do not merge` / `merge after blocking resolved` / `merge after author addresses Should fix` / `approve as-is`]
+
+VERDICT: [CLEAN | SUGGESTION | SHOULD-FIX | BLOCKING]
 ```
+
+**The terminal `VERDICT:` line is MANDATORY and machine-parsed** (the Ralph
+loop's `ralph_reviewer_severity` reads it — automation must never have to
+infer the verdict from the report's prose or emoji headers, which appear in
+EVERY report including a clean one: `## 🛑 Blocking findings (0)` classified
+as blocking before this line existed). Exactly one of the four literals,
+matching the highest-severity finding present: no findings → `CLEAN`; only
+💡 → `SUGGESTION`; any ⚠️ (no 🛑) → `SHOULD-FIX`; any 🛑 → `BLOCKING`.
 
 The "What the author got right" section is mandatory and not decorative. It calibrates trust: the author sees that the review noticed real strengths, which makes the criticisms harder to dismiss.
 
