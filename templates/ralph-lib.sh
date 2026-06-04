@@ -661,12 +661,18 @@ ralph_extract_tokens_from_output() {
 # add_tokens <delta>
 #
 # Increment RALPH_TOKENS_CUMULATIVE by <delta>. No-op if delta is 0
-# or non-numeric.
+# or non-numeric. Also stages the pending NDJSON delta: calls invoked
+# WITHOUT command substitution run in the PARENT shell, where this is
+# the only delta source — sync_tokens' "ledger > cumulative" condition
+# never fires for them because this very function already advanced the
+# cumulative. (Regression caught by T16 when FU-33 removed the last
+# subshell call: every tokensConsumedDelta read 0.)
 # ──────────────────────────────────────────────────────────────────────
 ralph_add_tokens() {
   local delta="${1:-0}"
   if [[ "$delta" =~ ^[0-9]+$ ]] && [ "$delta" -gt 0 ]; then
     RALPH_TOKENS_CUMULATIVE=$(( RALPH_TOKENS_CUMULATIVE + delta ))
+    RALPH_TOKENS_DELTA=$(( ${RALPH_TOKENS_DELTA:-0} + delta ))
   fi
 }
 
@@ -686,7 +692,9 @@ ralph_sync_tokens() {
   local total
   total=$(awk '{ s += $1 } END { print s + 0 }' "$RALPH_TOKENS_FILE" 2>/dev/null || echo 0)
   if [[ "$total" =~ ^[0-9]+$ ]] && [ "$total" -gt "$RALPH_TOKENS_CUMULATIVE" ]; then
-    RALPH_TOKENS_DELTA=$(( total - RALPH_TOKENS_CUMULATIVE ))
+    # += (not =): a parent-shell call may have staged a pending delta via
+    # ralph_add_tokens; both sources accumulate until a log_event consumes.
+    RALPH_TOKENS_DELTA=$(( ${RALPH_TOKENS_DELTA:-0} + total - RALPH_TOKENS_CUMULATIVE ))
     RALPH_TOKENS_CUMULATIVE="$total"
   fi
   return 0

@@ -124,9 +124,11 @@ test('max-iterations exhausted: blocked (not budget_exceeded), no PR', () => {
 });
 
 // T5 — reviewer blocking on the last iteration → blocked, no PR (never ships a 🛑).
+// Post-FU-33 the verdict arrives via the result file's gates.reviewer (the
+// skill's Step 11 makes a 🛑 exit non-zero), not via a loop-run /code-review.
 test('reviewer blocking on last iteration: blocked, no PR opened', () => {
   withConsumer((dir) => {
-    const { out } = runRalph(dir, ['1', '1'], { MOCK_REVIEW: '🛑 §27 Authorization missing before domain action.' });
+    const { out } = runRalph(dir, ['1', '1'], { MOCK_ACCEPT_REVIEWER: 'blocking' });
     const ev = names(readEvents(dir, 1));
     assert.ok(ev.includes('ralph.issue.blocked'));
     assert.ok(!ev.includes('ralph.pr.opened'), 'a blocking finding must never ship a PR');
@@ -136,7 +138,7 @@ test('reviewer blocking on last iteration: blocked, no PR opened', () => {
 // T6 — reviewer blocking with budget left → an extra /tdd iteration (§66).
 test('reviewer blocking with iterations left: retries (≥2 iterations started)', () => {
   withConsumer((dir) => {
-    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 still blocking' });
+    runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'blocking' });
     const starts = names(readEvents(dir, 1)).filter((e) => e === 'ralph.iteration.started').length;
     assert.ok(starts >= 2, `expected a retry iteration on blocking, got ${starts}`);
   });
@@ -381,32 +383,80 @@ test('FU-27: legacy outputs without VERDICT keep the emoji fallback', () => {
   assert.equal(severity('all good, nothing to report'), 'clean');
 });
 
-// Loop-level: a clean-with-emoji-headers report must take the PR path (no retry).
-test('FU-27: loop takes the PR path on a clean report with emoji headers', () => {
+// Loop-level (post-FU-33 this is the LEGACY FALLBACK path): a result file
+// without gates.reviewer → exactly one /code-review invocation, whose
+// clean-with-emoji-headers report must take the PR path (no retry).
+test('FU-27: fallback /code-review on a legacy result file — clean report → PR path', () => {
   withConsumer((dir) => {
-    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_REVIEW: CLEAN_REPORT });
+    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_NO_REVIEWER_GATE: '1', MOCK_REVIEW: CLEAN_REPORT });
     assert.equal(status, 0, out);
     assert.match(out, /pull\/9/);
     const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.reviewer.fallback_invocation'), 'fallback path taken');
     assert.ok(!names(ev).includes('ralph.reviewer.retry'), 'no false-blocking retry');
     const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
     assert.equal(findings?.details?.severity, 'clean');
+    assert.equal(findings?.details?.source, 'fallback-invocation');
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.equal((prompts.match(/\/code-review/g) || []).length, 1, 'exactly ONE fallback invocation');
   });
 });
 
-// ── FOLLOW-UP 26: blocking findings reach the retry via an issue comment ──────
+// ── FOLLOW-UP 26 (+33): blocking findings reach the next iteration via comment ─
 
-// T28 — before the blind-retry fix, findings lived only in shell memory: the
-// retry /tdd had no way to know what to fix and they were unrecoverable after
-// a crash. Now they land as an issue comment (FU-17's read-both channel).
-test('FU-26: blocking findings are posted as an issue comment before the retry', () => {
+// T28 — findings used to live only in shell memory. Post-FU-33 the blocking
+// verdict arrives on the FAILING path (skill Step 11: 🛑 ⇒ exit non-zero) and
+// the report file's content lands as the issue comment the next /tdd reads.
+test('FU-26: blocking findings are posted as an issue comment before the next iteration', () => {
   withConsumer((dir) => {
-    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
+    runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'blocking', MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
     const ev = readEvents(dir, 1);
-    assert.ok(names(ev).includes('ralph.reviewer.retry'), 'a retry happened');
+    const starts = names(ev).filter((e) => e === 'ralph.iteration.started').length;
+    assert.ok(starts >= 2, 'a follow-up iteration happened');
     const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
     assert.match(comments, /Reviewer findings \(iteration 1\)/, 'findings comment posted');
-    assert.match(comments, /§27 missing auth check/, 'the actual findings text is in the comment');
+    assert.match(comments, /§27 missing auth check/, 'the report FILE content is in the comment');
+  });
+});
+
+// ── FOLLOW-UP 33: the result file is the single reviewer channel ──────────────
+
+// T-33a — a normal green run NEVER invokes /code-review: severity comes from
+// gates.reviewer, the report from issue-<N>-reviewer.md (~15k tokens of
+// measured duplication removed).
+test('FU-33: green run → zero /code-review invocations, severity from the result file', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.doesNotMatch(prompts, /\/code-review/, 'the loop must not re-invoke the reviewer');
+    const ev = readEvents(dir, 1);
+    const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
+    assert.equal(findings?.details?.severity, 'clean');
+    assert.equal(findings?.details?.source, 'result-file');
+  });
+});
+
+// T-33b — the PR body embeds the report FILE's content (should-fix verdict).
+test('FU-33: PR body embeds the reviewer report from the file', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'should-fix', MOCK_REVIEW: '⚠️ §5 any type introduced\nVERDICT: SHOULD-FIX' });
+    assert.equal(status, 0);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /MOCK-REVIEWER-REPORT/, 'report file content embedded in the PR body');
+    assert.match(pr, /§5 any type introduced/);
+  });
+});
+
+// T-33c — contract-violation belt-and-braces: exit_code 0 BUT gates.reviewer
+// blocking → comment + retry (never a PR with a 🛑 embedded).
+test('FU-33: green result claiming blocking reviewer → retry, never a PR', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '1'], { MOCK_ACCEPT_REVIEWER: 'blocking', MOCK_GREEN_WITH_BLOCKING: '1' });
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.pr.opened'), 'no PR on a blocking verdict');
+    assert.ok(names(ev).includes('ralph.issue.blocked'), 'last-iteration blocking → blocked');
   });
 });
 

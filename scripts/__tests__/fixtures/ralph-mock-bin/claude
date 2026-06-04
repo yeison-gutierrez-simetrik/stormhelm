@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# Mock `claude` for the Ralph loop test. `claude -p "<prompt>"` — prompt is the last arg.
-#   MOCK_ACCEPT          legacy knob: anything other than "exit code: 0" → failing result
-#   MOCK_REVIEW          stdout for /code-review (default clean+suggestion; set "🛑 …" to force blocking)
-#   MOCK_FAIL_ISSUE      if set, /run-acceptance for that issue # writes a FAILING result file
-#   MOCK_NO_RESULT_FILE  if set, /run-acceptance does NOT write the result file (contract-violation path)
-#
-# Since FOLLOW-UP 14 the loop's green signal is the structured result file
-# (.planning/acceptance/issue-<N>-result.json), not prose — the mock honors
-# that contract; the prose lines remain only as transcript realism.
+# Mock `claude` for the Ralph loop test. `claude -p "<prompt>"` — prompt follows -p.
+#   MOCK_ACCEPT           legacy knob: anything other than "exit code: 0" → failing result
+#   MOCK_REVIEW           reviewer report text (written to the issue-<N>-reviewer.md file
+#                         by the acceptance branch; also stdout for /code-review fallback)
+#   MOCK_ACCEPT_REVIEWER  gates.reviewer severity the acceptance session reports
+#                         (default clean; "blocking" → exit_code 1 per the skill's Step 11)
+#   MOCK_GREEN_WITH_BLOCKING  contract-violation case: exit_code 0 + gates.reviewer blocking
+#   MOCK_NO_REVIEWER_GATE legacy contract: omit gates.reviewer + the reviewer file
+#   MOCK_FAIL_ISSUE       if set, /run-acceptance for that issue # writes a FAILING result file
+#   MOCK_NO_RESULT_FILE   if set, /run-acceptance does NOT write the result file
 #   MOCK_IN_TOKENS / MOCK_OUT_TOKENS  usage reported per call in JSON mode (default 1200/340)
+#
+# Every prompt is appended to .mock-claude-prompts so tests can assert WHAT the
+# loop asked for (FU-33: zero /code-review on green; FU-34: failure feedback).
+#
+# Since FOLLOW-UP 14 the loop's green signal is the structured result file; since
+# FOLLOW-UP 33 the reviewer verdict/report arrive via gates.reviewer + the
+# issue-<N>-reviewer.md file (the acceptance session's embedded Step-8 reviewer).
 json_mode=""
 prompt=""; prev=""
 for a in "$@"; do
@@ -16,6 +24,7 @@ for a in "$@"; do
   [ "$prev" = "-p" ] && prompt="$a"
   prev="$a"
 done
+printf '%s\n―――\n' "$prompt" >> .mock-claude-prompts
 # emit <text> — honors --output-format json with a result envelope + usage,
 # mirroring the real CLI (text mode carries no usage data at all).
 emit() {
@@ -32,14 +41,30 @@ if echo "$prompt" | grep -q "/run-acceptance"; then
   green=1
   if [ -n "${MOCK_FAIL_ISSUE:-}" ] && [ "$issue" = "${MOCK_FAIL_ISSUE}" ]; then green=0; fi
   if [ -n "${MOCK_ACCEPT:-}" ] && [ "${MOCK_ACCEPT}" != "exit code: 0" ]; then green=0; fi
+  reviewer="${MOCK_ACCEPT_REVIEWER:-clean}"
   if [ -z "${MOCK_NO_RESULT_FILE:-}" ]; then
     mkdir -p .planning/acceptance
-    if [ "$green" = "1" ]; then
-      printf '{ "issue": %s, "exit_code": 0, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "gates": { "smoke": "pass", "slice_scenarios": "pass" }, "failure_reason": null }\n' "$issue" \
-        > ".planning/acceptance/issue-${issue}-result.json"
+    # The embedded Step-8 reviewer report (always written, pass or fail),
+    # unless the legacy-contract knob is on.
+    if [ -z "${MOCK_NO_REVIEWER_GATE:-}" ]; then
+      printf 'MOCK-REVIEWER-REPORT\n%s\n' "${MOCK_REVIEW:-Reviewed diff. No findings. VERDICT: CLEAN}" \
+        > ".planning/acceptance/issue-${issue}-reviewer.md"
+      gates_extra=", \"reviewer\": \"${reviewer}\""
+      report_field=", \"reviewer_report\": \".planning/acceptance/issue-${issue}-reviewer.md\""
     else
-      printf '{ "issue": %s, "exit_code": 1, "scenarios": { "scn-001": "failed: step assertion" }, "ran": 1, "expected": 1, "gates": { "smoke": "fail" }, "failure_reason": "mock forced failure" }\n' "$issue" \
-        > ".planning/acceptance/issue-${issue}-result.json"
+      gates_extra=""
+      report_field=""
+    fi
+    if [ "$green" = "1" ] && [ "$reviewer" = "blocking" ] && [ -z "${MOCK_GREEN_WITH_BLOCKING:-}" ]; then
+      # Skill Step 11: a 🛑 reviewer verdict makes the gate exit non-zero.
+      printf '{ "issue": %s, "exit_code": 1, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "gates": { "smoke": "pass", "slice_scenarios": "pass"%s }%s, "failure_reason": "gates green but reviewer verdict BLOCKING" }\n' \
+        "$issue" "$gates_extra" "$report_field" > ".planning/acceptance/issue-${issue}-result.json"
+    elif [ "$green" = "1" ]; then
+      printf '{ "issue": %s, "exit_code": 0, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "gates": { "smoke": "pass", "slice_scenarios": "pass"%s }%s, "failure_reason": null }\n' \
+        "$issue" "$gates_extra" "$report_field" > ".planning/acceptance/issue-${issue}-result.json"
+    else
+      printf '{ "issue": %s, "exit_code": 1, "scenarios": { "scn-001": "failed: step assertion" }, "ran": 1, "expected": 1, "gates": { "smoke": "fail"%s }%s, "failure_reason": "mock forced failure" }\n' \
+        "$issue" "$gates_extra" "$report_field" > ".planning/acceptance/issue-${issue}-result.json"
     fi
   fi
   if [ "$green" = "1" ]; then emit "ran scenarios. all gates green"; else emit "ran scenarios. smoke gate failed"; fi
