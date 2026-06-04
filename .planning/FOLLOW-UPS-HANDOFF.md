@@ -464,7 +464,9 @@ On `scenarios:scn-021+022+023` only `scn-021` matches `scn-\d+` — the `+022` c
 
 **Fix (proposed).** A `scripts/scope-scenarios.mjs` (or similar) owning: label expansion (canonical + legacy forms), sibling-scoping (the `gh issue list` query + exclusion), this-slice selection + expected-count (incl. the `@manual` partition from #77). The skill snippets become one-line `node scripts/...` calls; fixtures pin the behavior; bash/JS copies shrink to consumers of one implementation. Wire into `/setup`'s copy list (per [[stormhelm-new-runtime-script-wire-setup]] class) and the validation `ls`.
 
-**Acceptance.** One executable implementation; Step 2/3 snippets invoke it; tests cover compact/spelled/comma + @manual + sibling truncation; `/setup` ships it.
+**Folded-in nit (round-2 review of #77, non-blocking).** #77's manual/auto partition greps `@manual` on the **same line** as `@scn-NNN`, but Gherkin allows stacked tag lines (`@scn-021` ↵ `@manual` ↵ `Scenario:`). There execution stays safe (the `and not @manual` conjunct excludes it) but the scn is still counted in `EXPECTED_COUNT` → `ran < expected` → **false FAIL**. Theoretical today (`/to-scenarios` emits single-line tags); the executable extraction here is the natural place to make the partition **tag-line-aware** (a scn's tag set = all `@tags` on the contiguous tag lines above its `Scenario:`), with a stacked-tags fixture.
+
+**Acceptance.** One executable implementation; Step 2/3 snippets invoke it; tests cover compact/spelled/comma + @manual (same-line AND stacked tag lines) + sibling truncation; `/setup` ships it.
 
 ## FOLLOW-UP 25 — no regression gates for two one-time fixes (English-only artifacts; result-file schema)  ·  **Severity: LOW**
 
