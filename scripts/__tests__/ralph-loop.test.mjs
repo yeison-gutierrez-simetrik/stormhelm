@@ -953,3 +953,61 @@ test('FU-46b: the queue log ends with ralph.queue.completed {processed, skipped}
     assert.equal(done.details.mode, 'merged-deps');
   });
 });
+
+// ── FOLLOW-UP 48: multi-dep chained base — integration, not first-wins ────────
+
+// Live: a 3-dep diamond chained on dep₁'s branch only, lacked the sibling
+// code, burned 118k tokens to ran-below-expected and converged byte-identical
+// BY LUCK. The queue now merges all delivered dep branches into an ephemeral
+// integration base; sibling divergence is a LOUD skip, never a half-base.
+const diamondRepo = (dir, conflicting) => {
+  const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+  // dep branches share the foundation (= initial commit) by construction:
+  git('checkout', '-qb', 'agent/feature-dep-2');
+  writeFileSync(join(dir, conflicting ? 'shared.txt' : 'dep2.txt'), 'from dep2\n');
+  git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'work of dep 2');
+  git('checkout', '-q', '-');
+  git('checkout', '-qb', 'agent/feature-dep-3');
+  writeFileSync(join(dir, conflicting ? 'shared.txt' : 'dep3.txt'), 'from dep3\n');
+  git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'work of dep 3');
+  git('checkout', '-q', '-');
+  return git;
+};
+const diamondEnv = {
+  MOCK_QUEUE_JSON: JSON.stringify([{ number: 4, body: '## Depends on\n- #2 (x)\n- #3 (y)\n' }]),
+  MOCK_ALL_JSON: JSON.stringify([
+    { number: 2, state: 'OPEN', labels: [{ name: 'ralph-done' }] },
+    { number: 3, state: 'OPEN', labels: [{ name: 'ralph-done' }] },
+    { number: 4, state: 'OPEN', labels: [] },
+  ]),
+  MOCK_PR_BRANCH_2: 'agent/feature-dep-2',
+  MOCK_PR_BRANCH_3: 'agent/feature-dep-3',
+  RALPH_QUEUE_CHAINED: '1',
+};
+
+test('FU-48: a 2-dep chained issue runs on an integration base carrying BOTH deps\' commits', () => {
+  withConsumer((dir) => {
+    const git = diamondRepo(dir, false);
+    const { status, out } = runRalph(dir, [], diamondEnv);
+    assert.equal(status, 0, out);
+    assert.match(out, /Issue #4 \(chained on queue-integration\/4\)/, 'ephemeral integration base used');
+    const b4 = git('branch', '--list', 'agent/*-4').stdout.trim().replace(/^[* ]+/, '');
+    assert.ok(b4, 'issue 4 branch exists');
+    const log4 = git('log', '--oneline', b4).stdout;
+    assert.match(log4, /work of dep 2/, 'dep₁ code present');
+    assert.match(log4, /work of dep 3/, 'dep₂ code present — the live gap');
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-dep-2/, 'PR targets the chain anchor, never the local integration branch');
+  });
+});
+
+test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, clean exit', () => {
+  withConsumer((dir) => {
+    diamondRepo(dir, true);   // both deps touch shared.txt → merge conflict
+    const { out } = runRalph(dir, [], diamondEnv);
+    assert.doesNotMatch(out, /════════ Issue #4/, 'never built on one side of a divergence');
+    assert.match(out, /dep branches CONFLICT|dep branches diverge/);
+    const skip = queueLog(dir).find((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.equal(skip?.details?.reason, 'dep-branches-conflict');
+  });
+});

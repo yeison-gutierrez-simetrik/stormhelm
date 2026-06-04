@@ -36,7 +36,13 @@ budget:50k}"
   "pr list")
     # Pre-formatted rows (the real call uses --jq); empty by default so the
     # watcher's empty-list path (FOLLOW-UP 32 lesson 3) is exercised.
-    if [ -n "${MOCK_PR_LIST:-}" ]; then printf '%s\n' "$MOCK_PR_LIST"; fi ;;
+    # FOLLOW-UP 48: per-dep branch discovery — when the --jq carries a
+    # "Closes #N" filter and MOCK_PR_BRANCH_<N> is set, answer per dep
+    # (a multi-dep chain needs DIFFERENT branches per dependency).
+    dep=$(printf '%s\n' "$@" | grep -oE 'Closes #[0-9]+' | grep -oE '[0-9]+' | head -1)
+    if [ -n "$dep" ] && eval "[ -n \"\${MOCK_PR_BRANCH_${dep}:-}\" ]"; then
+      eval "printf '%s\n' \"\$MOCK_PR_BRANCH_${dep}\""
+    elif [ -n "${MOCK_PR_LIST:-}" ]; then printf '%s\n' "$MOCK_PR_LIST"; fi ;;
   "pr create")
     # Real gh contract (FOLLOW-UP 29): creating a PR for a branch that was
     # never pushed aborts. The sentinel is written by the mock git's `push`.
