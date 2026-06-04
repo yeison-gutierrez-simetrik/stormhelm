@@ -229,9 +229,13 @@ ralph_scenario_failed() {
 #   1. testcontainers declared (§31 test-real default) → docker daemon
 #      must answer. Heuristics: "@testcontainers/ in package.json (TS)
 #      or testcontainers in pyproject.toml / requirements*.txt (Python).
-#   2. RALPH_PREFLIGHT_CMD (consumer hook point): if set, must exit 0.
-#      Stack-specific checks (env-var sentinels, service health) belong
-#      there or in the stack capability — not hardcoded here.
+#   2. .env carries no scaffold placeholder sentinels (REPLACE_ME /
+#      CHANGEME / CHANGE_ME) on non-comment lines — a placeholder secret
+#      fails every iteration identically, same class as Docker-down.
+#   3. RALPH_PREFLIGHT_CMD (consumer hook point): if set, must exit 0.
+#      Further stack-specific checks (service health, other sentinel
+#      conventions) belong there or in the stack capability — not
+#      hardcoded here.
 #
 # Prints an actionable message and returns 1 on the first failure;
 # returns 0 (silent) when the environment is ready.
@@ -243,6 +247,11 @@ ralph_env_preflight() {
       echo "❌ Docker daemon not running — the acceptance stack uses testcontainers (§31). Start Docker and relaunch."
       return 1
     fi
+  fi
+  if [ -f .env ] && grep -vE '^[[:space:]]*#' .env | grep -qE 'REPLACE_ME|CHANGE_?ME'; then
+    echo "❌ .env still carries placeholder values (REPLACE_ME/CHANGEME) — set real secrets and relaunch. Offending keys:"
+    grep -vE '^[[:space:]]*#' .env | grep -E 'REPLACE_ME|CHANGE_?ME' | cut -d= -f1 | sed 's/^/   - /'
+    return 1
   fi
   if [ -n "${RALPH_PREFLIGHT_CMD:-}" ]; then
     if ! eval "$RALPH_PREFLIGHT_CMD" >/dev/null 2>&1; then
