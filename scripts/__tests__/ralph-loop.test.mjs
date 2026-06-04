@@ -515,6 +515,28 @@ test('FU-36: PR title carries the issue title; body carries per-scenario outcome
   });
 });
 
+// ── FOLLOW-UP 38c: per-call token/duration instrumentation ────────────────────
+
+// Optimization decisions (skill pruning, session reuse) were guesswork sourced
+// from manual checkpoint subtraction — ralph.call.completed gives the per-call
+// breakdown every session log now carries.
+test('FU-38c: every claude call emits ralph.call.completed with tokens + duration', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+    const calls = readEvents(dir, 1).filter((e) => e.event === 'ralph.call.completed');
+    const byName = Object.fromEntries(calls.map((c) => [c.details.call, c]));
+    assert.ok(byName.tdd, 'tdd call instrumented');
+    assert.ok(byName['run-acceptance'], 'acceptance call instrumented');
+    for (const c of calls) {
+      assert.equal(typeof c.details.tokens, 'number');
+      assert.ok(c.details.tokens >= 1540, `per-call tokens measured, got ${c.details.tokens}`);
+      assert.equal(typeof c.details.duration_s, 'number');
+      assert.ok(c.details.duration_s >= 0);
+    }
+  });
+});
+
 // ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
 
 // T29 — a pre-seeded GREEN result file + a session that skips the mandatory

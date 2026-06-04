@@ -274,7 +274,9 @@ for i in $(seq 1 "$MAX_ITER"); do
   if [ -n "$LAST_FAIL_REASON" ]; then
     FAIL_FEEDBACK=" PREVIOUS ITERATION failed acceptance with: ${LAST_FAIL_REASON:0:600}. Address this FIRST, then continue."
   fi
+  CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
   ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
+  ralph_call_completed "tdd" "$CALL_START" "$CALL_TOKENS_BEFORE"
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -306,7 +308,9 @@ for i in $(seq 1 "$MAX_ITER"); do
   # session that skips the write produces result-file-missing: an
   # unambiguous contract violation, never confusable with staleness.
   rm -f "$ACCEPT_RESULT_FILE" "$REVIEWER_REPORT_FILE"
+  CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
   ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, gates{} (including gates.reviewer = your Step-8 reviewer severity), failure_reason — AND the full reviewer report to ${REVIEWER_REPORT_FILE}. ALWAYS rewrite both files fresh in THIS run — even if nothing changed since a previous green run. Do NOT run a separate code review afterwards: your Step-8 reviewer is the single invocation for this slice." >/dev/null || ACCEPTANCE_RC=$?
+  ralph_call_completed "run-acceptance" "$CALL_START" "$CALL_TOKENS_BEFORE"
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
@@ -361,7 +365,9 @@ for i in $(seq 1 "$MAX_ITER"); do
       # never reach this branch).
       echo "🧐 Result file carries no reviewer verdict — fallback /code-review invocation…"
       ralph_log_event "warn" "ralph.reviewer.fallback_invocation" "{\"iteration\":${i}}"
+      CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
       REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity. MANDATORY: end your report with the literal line 'VERDICT: CLEAN' or 'VERDICT: SUGGESTION' or 'VERDICT: SHOULD-FIX' or 'VERDICT: BLOCKING' — automation parses that exact line." 2>&1 || true)
+      ralph_call_completed "code-review" "$CALL_START" "$CALL_TOKENS_BEFORE"
       check_budget_or_block "code-review"
       REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
       ralph_log_event "info" "ralph.reviewer.findings" \

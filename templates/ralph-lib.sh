@@ -725,6 +725,27 @@ ralph_check_budget() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# call_completed <name> <start_epoch> <tokens_before>
+#
+# Emit ralph.call.completed — the per-call breakdown event (FOLLOW-UP
+# 38c). The NDJSON had per-event cumulative/delta but no per-CALL line;
+# every optimization decision (skill-payload pruning, session reuse) was
+# guesswork sourced from manual checkpoint subtraction. Call right after
+# each ralph_call_claude_with_retry returns, regardless of its rc.
+# ──────────────────────────────────────────────────────────────────────
+ralph_call_completed() {
+  local name="${1:?ralph_call_completed requires <name>}"
+  local start="${2:?ralph_call_completed requires <start_epoch>}"
+  local before="${3:-0}"
+  ralph_sync_tokens
+  local tokens=$(( RALPH_TOKENS_CUMULATIVE - before ))
+  [ "$tokens" -ge 0 ] || tokens=0
+  local dur=$(( $(date +%s) - start ))
+  ralph_log_event "info" "ralph.call.completed" \
+    "{\"call\":$(ralph_json_string "$name"),\"tokens\":${tokens},\"duration_s\":${dur}}"
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # call_claude_with_retry <prompt>
 #
 # Wraps `claude -p <prompt>` with exponential backoff on HTTP 429.
@@ -1046,3 +1067,4 @@ extract_tokens_from_output() { ralph_extract_tokens_from_output "$@"; }
 add_tokens() { ralph_add_tokens "$@"; }
 check_budget() { ralph_check_budget "$@"; }
 sync_tokens() { ralph_sync_tokens "$@"; }
+call_completed() { ralph_call_completed "$@"; }
