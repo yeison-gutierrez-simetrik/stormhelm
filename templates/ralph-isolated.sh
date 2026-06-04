@@ -8,6 +8,7 @@
 #
 # Usage:
 #   ./ralph-isolated.sh <issue-number> [ralph-local.sh args...]
+#   ./ralph-isolated.sh <issue-number> --resume [ralph-local.sh args...]
 #   RALPH_WORKER_ID=w2 ./ralph-isolated.sh 15 --max-iterations 10
 #
 # Behavior:
@@ -16,15 +17,25 @@
 #   - copies the untracked runtime surface the engine needs (.env);
 #   - runs ./ralph-local.sh inside; the exit code is propagated;
 #   - the worktree is KEPT for inspection (session logs, acceptance results)
-#     and the cleanup command is printed — never auto-deleted.
+#     and the cleanup command is printed — never auto-deleted;
+#   - --resume (FOLLOW-UP 37a): relaunches in the NEWEST existing worktree
+#     for this issue+worker instead of creating a new one — the sanctioned
+#     re-entry that used to be a manual cd + re-source + relaunch dance
+#     (three times in one live night). .env is re-copied (fresh secrets win).
 #
 # Graduated from the belong-marketplace consumer prototype (FOLLOW-UP 32).
 
 set -euo pipefail
 
-ISSUE="${1:?usage: ./ralph-isolated.sh <issue-number> [ralph-local.sh args...]}"
+ISSUE="${1:?usage: ./ralph-isolated.sh <issue-number> [--resume] [ralph-local.sh args...]}"
 shift || true
 WORKER_ID="${RALPH_WORKER_ID:-w1}"
+
+RESUME=0
+PASS_ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--resume" ]; then RESUME=1; else PASS_ARGS+=("$a"); fi
+done
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -36,28 +47,46 @@ for f in ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl; do
   fi
 done
 
-STAMP=$(date -u +"%Y%m%d-%H%M%S")
-WT="${ROOT}/.worktrees/ralph-${ISSUE}-${WORKER_ID}-${STAMP}"
-
-mkdir -p "${ROOT}/.worktrees"
-git worktree add --detach "$WT" HEAD >/dev/null
+if [ "$RESUME" = "1" ]; then
+  # `|| true` guards pipefail: zero matches makes ls exit non-zero and would
+  # otherwise kill the script (set -e) before the actionable refusal below.
+  WT=$(ls -td "${ROOT}/.worktrees/ralph-${ISSUE}-${WORKER_ID}-"* 2>/dev/null | head -1 || true)
+  if [ -z "$WT" ]; then
+    echo "❌ --resume: no existing worktree for issue #${ISSUE} / worker ${WORKER_ID} under .worktrees/ — run without --resume to create one." >&2
+    exit 1
+  fi
+  for f in ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl; do
+    if [ ! -f "$WT/$f" ]; then
+      echo "❌ --resume: $WT exists but is missing $f — remove it (git worktree remove --force '$WT') and relaunch without --resume." >&2
+      exit 1
+    fi
+  done
+  echo "🔁 Resuming in existing worktree: $WT"
+  echo "   Re-bind any watcher: ./ralph-watch.sh ${ISSUE} '$WT' (a relaunch writes a NEW session log)"
+else
+  STAMP=$(date -u +"%Y%m%d-%H%M%S")
+  WT="${ROOT}/.worktrees/ralph-${ISSUE}-${WORKER_ID}-${STAMP}"
+  mkdir -p "${ROOT}/.worktrees"
+  git worktree add --detach "$WT" HEAD >/dev/null
+  echo "🏝  Isolated worktree: $WT (worker ${WORKER_ID}, issue #${ISSUE})"
+fi
 
 # Untracked runtime surface: tracked files (engine, code) arrive with the
 # worktree; secrets do not. Copy .env if present so the env pre-flight and
 # the acceptance stack see the same environment as the main checkout.
+# On --resume this REFRESHES secrets (the fresh .env wins over a stale copy).
 if [ -f .env ]; then
   cp .env "$WT/.env"
 fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
 
-echo "🏝  Isolated worktree: $WT (worker ${WORKER_ID}, issue #${ISSUE})"
-
 rc=0
-( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" "$@" ) || rc=$?
+( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
 
 echo ""
 echo "── Isolated run finished (exit ${rc}) ──"
 echo "   Worktree kept for inspection: $WT"
 echo "   Session logs:                 $WT/.planning/ralph-sessions/"
+echo "   Resume in place:              ./ralph-isolated.sh ${ISSUE} --resume"
 echo "   Clean up when done:           git worktree remove --force '$WT'"
 exit "$rc"
