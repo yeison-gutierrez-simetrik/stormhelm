@@ -247,7 +247,7 @@ If no SLO declared for the endpoint → record measurement informationally, do n
 
 ### Step 8 — Invoke reviewer agent (§114)
 
-> **This is the single reviewer invocation for the slice.** `/feature` Step 12 and the à-la-carte chain `/gates` rely on it and do not re-invoke the reviewer. Do not separately run `/code-review` in the same gating pass — that double-invokes the agent (redundant, double token spend).
+> **This is the single reviewer invocation for the slice.** `/feature` Step 12 and the à-la-carte chain `/gates` rely on it and do not re-invoke the reviewer. Do not separately run `/code-review` in the same gating pass — that double-invokes the agent (redundant, double token spend). **The Ralph loop also relies on it** (FOLLOW-UP 33): it reads your verdict from Step 10's `gates.reviewer` and your report from the `issue-<N>-reviewer.md` file and never re-invokes — which is why writing **both** is mandatory.
 
 Regardless of pass/fail in Steps 2-7, invoke the `reviewer` agent:
 
@@ -300,6 +300,12 @@ the reviewer invocation, regardless of outcome:
 
 ```bash
 mkdir -p .planning/acceptance
+# 1. The full Step-8 reviewer report (FOLLOW-UP 33 — the loop embeds this
+#    in the PR / posts it to the issue instead of re-invoking the reviewer):
+cat > .planning/acceptance/issue-${ISSUE_NUM}-reviewer.md <<'EOF'
+<the reviewer agent's full structured report, verbatim>
+EOF
+# 2. The machine-readable result:
 cat > .planning/acceptance/issue-${ISSUE_NUM}-result.json <<EOF
 {
   "issue": ${ISSUE_NUM},
@@ -310,6 +316,7 @@ cat > .planning/acceptance/issue-${ISSUE_NUM}-result.json <<EOF
   "gates": { "smoke": "pass", "slice_scenarios": "pass", "visual": "n/a",
              "contract": "n/a", "stubs": "pass", "slo": "n/a",
              "reviewer": "should-fix" },
+  "reviewer_report": ".planning/acceptance/issue-${ISSUE_NUM}-reviewer.md",
   "failure_reason": null
 }
 EOF
@@ -317,14 +324,15 @@ EOF
 
 Field rules:
 - `issue` — the issue number being gated (consumers validate it; a result for another issue is rejected).
-- `exit_code` — `0` **only** if every gate passed AND `ran == expected` (Step 3's sanity check). Anything else → non-zero.
+- `exit_code` — `0` **only** if every gate passed AND `ran == expected` (Step 3's sanity check) AND the reviewer found no 🛑. Anything else → non-zero.
 - `scenarios` — one entry per `@scn-NNN` from the issue's labels, value `"passed"`, `"failed: <one-line reason>"`, or `"manual"` (§60 scenario excluded from execution by Step 3 — explicit, so a manual scn is never mistaken for a filter bug). Omit a scenario only if it was never attempted.
 - `ran` / `expected` — scenario counts from Step 3 (**both exclude `@manual` scenarios**). `ran < expected` means the tag filter was wrong; consumers treat it as failure even if `exit_code` says 0.
-- `gates` — per-gate `"pass"` / `"fail"` / `"n/a"`; `reviewer` carries the severity (`clean` / `suggestion` / `should-fix` / `blocking`).
-- `failure_reason` — `null` on success; on failure, a **single actionable line** (this lands in the session NDJSON and is often the only forensic trace).
+- `gates` — per-gate `"pass"` / `"fail"` / `"n/a"`; **`reviewer` is MANDATORY** and carries the Step-8 severity (`clean` / `suggestion` / `should-fix` / `blocking`) — automation reads the verdict here, never by re-running the reviewer (FOLLOW-UP 33).
+- `reviewer_report` — path to the report file written above (per-issue, same `.planning/acceptance/` directory).
+- `failure_reason` — `null` on success; on failure, a **single actionable line** (this lands in the session NDJSON, feeds the NEXT iteration's /tdd prompt, and is often the only forensic trace). If the reviewer blocked, end it with "; reviewer verdict BLOCKING".
 
-The filename is **per-issue** (`issue-<N>-result.json`) so parallel workers
-never race on a shared file.
+The filenames are **per-issue** (`issue-<N>-result.json` / `issue-<N>-reviewer.md`)
+so parallel workers never race on shared files.
 
 ### Step 11 — Return
 

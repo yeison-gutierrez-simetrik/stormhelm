@@ -44,6 +44,11 @@ source "$RALPH_LIB"
 # the ralph-blocked comment when reviewer findings drive the block.
 LAST_REVIEWER_OUTPUT=""
 LAST_REVIEWER_SEVERITY=""
+# FOLLOW-UP 34: the previous iteration's failure_reason — an actionable
+# diagnosis the gate already produced — feeds the NEXT /tdd prompt instead
+# of forcing the session to re-discover the failure from scratch (or miss
+# it). Cleared after a green iteration.
+LAST_FAIL_REASON=""
 
 # ──────────────────────────────────────────────────────────────────────
 # Argument parsing
@@ -59,12 +64,19 @@ LAST_REVIEWER_SEVERITY=""
 ISSUE_NUM=""
 MAX_ITER=""
 WORKER_ID="${RALPH_WORKER_ID:-w0}"
+# --base <ref> (FOLLOW-UP 38a): slice-group chaining — branch from <ref>
+# instead of the current HEAD and open the PR AGAINST <ref>'s branch.
+# Deliberate §123 stacked exception for Night Shift slice-groups (merge-
+# commit required; finding-attribution mandatory; see core/13).
+BASE_REF=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --max-iterations) MAX_ITER="${2:?--max-iterations requires a value}"; shift 2 ;;
     --max-iterations=*) MAX_ITER="${1#*=}"; shift ;;
     --worker-id) WORKER_ID="${2:?--worker-id requires a value}"; shift 2 ;;
     --worker-id=*) WORKER_ID="${1#*=}"; shift ;;
+    --base) BASE_REF="${2:?--base requires a ref}"; shift 2 ;;
+    --base=*) BASE_REF="${1#*=}"; shift ;;
     --) shift; break ;;
     -*) echo "❌ unknown flag: $1" >&2; exit 2 ;;
     *)
@@ -107,8 +119,12 @@ fi
 # ──────────────────────────────────────────────────────────────────────
 # §63 label-contract validation (must run BEFORE init_session so we
 # never leave an empty log file for issues we refuse to process).
+# One combined fetch: labels (the contract) + title (slug + PR title,
+# FOLLOW-UP 36) — the engine used to hit the API twice for one issue.
 # ──────────────────────────────────────────────────────────────────────
-LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
+ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --json labels,title 2>/dev/null || true)
+LABELS=$(printf '%s' "$ISSUE_JSON" | jq -r '.labels[].name' 2>/dev/null || true)
+ISSUE_TITLE=$(printf '%s' "$ISSUE_JSON" | jq -r '.title // empty' 2>/dev/null || true)
 
 if [ -z "$LABELS" ]; then
   echo "❌ Issue #$ISSUE_NUM does not exist or gh CLI is not authenticated" >&2
@@ -134,6 +150,15 @@ fi
 SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
 BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
 BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
+
+# FOLLOW-UP 35: an unsupported label grammar (live near-miss: a range form
+# scn-031..038) expands to ZERO scenarios with no error — downstream that is
+# catastrophic-but-quiet (empty Step-3 selection, blind summaries). Fail
+# loudly BEFORE iteration 1, same class as the env pre-flight.
+if [ -n "$SCENARIOS" ] && [ -z "$(ralph_expand_scns "$SCENARIOS")" ]; then
+  echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6). Fix the label and relaunch." >&2
+  exit 1
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # Initialize session log (§69) — from here on, every action is recorded
@@ -195,7 +220,7 @@ check_budget_or_block() {
 # iconv) while still emitting the transliterated prefix — '|| true' keeps
 # pipefail from killing the script and the partial output is exactly what
 # we want (the bad byte just disappears instead of becoming a dash).
-SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' \
+SLUG=$(printf '%s' "$ISSUE_TITLE" \
   | tr '[:upper:]' '[:lower:]' \
   | { iconv -f utf-8 -t ascii//TRANSLIT 2>/dev/null || true; } \
   | tr -c 'a-z0-9' '-' | tr -s '-' | head -c 40 | sed 's/^-//; s/-$//')
@@ -203,8 +228,14 @@ SLUG=$(gh issue view "$ISSUE_NUM" --json title --jq '.title' \
 [ -n "$SLUG" ] || SLUG="issue"
 BRANCH="${BRANCH_PREFIX}-${SLUG}-${ISSUE_NUM}"
 
-if git checkout -b "$BRANCH" 2>/dev/null; then
-  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH"
+# FOLLOW-UP 38a: with --base, the slice branches from the PREVIOUS sibling's
+# branch (chain), not from the current HEAD. The base must exist.
+if [ -n "$BASE_REF" ] && ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+  echo "❌ --base '$BASE_REF' does not resolve to a ref — chain the slice on an existing sibling branch." >&2
+  exit 1
+fi
+if git checkout -b "$BRANCH" ${BASE_REF:+"$BASE_REF"} 2>/dev/null; then
+  ralph_git_action "checkout-new" "success" "git checkout -b $BRANCH ${BASE_REF:-}"
 else
   git checkout "$BRANCH"
   ralph_git_action "checkout-existing" "success" "git checkout $BRANCH"
@@ -224,6 +255,13 @@ echo "   Budget: $BUDGET, Max iterations: $MAX_ITER"
 # green runs as failures for 8 straight iterations on the first live
 # consumer run. Per-issue filename so parallel workers don't race.
 ACCEPT_RESULT_FILE=".planning/acceptance/issue-${ISSUE_NUM}-result.json"
+# FOLLOW-UP 33: the acceptance session ALSO writes the full reviewer report
+# here (its Step 8 runs the §114 reviewer — "the single reviewer invocation
+# for the slice"); the loop consumes severity from the result file's
+# gates.reviewer and the report from this file, and never invokes
+# /code-review itself (measured: ~15k tokens of pure duplication per green
+# iteration when it did).
+REVIEWER_REPORT_FILE=".planning/acceptance/issue-${ISSUE_NUM}-reviewer.md"
 mkdir -p .planning/acceptance
 
 for i in $(seq 1 "$MAX_ITER"); do
@@ -243,7 +281,15 @@ for i in $(seq 1 "$MAX_ITER"); do
   # diagnosis. (Capturing into never-read variables implied the prose
   # mattered — it does not.)
   TDD_RC=0
-  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice." >/dev/null || TDD_RC=$?
+  # FU-34: hand the gate's own diagnosis to the implementer (truncated —
+  # it is a pointer, not a transcript; the full trail is in the NDJSON).
+  FAIL_FEEDBACK=""
+  if [ -n "$LAST_FAIL_REASON" ]; then
+    FAIL_FEEDBACK=" PREVIOUS ITERATION failed acceptance with: ${LAST_FAIL_REASON:0:600}. Address this FIRST, then continue."
+  fi
+  CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
+  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
+  ralph_call_completed "tdd" "$CALL_START" "$CALL_TOKENS_BEFORE"
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -274,8 +320,10 @@ for i in $(seq 1 "$MAX_ITER"); do
   # burned the iteration on result-file-stale. With the pre-delete, a
   # session that skips the write produces result-file-missing: an
   # unambiguous contract violation, never confusable with staleness.
-  rm -f "$ACCEPT_RESULT_FILE"
-  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason. ALWAYS rewrite that file fresh in THIS run — even if nothing changed since a previous green run." >/dev/null || ACCEPTANCE_RC=$?
+  rm -f "$ACCEPT_RESULT_FILE" "$REVIEWER_REPORT_FILE"
+  CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
+  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, gates{} (including gates.reviewer = your Step-8 reviewer severity), failure_reason — AND the full reviewer report to ${REVIEWER_REPORT_FILE}. ALWAYS rewrite both files fresh in THIS run — even if nothing changed since a previous green run. Do NOT run a separate code review afterwards: your Step-8 reviewer is the single invocation for this slice." >/dev/null || ACCEPTANCE_RC=$?
+  ralph_call_completed "run-acceptance" "$CALL_START" "$CALL_TOKENS_BEFORE"
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
@@ -298,30 +346,48 @@ for i in $(seq 1 "$MAX_ITER"); do
   # ran >= expected + exit_code == 0. Never the session's prose.
   if ACCEPT_STATUS=$(ralph_acceptance_result_check "$ACCEPT_RESULT_FILE" "$ISSUE_NUM" "$ITER_EPOCH"); then
     ralph_iteration_end "green"
+    LAST_FAIL_REASON=""   # FU-34: the diagnosis was consumed; don't leak it forward
 
     # Per-scenario truth from the result file's scenarios{} map
     # (NOT blanket-passing every labeled scenario).
     ralph_log_scenarios_from_result "$ACCEPT_RESULT_FILE" "$SCENARIOS"
 
     # ──────────────────────────────────────────────────────────────
-    # §66 — Invoke reviewer agent on the diff BEFORE opening PR.
-    # Retry policy:
+    # §66 — Reviewer verdict BEFORE opening PR (FOLLOW-UP 33).
+    # The §114 reviewer already ran ONCE inside /run-acceptance (its
+    # Step 8: "the single reviewer invocation for the slice"); the
+    # session wrote the severity to gates.reviewer and the full report
+    # to $REVIEWER_REPORT_FILE. The loop READS both — re-invoking
+    # /code-review here duplicated ~15k tokens per green iteration and
+    # was the last prose-parsing surface.
+    # Retry policy (unchanged):
     #   blocking  → one extra /tdd iteration (counts toward MAX_ITER)
     #   should-fix → embed report, open PR, human decides
     #   suggestion → embed report, open PR
     #   clean      → open PR with brief reviewer-ok note
     # ──────────────────────────────────────────────────────────────
-    echo "🧐 Invoking reviewer agent on the diff..."
-    ralph_log_event "info" "ralph.reviewer.invoked" "{\"iteration\":${i}}"
-
-    REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity. MANDATORY: end your report with the literal line 'VERDICT: CLEAN' or 'VERDICT: SUGGESTION' or 'VERDICT: SHOULD-FIX' or 'VERDICT: BLOCKING' — automation parses that exact line." 2>&1 || true)
-    check_budget_or_block "code-review"
-    REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
+    REVIEWER_SEVERITY=$(jq -r '.gates.reviewer // empty' "$ACCEPT_RESULT_FILE" 2>/dev/null)
+    if [ -n "$REVIEWER_SEVERITY" ]; then
+      REVIEWER_OUTPUT=$(cat "$REVIEWER_REPORT_FILE" 2>/dev/null \
+        || echo "_reviewer report file missing (${REVIEWER_REPORT_FILE}); severity from result file: ${REVIEWER_SEVERITY}_")
+      ralph_log_event "info" "ralph.reviewer.findings" \
+        "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY"),\"source\":\"result-file\"}"
+    else
+      # Legacy fallback: the result file predates the gates.reviewer
+      # contract — invoke the reviewer ONCE here (new-contract sessions
+      # never reach this branch).
+      echo "🧐 Result file carries no reviewer verdict — fallback /code-review invocation…"
+      ralph_log_event "warn" "ralph.reviewer.fallback_invocation" "{\"iteration\":${i}}"
+      CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
+      REVIEWER_OUTPUT=$(ralph_call_claude_with_retry "/code-review on the current diff. Cite the §N rules violated. Mark each finding with 🛑 / ⚠️ / 💡 by severity. MANDATORY: end your report with the literal line 'VERDICT: CLEAN' or 'VERDICT: SUGGESTION' or 'VERDICT: SHOULD-FIX' or 'VERDICT: BLOCKING' — automation parses that exact line." 2>&1 || true)
+      ralph_call_completed "code-review" "$CALL_START" "$CALL_TOKENS_BEFORE"
+      check_budget_or_block "code-review"
+      REVIEWER_SEVERITY=$(ralph_reviewer_severity "$REVIEWER_OUTPUT")
+      ralph_log_event "info" "ralph.reviewer.findings" \
+        "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY"),\"source\":\"fallback-invocation\"}"
+    fi
     LAST_REVIEWER_OUTPUT="$REVIEWER_OUTPUT"
     LAST_REVIEWER_SEVERITY="$REVIEWER_SEVERITY"
-
-    ralph_log_event "info" "ralph.reviewer.findings" \
-      "{\"severity\":$(ralph_json_string "$REVIEWER_SEVERITY")}"
 
     if [ "$REVIEWER_SEVERITY" = "blocking" ] && [ "$i" -lt "$MAX_ITER" ]; then
       echo "🛑 Reviewer reported blocking findings. Attempting one extra /tdd iteration to fix…"
@@ -365,11 +431,31 @@ for i in $(seq 1 "$MAX_ITER"); do
 
     REVIEWER_SECTION=$(ralph_format_reviewer_section "$REVIEWER_OUTPUT" "$REVIEWER_SEVERITY")
 
+    # FOLLOW-UP 36: review-grade PR, composed from data the engine already
+    # holds — both live PRs were manually retitled/re-bodied by the Day
+    # Shift before this. Title = the issue's own title; body = per-scenario
+    # outcomes (from the result file via summarize), counts, tokens,
+    # reviewer verdict + report. Consumers can tune the heredoc.
+    PR_TITLE=$(printf '%.110s' "${ISSUE_TITLE:-fix issue} (#${ISSUE_NUM})")
+    RAN_EXPECTED=$(jq -r '"\(.ran // "?")/\(.expected // "?")"' "$ACCEPT_RESULT_FILE" 2>/dev/null || echo "?/?")
+    SCENARIO_TABLE=$(ralph_summarize_scenarios "$RALPH_SESSION_LOG" "$SCENARIOS")
+    # FOLLOW-UP 38a: a chained slice's PR states the stack contract — base
+    # merges FIRST and with a MERGE COMMIT (squash breaks stacked diffs).
+    STACK_NOTE=""
+    if [ -n "$BASE_REF" ]; then
+      STACK_NOTE="> 🔗 **STACKED PR (slice-group chain, §123 Night Shift exception):** based on \`$BASE_REF\` — merge that PR first, and use a **merge commit** (squash breaks the stacked diffs). If the base changes after review, refresh this branch with \`git merge $BASE_REF\` and re-gate."
+    fi
+
     PR_BODY=$(cat <<EOF
 Automated by Ralph. Closes #$ISSUE_NUM
+${STACK_NOTE}
 
 **Iterations consumed:** $i / $MAX_ITER
-**Scenarios satisfied:** $SCENARIOS
+**Scenarios (ran/expected):** $RAN_EXPECTED
+$SCENARIO_TABLE
+
+**Tokens consumed:** ${RALPH_TOKENS_CUMULATIVE} / ${BUDGET_TOKENS}
+**Reviewer severity:** ${REVIEWER_SEVERITY}
 **Session log:** \`$RALPH_SESSION_LOG\`
 
 ---
@@ -403,7 +489,9 @@ EOF
     fi
     ralph_git_action "push" "success" "git push -u origin $BRANCH"
 
-    if gh pr create --draft --head "$BRANCH" --title "fix #$ISSUE_NUM" --body "$PR_BODY"; then
+    PR_BASE_ARGS=()
+    [ -n "$BASE_REF" ] && PR_BASE_ARGS=(--base "$BASE_REF")
+    if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
       ralph_log_event "info" "ralph.pr.opened" \
@@ -425,8 +513,25 @@ EOF
   # stale or foreign file must not pollute the scenario summary).
   case "$ACCEPT_STATUS" in
     exit_code=*|ran-below-expected*)
-      ralph_log_scenarios_from_result "$ACCEPT_RESULT_FILE" "$SCENARIOS" ;;
+      ralph_log_scenarios_from_result "$ACCEPT_RESULT_FILE" "$SCENARIOS"
+      # FOLLOW-UP 33: per the skill, a BLOCKING reviewer verdict makes the
+      # acceptance exit non-zero — so blocking normally arrives HERE, not
+      # on the green path. Surface the full report through FU-26's channel
+      # (issue comment) so the next iteration's /tdd sees what to fix.
+      FAIL_REVIEWER=$(jq -r '.gates.reviewer // empty' "$ACCEPT_RESULT_FILE" 2>/dev/null)
+      if [ "$FAIL_REVIEWER" = "blocking" ] && [ -f "$REVIEWER_REPORT_FILE" ]; then
+        LAST_REVIEWER_OUTPUT=$(cat "$REVIEWER_REPORT_FILE")
+        LAST_REVIEWER_SEVERITY="blocking"
+        BLOCKING_COMMENT=$(printf '## Reviewer findings (iteration %s) — fix these; the acceptance gate re-runs next iteration\n\n%s' \
+          "$i" "$(ralph_format_reviewer_section "$LAST_REVIEWER_OUTPUT" "blocking")")
+        if ! gh issue comment "$ISSUE_NUM" --body "$BLOCKING_COMMENT" >/dev/null 2>&1; then
+          ralph_error_tool "gh" "failed to post reviewer findings comment on failing iteration"
+        fi
+        ralph_log_event "info" "ralph.reviewer.findings" \
+          "{\"severity\":\"blocking\",\"source\":\"result-file\",\"posted_to_issue\":true}"
+      fi ;;
   esac
+  LAST_FAIL_REASON="$ACCEPT_STATUS"   # FU-34: feeds the next /tdd prompt
   ralph_iteration_end "acceptance-failing" "$ACCEPT_STATUS"
   echo "⚠️  Iteration $i did not reach green (${ACCEPT_STATUS}). Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuing…"
   ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"

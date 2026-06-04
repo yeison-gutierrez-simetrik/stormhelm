@@ -124,9 +124,11 @@ test('max-iterations exhausted: blocked (not budget_exceeded), no PR', () => {
 });
 
 // T5 — reviewer blocking on the last iteration → blocked, no PR (never ships a 🛑).
+// Post-FU-33 the verdict arrives via the result file's gates.reviewer (the
+// skill's Step 11 makes a 🛑 exit non-zero), not via a loop-run /code-review.
 test('reviewer blocking on last iteration: blocked, no PR opened', () => {
   withConsumer((dir) => {
-    const { out } = runRalph(dir, ['1', '1'], { MOCK_REVIEW: '🛑 §27 Authorization missing before domain action.' });
+    const { out } = runRalph(dir, ['1', '1'], { MOCK_ACCEPT_REVIEWER: 'blocking' });
     const ev = names(readEvents(dir, 1));
     assert.ok(ev.includes('ralph.issue.blocked'));
     assert.ok(!ev.includes('ralph.pr.opened'), 'a blocking finding must never ship a PR');
@@ -136,7 +138,7 @@ test('reviewer blocking on last iteration: blocked, no PR opened', () => {
 // T6 — reviewer blocking with budget left → an extra /tdd iteration (§66).
 test('reviewer blocking with iterations left: retries (≥2 iterations started)', () => {
   withConsumer((dir) => {
-    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 still blocking' });
+    runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'blocking' });
     const starts = names(readEvents(dir, 1)).filter((e) => e === 'ralph.iteration.started').length;
     assert.ok(starts >= 2, `expected a retry iteration on blocking, got ${starts}`);
   });
@@ -381,32 +383,157 @@ test('FU-27: legacy outputs without VERDICT keep the emoji fallback', () => {
   assert.equal(severity('all good, nothing to report'), 'clean');
 });
 
-// Loop-level: a clean-with-emoji-headers report must take the PR path (no retry).
-test('FU-27: loop takes the PR path on a clean report with emoji headers', () => {
+// Loop-level (post-FU-33 this is the LEGACY FALLBACK path): a result file
+// without gates.reviewer → exactly one /code-review invocation, whose
+// clean-with-emoji-headers report must take the PR path (no retry).
+test('FU-27: fallback /code-review on a legacy result file — clean report → PR path', () => {
   withConsumer((dir) => {
-    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_REVIEW: CLEAN_REPORT });
+    const { status, out } = runRalph(dir, ['1', '2'], { MOCK_NO_REVIEWER_GATE: '1', MOCK_REVIEW: CLEAN_REPORT });
     assert.equal(status, 0, out);
     assert.match(out, /pull\/9/);
     const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.reviewer.fallback_invocation'), 'fallback path taken');
     assert.ok(!names(ev).includes('ralph.reviewer.retry'), 'no false-blocking retry');
     const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
     assert.equal(findings?.details?.severity, 'clean');
+    assert.equal(findings?.details?.source, 'fallback-invocation');
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.equal((prompts.match(/\/code-review/g) || []).length, 1, 'exactly ONE fallback invocation');
   });
 });
 
-// ── FOLLOW-UP 26: blocking findings reach the retry via an issue comment ──────
+// ── FOLLOW-UP 26 (+33): blocking findings reach the next iteration via comment ─
 
-// T28 — before the blind-retry fix, findings lived only in shell memory: the
-// retry /tdd had no way to know what to fix and they were unrecoverable after
-// a crash. Now they land as an issue comment (FU-17's read-both channel).
-test('FU-26: blocking findings are posted as an issue comment before the retry', () => {
+// T28 — findings used to live only in shell memory. Post-FU-33 the blocking
+// verdict arrives on the FAILING path (skill Step 11: 🛑 ⇒ exit non-zero) and
+// the report file's content lands as the issue comment the next /tdd reads.
+test('FU-26: blocking findings are posted as an issue comment before the next iteration', () => {
   withConsumer((dir) => {
-    runRalph(dir, ['1', '2'], { MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
+    runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'blocking', MOCK_REVIEW: '🛑 §27 missing auth check\nVERDICT: BLOCKING' });
     const ev = readEvents(dir, 1);
-    assert.ok(names(ev).includes('ralph.reviewer.retry'), 'a retry happened');
+    const starts = names(ev).filter((e) => e === 'ralph.iteration.started').length;
+    assert.ok(starts >= 2, 'a follow-up iteration happened');
     const comments = readFileSync(join(dir, '.mock-gh-comments'), 'utf8');
     assert.match(comments, /Reviewer findings \(iteration 1\)/, 'findings comment posted');
-    assert.match(comments, /§27 missing auth check/, 'the actual findings text is in the comment');
+    assert.match(comments, /§27 missing auth check/, 'the report FILE content is in the comment');
+  });
+});
+
+// ── FOLLOW-UP 33: the result file is the single reviewer channel ──────────────
+
+// T-33a — a normal green run NEVER invokes /code-review: severity comes from
+// gates.reviewer, the report from issue-<N>-reviewer.md (~15k tokens of
+// measured duplication removed).
+test('FU-33: green run → zero /code-review invocations, severity from the result file', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/);
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.doesNotMatch(prompts, /\/code-review/, 'the loop must not re-invoke the reviewer');
+    const ev = readEvents(dir, 1);
+    const findings = ev.find((e) => e.event === 'ralph.reviewer.findings');
+    assert.equal(findings?.details?.severity, 'clean');
+    assert.equal(findings?.details?.source, 'result-file');
+  });
+});
+
+// T-33b — the PR body embeds the report FILE's content (should-fix verdict).
+test('FU-33: PR body embeds the reviewer report from the file', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '2'], { MOCK_ACCEPT_REVIEWER: 'should-fix', MOCK_REVIEW: '⚠️ §5 any type introduced\nVERDICT: SHOULD-FIX' });
+    assert.equal(status, 0);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /MOCK-REVIEWER-REPORT/, 'report file content embedded in the PR body');
+    assert.match(pr, /§5 any type introduced/);
+  });
+});
+
+// T-33c — contract-violation belt-and-braces: exit_code 0 BUT gates.reviewer
+// blocking → comment + retry (never a PR with a 🛑 embedded).
+test('FU-33: green result claiming blocking reviewer → retry, never a PR', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '1'], { MOCK_ACCEPT_REVIEWER: 'blocking', MOCK_GREEN_WITH_BLOCKING: '1' });
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.pr.opened'), 'no PR on a blocking verdict');
+    assert.ok(names(ev).includes('ralph.issue.blocked'), 'last-iteration blocking → blocked');
+  });
+});
+
+// ── FOLLOW-UP 34: the failure diagnosis feeds the next /tdd prompt ────────────
+
+// The gate already produced an actionable failure_reason; before this fix the
+// next session had to re-discover it from scratch (or miss it).
+test('FU-34: iteration N\'s failure_reason lands in iteration N+1\'s /tdd prompt', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_FAIL_FIRST: '1' });
+    assert.equal(status, 0, 'fail→green arc must still deliver the PR');
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8')
+      .split('―――').map((s) => s.trim()).filter(Boolean);
+    const tdd = prompts.filter((p) => p.includes('/tdd'));
+    assert.ok(tdd.length >= 2, 'two tdd iterations ran');
+    assert.doesNotMatch(tdd[0], /PREVIOUS ITERATION failed/, 'first prompt is clean');
+    assert.match(tdd[1], /PREVIOUS ITERATION failed acceptance with: exit_code=1: mock forced failure/,
+      'the diagnosis reached the retry prompt');
+  });
+});
+
+// ── FOLLOW-UP 35: unparseable scenarios label fails loudly, pre-iteration ─────
+
+// A range form (live near-miss: scn-031..038) expanded to ZERO scenarios with
+// no error — the engine must refuse BEFORE iteration 1 with the canonical form.
+test('FU-35: range-form scenarios label → engine aborts pre-iteration with the canonical form named', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-031..038\nbudget:150k' });
+    assert.notEqual(status, 0);
+    assert.match(out, /unparseable scenarios label 'scn-031\.\.038'/);
+    assert.match(out, /scn-NNN\+NNN/, 'the canonical form is named');
+    const ev = readEvents(dir, 1);
+    assert.ok(!names(ev).includes('ralph.iteration.started'), 'no iteration burned');
+  });
+});
+
+test('FU-35: canonical compact label still runs normally', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k' });
+    assert.equal(status, 0);
+  });
+});
+
+// ── FOLLOW-UP 36: review-grade PR title + body, composed from the result file ─
+
+test('FU-36: PR title carries the issue title; body carries per-scenario outcomes + Closes', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '2'], { MOCK_TITLE: 'Stripe Connect onboarding' });
+    assert.equal(status, 0);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /Stripe Connect onboarding \(#1\)/, 'real title, not "fix #1"');
+    assert.match(pr, /Closes #1/);
+    assert.match(pr, /✅ `scn-001` — passed/, 'per-scenario outcome line');
+    assert.match(pr, /Scenarios \(ran\/expected\):.*1\/1/, 'count line from the result file');
+    assert.match(pr, /Reviewer severity:.*clean/);
+  });
+});
+
+// ── FOLLOW-UP 38c: per-call token/duration instrumentation ────────────────────
+
+// Optimization decisions (skill pruning, session reuse) were guesswork sourced
+// from manual checkpoint subtraction — ralph.call.completed gives the per-call
+// breakdown every session log now carries.
+test('FU-38c: every claude call emits ralph.call.completed with tokens + duration', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3']);
+    assert.equal(status, 0);
+    const calls = readEvents(dir, 1).filter((e) => e.event === 'ralph.call.completed');
+    const byName = Object.fromEntries(calls.map((c) => [c.details.call, c]));
+    assert.ok(byName.tdd, 'tdd call instrumented');
+    assert.ok(byName['run-acceptance'], 'acceptance call instrumented');
+    for (const c of calls) {
+      assert.equal(typeof c.details.tokens, 'number');
+      assert.ok(c.details.tokens >= 1540, `per-call tokens measured, got ${c.details.tokens}`);
+      assert.equal(typeof c.details.duration_s, 'number');
+      assert.ok(c.details.duration_s >= 0);
+    }
   });
 });
 
@@ -563,5 +690,98 @@ test('FU-14: ralph_acceptance_result_check rejects stale/wrong-issue/invalid/ran
 
     spawnSync('bash', ['-c', `echo "not json" > "${file}"`]);
     assert.match(check(null, `"${file}" 7 0`).out, /result-file-invalid-json/);
+  });
+});
+
+// ── E2E: the full autonomous arc with every Day Shift channel exercised ───────
+//
+// One run, the whole contract: issue labels (§63) → /tdd told to read body AND
+// comments (FU-17) → iteration 1 fails with a gate diagnosis → the diagnosis
+// feeds iteration 2's prompt (FU-34) → green → reviewer verdict+report arrive
+// from the acceptance session's files, never a /code-review (FU-33) → per-call
+// instrumentation (FU-38c) → push before PR (FU-29) → review-grade PR composed
+// from the result file (FU-36) → session completed. If Ralph can't be
+// autonomous with the Day Shift's information, this test names where.
+test('E2E: fail→feedback→green→reviewer-from-file→push→composed PR, fully autonomous', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_FAIL_FIRST: '1',
+      MOCK_TITLE: 'Stripe Connect onboarding',
+      MOCK_ACCEPT_REVIEWER: 'should-fix',
+      MOCK_REVIEW: '⚠️ §5 any type introduced\nVERDICT: SHOULD-FIX',
+    });
+    assert.equal(status, 0, out);
+
+    const ev = readEvents(dir, 1);
+    // Arc shape: exactly fail → green, then completed.
+    const outcomes = ev.filter((e) => e.event === 'ralph.iteration.completed').map((e) => e.details.outcome);
+    assert.deepEqual(outcomes, ['acceptance-failing', 'green']);
+    assert.equal(endStatus(ev), 'completed');
+
+    // Day Shift channels reach the implementer:
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8')
+      .split('―――').map((s) => s.trim()).filter(Boolean);
+    const tdd = prompts.filter((p) => p.includes('/tdd'));
+    assert.equal(tdd.length, 2);
+    assert.match(tdd[0], /body AND comments/, 'FU-17: plan + amendments channel in every prompt');
+    assert.match(tdd[1], /PREVIOUS ITERATION failed acceptance with: exit_code=1/, 'FU-34: gate diagnosis fed forward');
+
+    // FU-33: zero loop-side reviewer invocations; verdict came from the file.
+    assert.doesNotMatch(readFileSync(join(dir, '.mock-claude-prompts'), 'utf8'), /\/code-review/);
+    const findings = ev.filter((e) => e.event === 'ralph.reviewer.findings');
+    assert.ok(findings.some((f) => f.details.source === 'result-file' && f.details.severity === 'should-fix'));
+
+    // FU-38c: every call instrumented (2 tdd + 2 acceptance).
+    const calls = ev.filter((e) => e.event === 'ralph.call.completed');
+    assert.equal(calls.length, 4, `4 instrumented calls, got ${calls.length}`);
+
+    // FU-29 + FU-36: push precedes a composed, review-grade PR.
+    const idxPush = ev.findIndex((e) => e.event === 'ralph.git.action' && e.details.action === 'push' && e.details.status === 'success');
+    const idxPr = ev.findIndex((e) => e.event === 'ralph.pr.opened');
+    assert.ok(idxPush !== -1 && idxPr !== -1 && idxPush < idxPr);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /Stripe Connect onboarding \(#1\)/);
+    assert.match(pr, /Closes #1/);
+    assert.match(pr, /✅ `scn-001` — passed/);
+    assert.match(pr, /Reviewer severity:.*should-fix/);
+    assert.match(pr, /MOCK-REVIEWER-REPORT/, 'the report FILE is what the PR embeds');
+  });
+});
+
+// ── FOLLOW-UP 38a: base-branch chaining for slice-groups ──────────────────────
+
+// The maintainer's ruling: Night Shift slice-groups chain (deliberate §123
+// exception) — each sibling branches FROM the previous one and PRs AGAINST it,
+// with merge-commit + base-first stated in the PR body.
+test('FU-38a: --base chains the slice — branch from base, PR against base, stack note in body', () => {
+  withConsumer((dir) => {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    // a foundation branch with a commit main doesn't have:
+    git('checkout', '-qb', 'agent/feature-foundation-9');
+    writeFileSync(join(dir, 'foundation.txt'), 'wiring');
+    git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'foundation wiring');
+    git('checkout', '-q', '-');
+
+    const { status, out } = runRalph(dir, ['1', '2', '--base', 'agent/feature-foundation-9'], {});
+    assert.equal(status, 0, out);
+    // The slice branch contains the foundation commit (chained, not from main):
+    const branch = (out.match(/on branch (\S+)/) || [])[1];
+    assert.ok(branch, 'branch line present');
+    const contains = git('branch', '--contains', git('rev-parse', 'agent/feature-foundation-9').stdout.trim()).stdout;
+    assert.match(contains, new RegExp(branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'slice branch built on the foundation');
+    // PR opened AGAINST the base, with the stack contract stated:
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-foundation-9/, 'PR targets the previous sibling');
+    assert.match(pr, /STACKED PR \(slice-group chain/, 'stack note present');
+    assert.match(pr, /merge commit/i, 'merge-commit requirement stated');
+  });
+});
+
+test('FU-38a: --base with a non-existent ref refuses before any work', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '2', '--base', 'agent/feature-ghost-9'], {});
+    assert.notEqual(status, 0);
+    assert.match(out, /--base 'agent\/feature-ghost-9' does not resolve/);
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
   });
 });

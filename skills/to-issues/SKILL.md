@@ -224,6 +224,7 @@ Then decide packaging (Axis 2, by review-size budget — see `core/13` "Cumulati
 
 - **Group within budget →** one cumulative branch `agent/feature-<slug>`, one PR, `Closes #a #b #c …` for all members.
 - **Group over budget →** stacked PRs in topological order, finding-attribution (PR-Attr) mandatory.
+- **Group executed by the Night Shift (one Ralph run per issue) →** base-branch chaining: each sibling launches with `--base <previous sibling's branch>` in topological order — the §123 Night Shift exception (merge commits only, base merges first, finding-attribution mandatory; see `core/13`).
 - **Standalone →** its own `agent/feature-<slug>` branch, `Closes #n`.
 
 Emit a `slice-group:<slug>` label on every issue of a group so the relationship is queryable.

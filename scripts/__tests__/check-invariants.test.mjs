@@ -168,6 +168,18 @@ test('INV-5 credits the comma form scenarios:scn-001,scn-002', () => {
   assert.match(out, /INV-5 §59: 2 @release scns mapped/);
 });
 
+// FOLLOW-UP 35: an unsupported scenarios grammar must fail CONFIG-loudly —
+// it expands to zero scenarios and blinds every label-driven invariant.
+test('FU-35: range-form scenarios label → CONFIG failure naming file + canonical form', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'issues/001-auth.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('`scenarios:scn-001`', '`scenarios:scn-001..003`'));
+  });
+  assert.equal(status, 1, 'unparseable grammar must fail the gate');
+  assert.match(out, /❌ CONFIG.*scn-001\.\.003/);
+  assert.match(out, /scn-NNN\+NNN/, 'canonical form named');
+});
+
 test('INV-5 still reports a real orphan (a scn no label form mentions)', () => {
   const { status, out } = runMutated((dir) => {
     const p2 = join(dir, 'issues/002-list.md');
