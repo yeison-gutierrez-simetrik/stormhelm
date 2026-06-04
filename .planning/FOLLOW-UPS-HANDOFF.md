@@ -577,6 +577,104 @@ gh pr create --draft --head "$BRANCH" …
 
 ---
 
+# Night Shift retrospective batch 4 — FOLLOW-UPs 33–38 (post-mortem of the first fully-autonomous run, 2026-06-04)
+
+**Context.** belong issue #16 was the framework's **first issue→draft-PR run with zero manual intervention on the critical path** (2 iterations, 223,673/250,000 tokens, engine pushed + opened belong PR #21 natively). This batch is the *optimization* retrospective across all 12 sessions of the slice-02 campaign (issues #14/#15/#16, ~600k tokens measured). Nothing here is a run-blocker — the theme shifts from "make it work" to "make it efficient and self-feeding **without losing quality**": every fix below keeps the §114 reviewer, the real gates (testcontainers/sandbox), and red-first intact. Item 33 is the big one: a measured ~15k tokens of pure duplication per green iteration. Forensics: belong session logs `15-20260604-030121.log` + `16-20260604-040345.log`, belong PRs #19/#21.
+
+---
+
+## FOLLOW-UP 33 — The reviewer runs TWICE per green iteration: the loop re-invokes what the acceptance session already ran  ·  **Severity: HIGH (cost) / MEDIUM (correctness surface)**
+
+**Problem.** `skills/run-acceptance/SKILL.md` Step 8 invokes the reviewer and declares, verbatim: *"**This is the single reviewer invocation for the slice.** … Do not separately run `/code-review` in the same gating pass — that double-invokes the agent (redundant, double token spend)."* The result-file schema (Step 10) even carries the verdict: `"gates": { …, "reviewer": "should-fix" }`. **The Ralph loop violates its own skill's warning:** on every green iteration, `templates/ralph-local.sh.tmpl` invokes `/code-review` AGAIN (the `ralph.reviewer.invoked` green path) and re-derives severity from prose.
+
+**Measured, twice (NDJSON token checkpoints):**
+- belong #16 iteration 2: `158,799 → 208,171` (tdd + acceptance, whose session ran its own Step-8 reviewer — its result file's `failure_reason`/fields carried a reviewer verdict) → `208,171 → 223,673` for the loop's duplicate `/code-review` = **15,502 tokens of pure duplication**.
+- belong #15 run 3: `40,978 → 55,541` = **14,563 duplicated**.
+- Corroborating: #16 iteration 1's `failure_reason` ends "…; reviewer verdict BLOCKING." — written by the acceptance session, proving its embedded reviewer ran even on a failing pass (Step 8 says "always — passing or failing").
+
+**Verify:** `grep -n "code-review" templates/ralph-local.sh.tmpl` (loop's own invocation) vs `grep -n "single reviewer invocation" skills/run-acceptance/SKILL.md`; any green-run NDJSON shows the post-acceptance `ralph.reviewer.invoked` + token jump.
+
+**Fix.** Make the result file the single reviewer channel (the FU-14 pattern, applied to the last prose surface):
+1. Extend the Step-10 contract: alongside `gates.reviewer` (severity), the acceptance session writes the full reviewer report to **`.planning/acceptance/issue-<N>-reviewer.md`** and records `"reviewer_report": "<path>"` in the JSON. Schema docs updated (pairs with FOLLOW-UP 25b if a schema artifact lands).
+2. The loop's green path **reads** `jq -r .gates.reviewer` + the report file instead of invoking `/code-review`: `blocking` → FU-26 retry (post the report file's content as the issue comment); `clean/suggestion/should-fix` → PR, embedding the report file.
+3. Delete the loop's `/code-review` call. `ralph_reviewer_severity` (VERDICT parser) stays for the acceptance session's internal use / ad-hoc callers, but the loop no longer parses prose at all — severity arrives as a structured field.
+4. Mock `claude`'s acceptance branch writes the reviewer file + field; loop tests assert **zero** `/code-review` invocations in a normal green run and that blocking-in-file triggers the retry+comment path.
+
+**Quality argument (why this loses nothing):** the §114 reviewer still runs exactly once per gating pass, inside `/run-acceptance` where the skill says it belongs; the PR still embeds the full report; blocking still retries. Only the duplicate invocation and the prose-parsing surface disappear.
+
+**Acceptance.** Green-run NDJSON shows no `/code-review` call from the loop; tokens-per-green-iteration drop ≈15k in the loop tests' mock accounting; blocking-from-file → findings comment + retry; PR body carries the report from the file. Suite green.
+
+---
+
+## FOLLOW-UP 34 — The forensic `failure_reason` is logged but never fed back: the next iteration rediscovers what the last one already diagnosed  ·  **Severity: MEDIUM (convergence)**
+
+**Problem.** FU-14 gave failures a precise `failure_reason` (live example, #16 iteration 1: *"pnpm typecheck is red: FakeConnectedAccountRepo … missing findByConnectedAccountId/updateVerification; health.routes.test.ts Env fixture missing STRIPE_WEBHOOK_SECRET; … Fix the 3 test fixtures"* — an actionable TODO list). But the next iteration's `/tdd` prompt is **static**: the session must re-discover the failure by re-running the suite itself. It worked (#16 it2 converged in 14 min) but burns session time/tokens re-deriving known facts, and a subtler failure than "typecheck says X" might not be rediscovered at all.
+
+**Verify:** `grep -n '"/tdd for issue' templates/ralph-local.sh.tmpl` — one static prompt, no reason interpolation; compare it1's `failure_reason` with it2's prompt in any session log.
+
+**Fix.** The engine keeps the last iteration's reason (it already has it in the variable it logs); the next `/tdd` prompt appends: *"Previous iteration failed acceptance with: <reason, truncated ~600 chars>. Address this FIRST, then continue the slice."* Cleared after a green iteration. (Composes with FU-26: reviewer findings already arrive via issue comment; this covers gate/build failures.)
+
+**Acceptance.** Loop test: iteration N fails with a distinctive mock reason → iteration N+1's recorded prompt (mock `claude` logs prompts) contains it; green iteration → next prompt clean. Suite green.
+
+---
+
+## FOLLOW-UP 35 — `scenarios:*` label grammar is unvalidated: an unsupported form silently expands to ZERO scenarios  ·  **Severity: MEDIUM (a live near-miss)**
+
+**Problem.** The expanders (post-FU-21) accept compact `scn-031+032`, spelled, and comma forms — anything else (live near-miss: a **range form `scenarios:scn-031..038`** created by a Day Shift agent at issue creation) expands to **empty** with no error. Downstream, empty expansion is catastrophic-but-quiet: Step 3's all-`@manual` branch ("nothing to execute, expected 0"), sibling-exclusion gaps, per-scn summaries with no rows. The live trap was caught by luck (a human watching the contract.validated event) and hot-swapped minutes before the gate read it.
+
+**Verify:** `bash -c 'source templates/ralph-lib.sh; ralph_expand_scns "scn-031..038"'` → empty output, exit 0, no warning.
+
+**Fix — fail loudly at every layer that meets the label:**
+1. **Engine contract validation** (pre-iteration, where budget/labels are already checked): expand `$SCENARIOS`; if the label is non-empty but the expansion is empty → abort before iteration 1 with *"unparseable scenarios label '<value>' — canonical form is scn-NNN+NNN (see /to-issues)"*. Same fail-fast class as FU-18.
+2. **`check-invariants.mjs`**: any `scenarios:*` token containing characters outside `[0-9+,scn-]` (e.g. `..`) → CONFIG-class failure naming the file and the canonical form.
+3. Optional: `ralph_expand_scns` itself warns to stderr when it drops a non-empty segment (today it drops silently by design from #80 — keep the drop, add the warning).
+
+**Acceptance.** A `scn-031..038` label: engine refuses pre-iteration with the actionable message; invariants flag it offline; canonical forms unaffected. Tests for both layers.
+
+---
+
+## FOLLOW-UP 36 — Engine PR title/body are placeholder-grade: `--title "fix #N"`, thin body — humans retitle by hand  ·  **Severity: LOW (review UX)**
+
+**Problem.** The green path creates the PR with `--title "fix #$ISSUE_NUM"` and a body that carries iterations/scenarios/log-path but not the per-scenario outcomes or the issue's actual title. Both live PRs (belong #19, #21) were manually retitled and (for #19) re-bodied by the Day Shift. The result file has everything needed to compose a review-grade PR automatically.
+
+**Verify:** `grep -n 'fix #\$ISSUE_NUM' templates/ralph-local.sh.tmpl`; belong PR #21's original title.
+
+**Fix.** Title: `"$(gh issue view "$ISSUE_NUM" --json title --jq .title) (#$ISSUE_NUM)"` (sanitized/truncated). Body composed from `issue-<N>-result.json`: per-scenario ✅/🛑/📖 table, `ran/expected`, tokens consumed vs budget, reviewer severity + embedded report (FU-33's file), session log path, `Closes #N`. Keep it template-driven (a heredoc the consumer can tune).
+
+**Acceptance.** Loop test asserts the created PR title contains the mock issue's title and the body contains a per-scenario line and `Closes #N`.
+
+---
+
+## FOLLOW-UP 37 — Operational UX of the graduated tooling: no `--resume`, fixed silence threshold, commit-delta miscount  ·  **Severity: LOW-MEDIUM (3 small fixes, one PR)**
+
+**Problem (three live paper-cuts in `templates/ralph-isolated.sh` / `templates/ralph-watch.sh`).**
+(a) **No resume mode:** every #15 resume was manual (`cd` into the kept worktree, re-source `.env`, relaunch, re-bind the watcher) — three times in one night. The wrapper refuses an existing worktree dir by design but offers no sanctioned re-entry.
+(b) **Fixed silence threshold:** the watcher's `--silence-min` default (25) false-alerted on a perfectly healthy 36-minute first iteration (#16 it1 — first iterations are structurally the heaviest: full implementation). 
+(c) **Commit-delta miscount:** live, the watcher reported `commits nuevos: 0` for an iteration that produced commit `5b7ac1a` (belong #16 it1, notification at 04:40:22Z). Suspected: delta computed against a `LAST_HEAD` captured at watcher start vs the poll's read ordering, or `rev-list` arg orientation — reproduce in a replay/E2E test with a fixture repo that commits between polls, then fix. The delta feeds the environmental-blocker heuristic (failing + 0 commits), so a miscount degrades the watcher's best signal.
+
+**Verify:** (a) `./templates/ralph-isolated.sh <n>` against an existing dir → hard refusal, no alternative; (b)/(c) belong watcher transcript 04:28:56Z (false silence alert) and 04:40:22Z (delta 0 with 1 commit).
+
+**Fix.** (a) `--resume` flag: validates the worktree exists + has the engine + `.env`, skips create/install, relaunches in place (prints the watcher re-bind hint). (b) Silence threshold: default higher for iteration 1 (e.g. 45) or adaptive (`max(25, 1.5 × longest completed iteration)`). (c) Fix the delta with a pinned test (replay mode + a real tiny repo fixture).
+
+**Acceptance.** `--resume` re-runs in a kept worktree; no false silence alert on a long first iteration in the E2E test; delta test pins `commits: 1` for one commit between polls.
+
+---
+
+## FOLLOW-UP 38 — Two strategic decisions + the instrumentation to make them with data  ·  **Severity: decision (maintainer)**
+
+**Problem.** Two flow-level gaps surfaced that need a maintainer ruling, plus one measurement gap that blocks principled optimization:
+(a) **Slice-group execution model.** `/to-issues` PR-Group promises a cumulative branch + one `Closes #a #b #c` PR, but each Ralph run branches from `main` → sibling PRs conflict (live: belong #19 and #21 both touch `container.ts`/ports; the second to merge needs manual resolution). Options: **(a1)** document a "merge-before-next-sibling" cadence (HITL-friendly — `require-human-review` slices pause there anyway); **(a2)** support base-branch chaining (`ralph-isolated --base <prev-branch>` exists; the engine would need PR-base awareness + PR-Attr finding attribution). 
+(b) **Input-token economics.** A full slice costs 150-250k measured, dominated by INPUT tokens (each session re-reads issue+skills+code from scratch; sessions are intentionally fresh). Candidate levers — skill-payload pruning for in-loop calls, `--continue`ing acceptance from the tdd session (context reuse vs contamination trade-off) — should NOT be attempted blind.
+(c) **The instrumentation for (b):** the NDJSON has per-event cumulative/delta but no per-call breakdown event. Add `ralph.call.completed {call: "tdd"|"run-acceptance"|"code-review", tokens: N, duration_s: S}` — then one more live slice yields the data to decide (b) (and to validate FU-33's ~15k saving in production).
+
+**Verify:** belong PRs #19/#21 overlapping files; measured anatomy in `/to-issues` Step 4 (FU-31) currently sourced from manual checkpoint subtraction.
+
+**Fix.** (a) Record the ruling as a `core/13` subsection (or ADR) + align `/to-issues`' PR-Group text with the chosen model. (b) defer until (c) ships. (c) Emit the per-call event from `ralph_call_claude_with_retry`'s caller side; loop tests assert presence and shape.
+
+**Acceptance.** A documented decision for (a) that `/to-issues` and the engine agree on; `ralph.call.completed` events in every session log with a pinned test; (b) explicitly deferred-with-data-plan, not silently dropped.
+
+---
+
 ## Suggested order
 
 1. **Items 1 + 9** (adoption copy-list correctness) — highest real risk; same class (`/setup` copies the wrong set: misses hooks, ships framework-self skills). Do together — both edit `skills/setup/SKILL.md`'s copy logic.
@@ -587,6 +685,7 @@ gh pr create --draft --head "$BRANCH" …
 6. ~~**Items 14–17 (Night Shift kill chain)**~~ — ✅ **DONE** (#63, #64, #65+#66, #68) — see the PR map banner above.
 7. ~~**Items 18–19** (pre-flight + budget accounting)~~ — ✅ **DONE** (#69, #70).
 8. ~~**Items 20–22** (preflight filename matching, INV-5 compact labels, slug sanitization)~~ — ✅ **DONE** (#72, #73, #71).
-9. **Items 26–30 (batch 3 — BLOCKS the next consumer Night Shift run, belong #16):** 29 first (CRITICAL — every successful run dies at `gh pr create`), then 27 (false-blocking severity; consumer patch liftable verbatim), 26 (findings → issue comment; reuses FU-17's channel), 28 (pre-delete result file), 30 (block-path robustness). All five carry live forensics: belong issue #15 comments + session logs + PR #19 body. **31** (budget-heuristics docs) and **32** (tooling graduation — maintainer decision) ride along, non-blocking.
+9. ~~**Items 26–30 (batch 3)**~~ — ✅ **DONE** (#83 cumulative + #84; #85 resolved 32). Validated live: belong #16 was the first fully-autonomous issue→draft-PR run (2 iterations, engine pushed + opened the PR natively).
+10. **Items 33–38 (batch 4 — optimization retrospective; nothing blocks a run):** 33 first (HIGH: ~15k tokens of measured pure duplication per green iteration — the loop re-invokes the reviewer the acceptance session already ran; the fix also removes the last prose-parsing surface). Then 34 + 35 (small, convergence + a live near-miss class), 36 + 37 (UX, batchable), 38 (maintainer decisions + the per-call token instrumentation that gates further optimization). Quality bar for the whole batch: §114 reviewer still runs once per gating pass, real gates and red-first untouched — these remove duplication and fragility, not rigor.
 
 Each item: branch off `main`, fix, run the four gates, `Closes`/reference as appropriate, verify `MERGEABLE/CLEAN` before merge.
