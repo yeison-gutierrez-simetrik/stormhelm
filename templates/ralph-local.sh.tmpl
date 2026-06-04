@@ -268,7 +268,14 @@ for i in $(seq 1 "$MAX_ITER"); do
   check_budget_or_block "tdd"
 
   ACCEPTANCE_RC=0
-  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason." >/dev/null || ACCEPTANCE_RC=$?
+  # FOLLOW-UP 28: delete the previous result BEFORE the acceptance session.
+  # A live retry session decided "nothing changed since the last green run"
+  # and skipped the mandatory rewrite — the (correct) staleness check then
+  # burned the iteration on result-file-stale. With the pre-delete, a
+  # session that skips the write produces result-file-missing: an
+  # unambiguous contract violation, never confusable with staleness.
+  rm -f "$ACCEPT_RESULT_FILE"
+  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, failure_reason. ALWAYS rewrite that file fresh in THIS run — even if nothing changed since a previous green run." >/dev/null || ACCEPTANCE_RC=$?
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"

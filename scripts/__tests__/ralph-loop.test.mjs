@@ -410,6 +410,26 @@ test('FU-26: blocking findings are posted as an issue comment before the retry',
   });
 });
 
+// ── FOLLOW-UP 28: pre-delete the result file before each acceptance session ───
+
+// T29 — a pre-seeded GREEN result file + a session that skips the mandatory
+// rewrite must read as result-file-missing (contract violation), never go
+// green off the seed nor read as -stale (the live confusion).
+test('FU-28: stale green seed + no rewrite → result-file-missing, never green', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, '.planning', 'acceptance'), { recursive: true });
+    writeFileSync(join(dir, '.planning', 'acceptance', 'issue-1-result.json'),
+      '{ "issue": 1, "exit_code": 0, "scenarios": { "scn-001": "passed" }, "ran": 1, "expected": 1, "failure_reason": null }');
+    const { status } = runRalph(dir, ['1', '1'], { MOCK_NO_RESULT_FILE: '1' });
+    assert.notEqual(status, 0, 'a skipped rewrite must never ride a previous green');
+    const ev = readEvents(dir, 1);
+    const fail = ev.find((e) => e.event === 'ralph.iteration.completed' && e.details.outcome === 'acceptance-failing');
+    assert.match(fail.details.reason, /result-file-missing/, 'unambiguous contract violation');
+    assert.doesNotMatch(fail.details.reason, /stale/, 'never confusable with staleness');
+    assert.ok(!names(ev).includes('ralph.pr.opened'));
+  });
+});
+
 // ── Review adjustment 1: @manual scenarios in the result contract (§60) ───────
 
 // A scenarios{} entry of "manual" is a §60 exclusion, not a failure — it must
