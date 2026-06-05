@@ -53,6 +53,10 @@ export function detectCeremony(records) {
         if (ctx) contexts.add(ctx);
       }
     }
+    // FOLLOW-UP 54: slice-doc `- **Module:** <Context> → …` lines declare
+    // their bounded context explicitly — an in-document cross-context source
+    // that works at /to-issues time and is layout-independent.
+    for (const c of r.declared_contexts ?? []) contexts.add(c);
   }
   const module_count = modules.size;
   const context_count = contexts.size;
