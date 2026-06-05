@@ -839,3 +839,256 @@ and iterates **in `gh issue list` default order: created DESC** — for a founda
 **Verify:** (a) `sed -n '325,335p' templates/ralph-local.sh.tmpl` + the queue loop's recursion with no reset; (b) `grep -n 'ISSUE.*log' templates/ralph-watch.sh` → issue-scoped glob; `grep -rn "queue.skipped" templates/ralph-watch.sh` → 0; (c) `grep -rci claim templates/ralph-local.sh.tmpl` → 0.
 
 **Acceptance.** (a) the two-independent-issues loop test pins clean PR bases; (b) `ralph-watch.sh --queue` follows a whole queue night and surfaces skip events (replay-tested with a fixture queue log); (c) the constraint is documented where queue mode is described (or claims implemented with a race test). Suite green.
+
+---
+
+# Batch 8 — slice-03-planning + slice-04 campaign retrospective (belong, 2026-06-05)
+
+Context: one Day-Shift session ran slice-03's full upfront pipeline, then the slice-04 campaign
+end-to-end (4 issues: 1 hitl + 3 Ralph chained via per-issue `ralph-isolated --base`; merge trains in
+belong AND the adopted Python catalog repo; first cross-service E2E 13/13 incl. real Stripe). All
+gates green; these five are the session's structural findings. Suggested order: 50 → 51 → 52 → 53 → 54
+(50 is the load-bearing one; 51 is a one-liner that burned an iteration; the rest are independent).
+
+## FOLLOW-UP 50 — §60 full-suite CI gate fails on approved-but-unimplemented scenarios: the status-aware acceptance scoping exists only consumer-side, and the obvious wrapper fix is a silent no-op under cucumber-js v12  ·  **Severity: HIGH (blocks every planning PR and every in-flight slice PR of any consumer that lands `.feature` files before implementation)**
+
+**Problem.** The §58 lifecycle lands approved `.feature` files BEFORE their step definitions exist
+(undefined-by-design until each issue's /tdd — core/12 even documents that dry-run exit codes lie for
+this reason). But the §60 CI contract (`test:acceptance` → `cucumber-js --tags @release`) runs the FULL
+feature set: every approved-but-unimplemented scenario is `undefined` → exit 1 → the planning PR that
+introduces scenarios is red, and every subsequent in-flight slice PR stays red until close-out. Slice 02
+never hit it (its CI arrived at close-out with everything implemented); slice-03's planning PR hit it
+the first time CI saw an in-flight surface. belong fixed it consumer-side and the fix is NOT vendored
+back: the framework still ships the gate that fails.
+
+**The trap that invalidates the obvious fix (must be documented in the contract):** a wrapper script
+that computes the implemented-only file list and passes it as CLI positional paths is a **silent
+no-op** — cucumber-js v12 MERGES config `paths` with CLI paths (override is deferred to a future major;
+it prints a deprecation notice and runs the union). belong's first fix shipped exactly that wrapper and
+the full suite ran anyway. The narrowing must happen INSIDE the cucumber config (compute `paths` there,
+behind an env flag).
+
+**Live evidence:** belong PR #33 (planning PR, first red): run 26966545769 — `76 scenarios (38
+undefined, 38 passed)` WITH the wrapper fix present (the no-op); run 26966875546 after moving the
+filter into `cucumber.mjs` — `38 scenarios (38 passed)` + explicit `[cucumber.mjs] implemented-only
+gate: skipping 2 in-flight feature file(s)` log. Working implementation to lift verbatim: belong
+`cucumber.mjs` on main (commit 21aa2c1: `CUCUMBER_IMPLEMENTED_ONLY=1` env flag set by
+`test:acceptance`/`test:smoke`; reads each feature's `# status:` header; skipped files logged to
+stderr — never silent truncation). Side-discovery the same fix surfaced: slice-01's features were never
+flipped to `# status: implemented` at close-out (pre-INV-8 legacy) and would have silently left the
+regression surface — the gate makes the INV-8 flip load-bearing, so the docs must say so.
+
+**Verify:**
+```bash
+git grep -rn "CUCUMBER_IMPLEMENTED_ONLY\|implemented-only" origin/main -- templates skills docs  # → no hits today
+# Repro shape: any consumer repo with one implemented + one approved-no-steps feature; run the §60 gate.
+```
+
+**Fix.** (1) Ship a cucumber config template (or a documented config block) computing `paths` from the
+`# status:` headers behind `CUCUMBER_IMPLEMENTED_ONLY=1`; `test:acceptance`/`test:smoke` set the flag
+(plain invocations — the FU-44 pnpm `--` rule still holds). (2) core/12 §60: state the contract
+explicitly — "the CI regression surface is `# status: implemented` features only; in-flight slices gate
+per-issue via /run-acceptance's `--tags`; the close-out flip is the act of joining the CI surface
+(INV-8)". (3) /setup + close-out skill: same statement (FU-17 anti-drift — gate, docs, and skill must
+not diverge). (4) Document the cucumber v12 CLI-path-merge trap next to the config so nobody
+re-implements the wrapper.
+
+**Acceptance.** Fixture test: repo with implemented+approved features → gate runs only the implemented
+one and exits 0, logs the skip; with the flag unset, full suite (both) runs. A fresh consumer's
+planning PR (features-without-steps) passes §60 CI without manual fixes.
+
+## FOLLOW-UP 51 — /setup's .gitignore block omits the Claude-harness runtime artifacts: a committed `.claude/scheduled_tasks.lock` cost a Night-Shift iteration (~92k tokens) to a BLOCKING reviewer verdict  ·  **Severity: MEDIUM-HIGH (one-line fix; silent until it burns an iteration)**
+
+**Problem.** `skills/setup/SKILL.md` appends `.planning/`, `.claude/webfetch-cache/`, `.worktrees/` to
+.gitignore — but not the other runtime files the Claude harness drops in `.claude/` during normal
+operation (`scheduled_tasks.lock` observed live; `settings.local.json` is the same class). Any
+`git add -A` (a pattern /tdd sessions use) sweeps them into a commit; the reviewer then correctly
+blocks the PR for an untracked-runtime-artifact violation — a whole iteration spent on a file /setup
+should have ignored on day one.
+
+**Live evidence:** belong session `43-20260605-025715` iteration 1: outcome `acceptance-failing`,
+reason verbatim: *"Remove the accidentally committed runtime lock .claude/scheduled_tasks.lock
+(tracked, not gitignored; introduced by 3ba0b4f) and add it to .gitignore (§35/§76); reviewer verdict
+BLOCKING"* — 92,649 tokens consumed before iteration 2 went green.
+
+**Verify:**
+```bash
+git show origin/main:skills/setup/SKILL.md | grep -A6 "gitignore additions"   # block lacks .claude runtime files
+```
+
+**Fix.** Extend the heredoc: `.claude/scheduled_tasks.lock`, `.claude/settings.local.json` (and any
+other runtime names the maintainer knows the harness writes). Consider the inverse pattern (`.claude/*`
++ explicit un-ignores for the vendored `skills/ hooks/ agents/ settings.json`) — maintainer's call;
+the explicit-list version is the minimal safe fix.
+
+**Acceptance.** Fresh /setup run → `git add -A` immediately after a harness session stages no
+`.claude/` runtime files; fixture asserts the gitignore content.
+
+## FOLLOW-UP 52 — reviewer.md MANDATES running `check-invariants.mjs`, but the agent sandbox refuses the invocation: the mandated step is structurally dead in consumers, silently downgraded to a "human should run it" caveat  ·  **Severity: MEDIUM (every sensitive-slice review ships with its invariant evidence missing)**
+
+**Problem.** `agents/reviewer.md` line ~43: *"Before auditing, run `node scripts/check-invariants.mjs`.
+Treat every ❌ as 🛑 blocking."* In live runs the reviewer's sandbox refuses the `node` invocation
+(even read-only), so every report substitutes manual spot-checks plus a delegation note. The mandate
+exists; the harness makes it unexecutable; nothing fails loudly — the gap travels as prose inside each
+PR body. Two consecutive slices show the identical caveat.
+
+**Live evidence:** belong PR #38 reviewer report, verbatim: *"`node scripts/check-invariants.mjs` was
+blocked by the sandbox (the harness refused the `node` invocation even read-only)… **I could not run
+the executable gate; a human or the Ralph loop should run it before merge**"*; belong PR #54 report
+carries the same caveat.
+
+**Verify:**
+```bash
+git show origin/main:agents/reviewer.md | sed -n '40,46p'   # the mandate
+# vs. any consumer reviewer report: the sandbox-refusal caveat (belong PRs #38, #54 bodies)
+```
+
+**Fix (recommended).** Structured contract over agent shelling-out: the ENGINE runs
+`check-invariants.mjs` once per gating pass (it already can — it's the same process that runs
+acceptance) and injects the machine result (the script's line output, or better a `--json` mode) into
+the reviewer's context; reviewer.md changes from "run it" to "read the injected result; missing result
+= blocking finding". Alternative (weaker): grant the reviewer agent an explicit Bash allowance for
+exactly that command — fragile across harness permission models, which is how this broke. Keep
+reviewer.md + engine + core/13 in sync (FU-17).
+
+**Acceptance.** A gating pass on a consumer repo produces a reviewer report whose invariant section
+cites the actual gate output (fixture: mock engine injects a failing INV → reviewer must emit 🛑);
+no report may contain the "could not run the gate" caveat.
+
+## FOLLOW-UP 53 — slice-group merge-train hazards are undocumented: manual deletion of a stacked PR's base branch CLOSES the dependent PR irrecoverably; `--delete-branch` fails from detached HEAD  ·  **Severity: MEDIUM (one PR lost live; recovery = recreate + re-run CI)**
+
+**Problem.** core/13 §123 documents the Night-Shift stacking model and merge ORDER (merge commits,
+base merges first) but not the merge-train mechanics, and two of them bit live: (a) after merging the
+root PR, deleting its branch MANUALLY (`git push origin --delete`) closes every PR based on it — GitHub
+only auto-retargets dependents when the deletion happens AS PART of the merge; a closed PR with a
+deleted base can be neither reopened nor retargeted (GraphQL refuses both). (b) `gh pr merge
+--delete-branch` errors out entirely when the local checkout is on a detached HEAD ("could not
+determine current branch"), which is exactly the state ralph-isolated worktree operation leaves the
+main checkout in. The recovery (recreate the PR from the surviving head branch, re-run CI) costs a full
+CI cycle and orphans the review history on the closed PR.
+
+**Live evidence:** belong PR #52 (stacked on #51's branch) CLOSED by a manual base-branch deletion
+post-#51-merge; `gh pr edit 52 --base main` → *"Cannot change the base branch of a closed pull
+request"*; `gh pr reopen 52` → refused; superseded by recreated PR #55 (note in its body). The
+detached-HEAD failure: first `gh pr merge 51 --merge --delete-branch` errored *"could not determine
+current branch: failed to run git: not on any branch"* (the merge had succeeded server-side — the
+failure was local cleanup, masking the result).
+
+**Verify:** the two PR timelines above; GitHub's documented retarget-on-merge-deletion behavior.
+
+**Fix.** (1) core/13: a "merge train runbook" paragraph — assert `MERGEABLE/CLEAN` structurally (the
+existing lesson), merge with merge commit, then for each dependent: RETARGET FIRST (`gh pr edit
+--base`), THEN delete the branch; never `git push --delete` a branch that is any open PR's base.
+(2) Recommended: graduate a `templates/merge-train.sh <pr...>` that encodes the sequence (state
+assertion, merge, dependent discovery via `gh pr list --base <branch>`, retarget, safe delete) — it
+also mechanizes the older merged-at-UNSTABLE lesson in one place. (3) Note the detached-HEAD trap next
+to `--delete-branch` guidance.
+
+**Acceptance.** Runbook present in core/13; if the script ships: fixture with a mocked `gh` that
+refuses deletion while an open PR bases on the branch, asserts retarget-before-delete ordering.
+
+## FOLLOW-UP 54 — detect-ceremony runs at /to-issues with inputs that cannot exist yet (the /plan "Layers affected" format): every multi-module slice under-detects and needs a manual audited flip — 3 for 3 in this consumer  ·  **Severity: MEDIUM-LOW (conservative-by-design, but the detector has never once detected)**
+
+**Problem.** `/to-issues` Step 2 says "don't eyeball the module count — derive it" via
+`detect-ceremony.mjs` over the issue files. But the parser reads the `/plan` "Layers affected" format,
+and at /to-issues time the plans DON'T EXIST YET (they're Step 9 of /feature; /plan is even deferred
+past implementation-of-dependencies in real operation). Result: the detector returns
+`{module_count: 0, labels: ["feature:single-module"]}` on every real slice doc, and the operator
+hand-applies `feature:multi-module`/`cross-context` with an audited-flip note — slices 02, 03 AND 04 in
+this consumer, 3 for 3. Under-detection is documented as "safe by design", but a detector that has
+never fired isn't conservative, it's dead weight plus recurring manual ritual (signal class:
+intervention-as-spec).
+
+**Live evidence:** belong `node scripts/detect-ceremony.mjs issues/03-register-provider-agent.md` →
+`{"module_count": 0, "labels": ["feature:single-module"]}` against a slice doc whose `### Layers`
+section names 3 modules verbatim (same for issues/04). Manual-flip notes embedded in both local issue
+files' label blocks.
+
+**Verify:**
+```bash
+# any consumer slice doc with a "### Layers" / "- **Module:**" section:
+node scripts/detect-ceremony.mjs issues/<slice>.md   # → module_count: 0
+```
+
+**Fix (recommended).** Teach the parser the slice-doc shape as a second structured input: a `###
+Layers` block with a `- **Module:**` line (`Marketplace Backend → Onboarding, Auth, Catalog
+Integration` ⇒ 3 modules) — it's already a de-facto structured contract in the slice template.
+Alternative: re-sequence (provisional detection at /to-issues from `features/<ctx>/` dir count of the
+approved scenarios + confirmation at /plan with mandatory label rotation per FU-49's body↔label rule).
+Either way, /to-issues' "don't eyeball it" instruction becomes honest. Sync: script + skill + ADR-0002
+note (FU-17).
+
+**Acceptance.** Fixture slice doc (3 modules in `### Layers`, 2 contexts in approved features) →
+detector emits `feature:multi-module` (+`cross-context` where the features/ dirs show ≥2); the
+existing /plan-format fixtures stay green; /to-issues docs updated to name both input shapes.
+
+---
+
+# Slice-03 campaign stragglers — FOLLOW-UPs 55-56 + a correction to FOLLOW-UP 53 (2026-06-05)
+
+**Context.** Two findings from the belong slice-03 campaign (2026-06-04/05) that batch 8 did not cover, plus a live-proven correction to FU-53's recovery claim. Forensics: belong PRs #35-#40/#48-#50, issues #42-#45.
+
+---
+
+## CORRECTION to FOLLOW-UP 53 — the dependent-PR closure is NOT irrecoverable (proven live, slice 03)
+
+FU-53 states the base-branch deletion closes the dependent PR "irrecoverably; recovery = recreate + re-run CI". The slice-03 merge train hit the identical trap (belong #35 merged `--delete-branch` → GitHub closed #36/#37/#38) and recovered **all three PRs without loss and without recreating anything**:
+
+```bash
+# 1. restore the deleted base branch at its merged head sha (no checkout needed):
+git push origin <merged-head-sha>:refs/heads/<base-branch>
+# 2. reopen each closed dependent, then retarget it:
+gh pr reopen <N> && gh pr edit <N> --base main
+# 3. delete the restored branch again (now nothing depends on it):
+git push origin --delete <base-branch>
+```
+
+Constraint discovered on the way: `gh pr edit --base` REFUSES on a closed PR, and `gh pr reopen` refuses while the base branch is missing — so the restore (step 1) must come first; the order is restore → reopen → retarget → delete. Worth folding into FU-53's core/13 documentation (and it makes the preferred prevention — retarget children BEFORE deleting the base — cheap to justify: the cure exists but is a 3-step dance).
+
+**Verify:** belong #36/#37/#38 timeline 2026-06-04 ~23:12-23:14Z (closed on #35's merge, reopened+retargeted minutes later, all three merged with original CI history intact).
+
+---
+
+## FOLLOW-UP 55 — FU-47a's Sonar left-shift cannot see duplication: the QG's `Duplication on New Code` failed twice in one campaign and the density math punishes SMALL diffs hardest  ·  **Severity: MEDIUM (bites any consumer PR that repeats ≥1 boilerplate block; eslint structurally cannot catch it)**
+
+**Problem.** FU-47a shipped `eslint-plugin-sonarjs` so the recurrent S-rule classes fail locally inside /tdd. That covers single-file rules (nested ternary, duplicated branches, optional chain) but **duplication density is cross-file and diff-relative** — lint runs per-file and cannot evaluate either. Two consequences proven live in one campaign:
+1. **Retarget re-evaluation:** a stacked PR that absorbs its base (merge train advance) SHRINKS its "new code" denominator — belong PR #38 went from QG-passed to **3.8% > 3% duplication** after retargeting to main, with zero new commits.
+2. **Small-diff density:** a surgical PR has a tiny denominator — belong PR #50 (85 insertions) hit **21.7%** from ONE 9-line mapping block repeated across two route files.
+
+Both were resolved the same way (the only correct way): locate the real clones and extract them (`managed-agent-gate.ts`, `idempotencyInFlight()` in `result-to-http.ts`) — never threshold-fiddling. But the loop is post-PR each time: push → wait for analysis → fail → locate clones locally → extract → re-push (≈10-15 min + a CI cycle per hit).
+
+**Live evidence:** belong PR #38 (Sonar comment "3.8% Duplication on New Code (required ≤ 3%)", resolved by commit `76c0139`); belong PR #50 (comment "21.7% Duplication on New Code", resolved by commit `894cf27`). Clone localization both times via ad-hoc `npx -y jscpd --min-tokens 70 <changed prod files>` — which found the exact blocks Sonar saw, locally, in seconds.
+
+**Verify:**
+```bash
+# the gap: nothing in the consumer's local gates measures duplication
+git -C <consumer> grep -ln "jscpd\|duplication" package.json eslint.config.js scripts/ .claude/skills/ | wc -l   # → 0
+# the locator that worked twice (run on any consumer diff):
+npx -y jscpd --min-tokens 70 $(git diff --name-only origin/main...HEAD -- 'src/**/*.ts' | grep -v __tests__)
+```
+
+**Fix — two halves, the second is the durable one:**
+1. **Document the pattern** where FU-47a's left-shift is described (skills/setup Sonar section + core/13 HC2 ownership note): *duplication findings are resolved by extracting the clone, never by threshold changes; `npx -y jscpd --min-tokens 70 <changed files>` locates Sonar's clones locally; stacked PRs re-evaluate density on retarget — expect QG flips with zero new commits.*
+2. **Left-shift the measurement** (recommended): an advisory duplication check before PR-open — e.g. `/run-acceptance` or the engine's pre-PR step runs the jscpd one-liner over the slice's changed production files and WARNS (not blocks) above ~3%. `npx -y` keeps the zero-deps convention (no package.json change); advisory keeps false-positive cost at zero while killing the post-PR discovery loop. If the maintainer prefers no npx-at-gate-time, half 1 alone is acceptable — mark that choice.
+
+**Acceptance.** The Sonar adoption docs state the duplication-resolution pattern + the retarget re-evaluation caveat; if half 2 lands: a consumer slice with a deliberately duplicated 9-line block sees the warning BEFORE `gh pr create` (loop-test pin with a fixture diff), and a clean slice sees none. Framework gates stay green.
+
+---
+
+## FOLLOW-UP 56 — multi-repo slice-groups: cross-repo dependencies are inexpressible to the queue's dep grammar, and PR refs inside `## Depends on` parse as nonexistent ISSUES  ·  **Severity: LOW-MEDIUM today (the §63 hitl rule absorbed it); decision (maintainer) on the durable grammar**
+
+**Problem.** Slice 04 is belong's first BI-REPO slice-group (belong #42-#45 + reform issues in `Belong-Universe/universe#46/#47`). Two grammar gaps surfaced in `ralph_deps_from_body` / the queue's eligibility logic:
+1. **Cross-repo deps are prose-only.** belong #42's `## Depends on` carries "- Universe reform issues (…tracked in `Belong-Universe/universe`)" — the parser extracts same-repo `#N` only, so the queue cannot gate on universe#46/#47. The slice survived because #42 is `shift:hitl` (capability introduction, §63 Step 3b) — the human IS the cross-repo gate. That coincidence is load-bearing and nowhere stated.
+2. **PR refs in the section parse as issues.** The same section says "(PRs #35-#38 — provider_agents anchor)" — the parser would extract #35..#38, `queue_state_of` looks them up as ISSUES (`gh issue list` doesn't return PRs) → MISSING → "depends on #35 which does not exist — treating as blocked". Loud-and-safe (never silent), but a ralph-ready issue whose author annotates a dep with PR numbers blocks the night with a misleading reason.
+
+**Verify:**
+```bash
+gh issue view 42 --repo Belong-Universe/belong-marketplace --json body --jq .body | sed -n '/## Depends on/,/^## /p'
+# parser behavior: source templates/ralph-lib.sh; <that section> | ralph_deps_from_body  → emits 35 36 37 38 (PRs-as-issues) and nothing for universe#46/#47
+```
+
+**Fix — present both, mark (a) recommended now:**
+- **(a) Rule + hygiene (documentation, cheap):** in /to-issues + /plan + core/13: *`## Depends on` lists ONLY same-repo issue refs (`- #N`), one per line; cross-repo dependencies make the issue `shift:hitl` (the human gates the cross-repo state — generalizing §63 Step 3b); never cite PR numbers inside the section (annotate them elsewhere in the body).* Optionally the FU-49-style backstop also warns when a `## Depends on` ref resolves to a PR instead of an issue.
+- **(b) Grammar support (build when a 2nd multi-repo consumer exists):** parser accepts `owner/repo#N`, `queue_state_of` resolves via `gh -R owner/repo`; chained mode necessarily excluded for foreign deps (no branch to chain). Costs cross-repo API calls per eligibility pass and a claim story per §63 — not justified by one consumer.
+
+**Acceptance.** (a): the three artifacts state the same contract (the FU-17 anti-drift rule); a fixture issue whose Depends-on cites a PR number produces the explicit warning, not "nonexistent issue". (b) if ever built: diamond fixture with a foreign dep pins merged-deps-only gating. Suite green either way.
