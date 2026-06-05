@@ -330,11 +330,17 @@ of them destroyed a PR live:
    dependent PRs only when the head branch is deleted AS PART of its own
    PR's merge flow (the web button / merge-with-delete). A **manual**
    deletion (`git push origin --delete <branch>`) CLOSES every PR based on
-   that branch — and a closed PR with a deleted base can be neither
-   reopened nor retargeted (the API refuses both); recovery is a recreated
-   PR + a full CI cycle + orphaned review history. Sequence per dependent:
-   `gh pr list --base <branch>` → `gh pr edit <dep> --base <new-base>` →
-   only THEN delete the branch.
+   that branch. Recovery exists but is a strict 3-step dance (proven live —
+   the order matters because `gh pr edit --base` refuses on a closed PR and
+   `gh pr reopen` refuses while the base branch is missing):
+   ```bash
+   git push origin <merged-head-sha>:refs/heads/<base-branch>  # 1. restore
+   gh pr reopen <N> && gh pr edit <N> --base main               # 2. per dependent
+   git push origin --delete <base-branch>                       # 3. delete again
+   ```
+   Original review history and CI results survive. Prevention is still
+   cheaper: per dependent, `gh pr list --base <branch>` →
+   `gh pr edit <dep> --base <new-base>` → only THEN delete the branch.
 3. **`--delete-branch` from a detached HEAD fails the LOCAL half** ("could
    not determine current branch") *after* the server-side merge succeeded —
    exactly the state `ralph-isolated` worktree operation leaves the main
@@ -366,6 +372,13 @@ branches). The contract:
 - **Left-shift what you can:** `/setup` adds `eslint-plugin-sonarjs` to the
   consumer's lint config so the recurrent S-rule classes fail locally inside
   `/tdd` — the loop that CAN iterate — instead of post-PR where nobody does.
+- **Duplication findings (FOLLOW-UP 55)** are resolved by extracting the
+  clone, never by threshold changes. eslint cannot see this class
+  (cross-file, diff-relative); `npx -y jscpd --min-tokens 70 <changed
+  files>` locates Sonar's clones locally, and the engine runs it advisorily
+  pre-PR. Stacked PRs re-evaluate density on retarget — expect QG flips
+  with zero new commits; the answer is still extraction (or an explicit
+  human disposition), never the threshold.
 - **Coverage-on-new-code under Automatic Analysis reads 0.0% on every PR**
   (no CI test run → no lcov) and the gate passes anyway: reviewers must
   ignore that tile, or the consumer must switch to CI-scanner mode with
@@ -438,6 +451,15 @@ structured precisely so automation can read it):
   from a sibling's tip and ship its commits in the wrong PR. Chained items
   keep their explicit `--base`. No mid-night re-fetch: one consistent
   snapshot per night.
+- **Dep-grammar contract (FOLLOW-UP 56):** `## Depends on` lists **same-repo
+  ISSUE refs only** (`- #N`, one per line). Never cite PR numbers inside the
+  section (annotate them elsewhere in the body — the engine warns when a ref
+  resolves to a PR). **Cross-repo dependencies make the issue `shift:hitl`**:
+  the human is the cross-repo gate (generalizing §63's capability rule —
+  live, that coincidence silently absorbed the first bi-repo slice).
+  Cross-repo grammar (`owner/repo#N` + remote state resolution) is
+  deliberately DEFERRED until a second multi-repo consumer exists: it costs
+  remote API calls per eligibility pass and a §63 claim story.
 - **One queue worker per repo (FOLLOW-UP 46c):** nothing claims an issue
   for a worker, so two concurrent queue workers would double-process the
   same `ralph-ready` set. Run ONE queue per repo; parallelism is explicit

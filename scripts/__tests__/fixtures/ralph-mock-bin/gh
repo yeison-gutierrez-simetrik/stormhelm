@@ -43,6 +43,12 @@ budget:50k}"
     if [ -n "$dep" ] && eval "[ -n \"\${MOCK_PR_BRANCH_${dep}:-}\" ]"; then
       eval "printf '%s\n' \"\$MOCK_PR_BRANCH_${dep}\""
     elif [ -n "${MOCK_PR_LIST:-}" ]; then printf '%s\n' "$MOCK_PR_LIST"; fi ;;
+  "pr view")
+    # FOLLOW-UP 56: exists only when listed in MOCK_PR_EXISTS (space-sep).
+    case " ${MOCK_PR_EXISTS:-} " in
+      *" $3 "*) echo "pr #$3" ;;
+      *) echo "no pull requests found" >&2; exit 1 ;;
+    esac ;;
   "pr create")
     # Real gh contract (FOLLOW-UP 29): creating a PR for a branch that was
     # never pushed aborts. The sentinel is written by the mock git's `push`.

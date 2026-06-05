@@ -435,7 +435,24 @@ pnpm add -D eslint-plugin-sonarjs
 The three classes seen live (duplicated `case` blocks, nested ternaries,
 missing optional chains) are all covered by the plugin's recommended set.
 Post-PR findings that still appear are owned by HUMAN CHECKPOINT 2 (see
-`core/13`). **Coverage note:** under Automatic Analysis the
+`core/13`).
+
+**Duplication is the class eslint structurally CANNOT catch (FOLLOW-UP
+55):** the Quality Gate's "Duplication on New Code" is cross-file and
+diff-relative — lint runs per-file. The resolution pattern, both times it
+hit live: **extract the clone, never touch the threshold.** Locate Sonar's
+exact clones locally in seconds:
+
+```bash
+npx -y jscpd --min-tokens 70 $(git diff --name-only origin/main...HEAD -- 'src/**/*.ts' | grep -v __tests__)
+```
+
+Two density traps to expect: a SMALL diff has a tiny denominator (one
+repeated 9-line block in an 85-line PR read as 21.7%), and a stacked PR
+RE-EVALUATES on retarget (absorbing the base shrinks "new code" — a passed
+QG can flip red with zero new commits). The Ralph engine also runs this
+check advisorily before opening each PR and warns above the default
+threshold. **Coverage note:** under Automatic Analysis the
 "Coverage on New Code" tile reads 0.0% on every PR (no CI test run → no
 lcov) and the gate passes anyway — reviewers ignore that tile, or switch to
 CI-scanner mode with `sonar.javascript.lcov.reportPaths`.

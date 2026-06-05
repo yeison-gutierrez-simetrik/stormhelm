@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Mock `npx` (FOLLOW-UP 55): the engine invokes `npx -y jscpd ...` advisorily
+# pre-PR. MOCK_JSCPD_CLONES=1 → report a clone; default → clean output.
+if [ -n "${MOCK_JSCPD_CLONES:-}" ]; then
+  echo "Clone found (typescript):"
+  echo " - src/routes/a.ts [10:1 - 19:1] (9 lines, 78 tokens)"
+  echo "   src/routes/b.ts [22:1 - 31:1]"
+  echo "Found 1 clones."
+else
+  echo "Found 0 clones."
+fi
+exit 0
