@@ -319,6 +319,37 @@ Two cheap checks close the gap and are **mandatory** at HUMAN CHECKPOINT 2:
 
 The script is zero-deps, uses `gh` + `git` already required by the framework, and never touches state — pure read + assert. Skipping it is a §1 violation (proportionality: the cost is ~5 seconds; the consequence of skipping has been a half-day recovery in real use).
 
+### Merge-train runbook for stacked slice-groups (FOLLOW-UP 53)
+
+Merging a §123 chained slice-group has mechanics beyond merge ORDER, and two
+of them destroyed a PR live:
+
+1. **Assert state first** — `node scripts/check-merge-safety.mjs <pr> pre`
+   (`MERGEABLE/CLEAN`, the existing lesson). Merge with a **merge commit**.
+2. **RETARGET DEPENDENTS BEFORE DELETING THE BASE.** GitHub auto-retargets
+   dependent PRs only when the head branch is deleted AS PART of its own
+   PR's merge flow (the web button / merge-with-delete). A **manual**
+   deletion (`git push origin --delete <branch>`) CLOSES every PR based on
+   that branch — and a closed PR with a deleted base can be neither
+   reopened nor retargeted (the API refuses both); recovery is a recreated
+   PR + a full CI cycle + orphaned review history. Sequence per dependent:
+   `gh pr list --base <branch>` → `gh pr edit <dep> --base <new-base>` →
+   only THEN delete the branch.
+3. **`--delete-branch` from a detached HEAD fails the LOCAL half** ("could
+   not determine current branch") *after* the server-side merge succeeded —
+   exactly the state `ralph-isolated` worktree operation leaves the main
+   checkout in. Check the PR state before retrying anything; the merge
+   likely landed.
+4. `node scripts/check-merge-safety.mjs <pr> post <head-sha>` after each
+   merge (full SHA).
+
+(External confirmation: GitHub's retarget-on-merge changelog and cli/cli
+#1168 document exactly the §2/§3 behaviors.) A `merge-train.sh` template
+that mechanizes this sequence is deliberately DEFERRED: the human merger +
+this runbook + `check-merge-safety.mjs` cover the majority case; build the
+script if a consumer's trains grow past ~3 PRs or a second live incident
+happens despite the runbook.
+
 ### Post-PR analysis findings are owned by HUMAN CHECKPOINT 2 (FOLLOW-UP 47)
 
 Server-side analyzers (SonarCloud Automatic Analysis and kin) post their
