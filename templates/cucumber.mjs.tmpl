@@ -1,0 +1,88 @@
+// cucumber.mjs — status-aware acceptance config (§58/§60, FOLLOW-UP 50)
+// Installed by /setup as the consumer's cucumber config (TS+pnpm default).
+//
+// WHY: the §58 lifecycle lands approved `.feature` files BEFORE their step
+// definitions exist (undefined-by-design until each issue's /tdd). The §60 CI
+// gate runs the full @release suite — without this filter, every
+// approved-but-unimplemented scenario is `undefined` → exit 1, and planning
+// PRs + every in-flight slice PR stay red until close-out.
+//
+// CONTRACT: the CI regression surface is `# status: implemented` features
+// ONLY. In-flight slices gate per-issue via /run-acceptance's --tags; the
+// close-out flip of `# status:` (INV-8) is the act of JOINING the CI surface.
+//
+// ⚠️ DO NOT "fix" this with a wrapper that passes a computed file list as CLI
+// positional paths: cucumber-js v12 MERGES config `paths` with CLI paths
+// (override is deferred to a future major — it prints a deprecation notice
+// and runs the UNION). A wrapper is a silent no-op; the narrowing must happen
+// HERE, inside the config. (Live: the wrapper shipped first and the full
+// suite ran anyway.)
+//
+// The classic alternative — a `@wip` tag excluded in CI — was considered and
+// rejected: it duplicates the `# status:` header into a second channel that
+// must rotate per-scenario at close-out (the FOLLOW-UP 49 label↔body fork
+// class). One source of truth, already enforced by INV-3/INV-8.
+
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+function featureFiles(dir, acc = []) {
+  let entries;
+  try { entries = readdirSync(dir); } catch { return acc; }
+  for (const e of entries) {
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) featureFiles(p, acc);
+    else if (e.endsWith('.feature')) acc.push(p);
+  }
+  return acc;
+}
+
+function statusOf(file) {
+  // `# status: <value>` in the file header (first comment block).
+  const head = readFileSync(file, 'utf8').split('\n').slice(0, 10);
+  for (const line of head) {
+    const m = line.match(/^#\s*status:\s*(\S+)/i);
+    if (m) return m[1].toLowerCase();
+    if (/^\s*(Feature|@)/.test(line)) break; // past the header block
+  }
+  return null; // no header → treated as implemented (legacy features)
+}
+
+let paths = ['features/**/*.feature'];
+if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') {
+  const all = featureFiles('features');
+  const implemented = [];
+  const skipped = [];
+  for (const f of all) {
+    const st = statusOf(f);
+    // implemented (or legacy header-less) joins the CI surface; anything
+    // else (approved, draft, …) is in-flight and gates per-issue instead.
+    if (st === null || st === 'implemented') implemented.push(f);
+    else skipped.push(`${f} (# status: ${st})`);
+  }
+  // ZERO implemented features (a fresh consumer's first planning PR — all
+  // approved, nothing implemented yet): `paths: []` does NOT mean "run
+  // nothing" — cucumber-js v12 falls back to default discovery (features/)
+  // and runs the full suite anyway (reproduced live). A benign non-matching
+  // glob keeps cucumber semantics: 0 scenarios, exit 0, green planning PR.
+  if (implemented.length === 0) {
+    console.error('[cucumber.mjs] implemented-only gate: no implemented features yet — regression surface empty (0 scenarios will run)');
+    paths = ['features/__none__/*.feature'];
+  } else {
+    paths = implemented;
+  }
+  if (skipped.length) {
+    // Never silent truncation: say exactly what the gate is not running.
+    console.error(
+      `[cucumber.mjs] implemented-only gate: skipping ${skipped.length} in-flight feature file(s):\n` +
+      skipped.map((s) => `  - ${s}`).join('\n'),
+    );
+  }
+}
+
+export default {
+  paths,
+  // strict: undefined/pending steps fail the run (§60's third promise) —
+  // on the implemented-only surface, every undefined step is a REAL defect.
+  strict: true,
+};

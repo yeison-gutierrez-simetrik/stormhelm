@@ -63,3 +63,47 @@ test('CLI runs and emits valid JSON with a labels array', () => {
   assert.ok(Array.isArray(out.labels));
   assert.ok(out.labels[0].startsWith('feature:'));
 });
+
+// ── FOLLOW-UP 54: the slice-doc input shape (the detector had never fired) ────
+
+// detect-ceremony ran at /to-issues with the /plan "Layers affected" parser —
+// but plans don't exist yet at that point: module_count was 0 on every real
+// slice (3-for-3 manual audited flips). The parser now also reads the
+// slice-doc shape: `### Layers` + `- **Module:** <Context> → <A>, <B>, <C>`.
+import { writeFileSync as wfs, mkdtempSync as mdt, rmSync as rms } from 'node:fs';
+import { tmpdir as tmpd } from 'node:os';
+import { join as j } from 'node:path';
+import { parseFile as pf } from '../parse-layers-affected.mjs';
+
+test('FU-54: slice-doc Layers block → multi-module fires (the live 3-for-3 gap)', () => {
+  const dir = mdt(j(tmpd(), 'fu54-'));
+  try {
+    const doc = j(dir, '03-register-provider-agent.md');
+    wfs(doc, [
+      '# Slice 03 — register provider agent', '',
+      '### Layers',
+      '- **Module:** Marketplace Backend → Onboarding, Auth, Catalog Integration',
+      '', '## Depends on', 'None (foundation)', '',
+    ].join('\n'));
+    const out = detectCeremony([pf(doc)]);
+    assert.equal(out.module_count, 3, 'three RHS modules counted');
+    assert.ok(out.labels.includes('feature:multi-module'), `labels: ${out.labels}`);
+  } finally { rms(dir, { recursive: true, force: true }); }
+});
+
+test('FU-54: two Module lines with distinct contexts → cross-context, layout-independent', () => {
+  const dir = mdt(j(tmpd(), 'fu54x-'));
+  try {
+    const doc = j(dir, '04-campaign.md');
+    wfs(doc, [
+      '### Layers',
+      '- **Module:** Marketplace Backend → Campaigns',
+      '- **Module:** Catalog Service → Pricing, Inventory',
+      '',
+    ].join('\n'));
+    const out = detectCeremony([pf(doc)]);
+    assert.equal(out.context_count, 2, 'LHS names are the contexts');
+    assert.ok(out.labels.includes('feature:cross-context'), `labels: ${out.labels}`);
+    assert.ok(out.labels.includes('feature:multi-module'), '3 modules + 2 contexts');
+  } finally { rms(dir, { recursive: true, force: true }); }
+});

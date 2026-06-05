@@ -384,6 +384,13 @@ cat >> .gitignore <<'EOF'
 .planning/
 .claude/webfetch-cache/
 .worktrees/
+# Claude-harness runtime artifacts (FOLLOW-UP 51): written during normal
+# operation; a `git add -A` sweeps them into a commit and the reviewer
+# correctly BLOCKS the PR — one committed lock file cost a 92k-token
+# iteration live. Explicit list (not `.claude/*` + un-ignores) so the
+# vendored skills/hooks/agents/settings.json stay unambiguously tracked.
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
 EOF
 ```
 
@@ -522,9 +529,19 @@ zero remote re-verification. Each promise now maps to an installed artifact:
 #      through LITERALLY and cucumber reads it as a feature path
 #      (ENOENT: open '…/@release').
 jq '.packageManager //= "pnpm@9.15.0"
-    | .scripts["test:acceptance"] //= "cucumber-js --tags @release"
-    | .scripts["test:smoke"]      //= "cucumber-js --tags @smoke"' \
+    | .scripts["test:acceptance"] //= "CUCUMBER_IMPLEMENTED_ONLY=1 cucumber-js --tags @release"
+    | .scripts["test:smoke"]      //= "CUCUMBER_IMPLEMENTED_ONLY=1 cucumber-js --tags @smoke"' \
   package.json > package.json.tmp && mv package.json.tmp package.json
+
+# 0b. Status-aware cucumber config (§58/§60, FOLLOW-UP 50): approved-but-
+#     unimplemented features are undefined-BY-DESIGN until their issue's
+#     /tdd — without this, every planning PR and in-flight slice PR is red.
+#     The flag-gated config restricts the CI surface to
+#     `# status: implemented` features and LOGS what it skips. The filter
+#     must live INSIDE the config (cucumber-js v12 MERGES config paths with
+#     CLI paths — a file-list wrapper is a silent no-op; see the template
+#     header).
+cp "$STORMHELM_PATH/templates/cucumber.mjs.tmpl" cucumber.mjs   # adapt if a config exists
 
 # 1. @release runs in CI before merge → the acceptance workflow:
 mkdir -p .github/workflows

@@ -258,6 +258,33 @@ Feature: Payment processing
 - A scenario can be both `@smoke` and `@release`; they are runtime filters, not exclusive states.
 - The set of `@release` scenarios is the **definition of done** for Ralph's `/run-acceptance` gate.
 
+### The CI regression surface is `# status: implemented` features only (FOLLOW-UP 50)
+
+The §58 lifecycle lands approved `.feature` files **before** their step
+definitions exist (undefined-by-design until each issue's `/tdd`). The §60 CI
+gate therefore must not run the full feature set, or every planning PR and
+every in-flight slice PR is red until close-out. The contract:
+
+- **CI (`test:acceptance` / `test:smoke`) runs `# status: implemented`
+  features only** — the shipped `cucumber.mjs` template computes `paths` from
+  the status headers behind `CUCUMBER_IMPLEMENTED_ONLY=1` (set by the
+  scripts), and logs every skipped file: visible narrowing, never silent.
+- **In-flight slices gate per-issue** via `/run-acceptance`'s `--tags`
+  expression — that is where approved-but-unimplemented scenarios get their
+  red/green verdict.
+- **The close-out `# status:` flip (INV-8) is the act of joining the CI
+  surface.** A feature left on `approved` after its slice merges silently
+  stays OFF the regression surface — the flip is load-bearing, not
+  bookkeeping (live: a pre-INV-8 slice's features had never been flipped and
+  would have left the suite permanently).
+- ⚠️ **Do not implement the narrowing as a wrapper passing a file list as CLI
+  paths**: cucumber-js v12 MERGES config `paths` with CLI positionals (the
+  override is deferred to a future major) — the wrapper runs the union, a
+  silent no-op. The filter must live inside the cucumber config. The classic
+  `@wip`-tag exclusion was considered and rejected: it duplicates `# status:`
+  into a second per-scenario channel that must rotate at close-out (the
+  FOLLOW-UP 49 fork class).
+
 ---
 
 ## §61. Step definitions live in `application/steps/` or `features/<context>/steps/`, callable both from Cucumber and unit tests

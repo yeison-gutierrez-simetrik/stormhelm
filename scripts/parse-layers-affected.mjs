@@ -70,7 +70,13 @@ function contextSnippet(src, start, span) {
 // Extract `### Layers affected` section + a `## Depends on` section if present.
 // Both are passed to the edge extractor; modules come from "Layers affected".
 function extractSections(md) {
-  const layers = sectionByHeader(md, /^###\s+Layers\s+affected\s*$/im);
+  // Two structured input shapes (FOLLOW-UP 54): the /plan artifact's
+  // "### Layers affected" AND the slice-doc's "### Layers" — at /to-issues
+  // time the plans don't exist yet (they're a later /feature step), so the
+  // detector must read the artifact that DOES exist or it never fires
+  // (live: module_count 0 on every real slice, 3-for-3 manual flips).
+  const layers = sectionByHeader(md, /^###\s+Layers\s+affected\s*$/im)
+    || sectionByHeader(md, /^###\s+Layers\s*$/im);
   const dependsOn = sectionByHeader(md, /^##\s+Depends\s+on\s*$/im);
   return { layers, dependsOn };
 }
@@ -116,6 +122,29 @@ function extractModules(layersSection) {
   return [...set].sort();
 }
 
+// Slice-doc module declarations (FOLLOW-UP 54): `- **Module:** <Context> →
+// <A>, <B>, <C>` — a de-facto structured contract in the slice template.
+// RHS entries are the modules; the LHS (before the arrow) names the bounded
+// context, giving cross-context detection an in-document source that does
+// not depend on the §3 filesystem layout.
+function extractDeclaredModules(layersSection) {
+  const modules = new Set();
+  const contexts = new Set();
+  if (!layersSection) return { modules: [], contexts: [] };
+  for (const line of layersSection.split('\n')) {
+    const m = line.match(/^\s*[-*]\s+\*\*Modules?:?\*\*\s*(.+)$/i);
+    if (!m) continue;
+    const txt = m[1].trim();
+    const parts = txt.split(/→|->/);
+    const lhs = parts.length > 1 ? parts[0].trim() : null;
+    const rhs = (parts.length > 1 ? parts.slice(1).join(' ') : txt)
+      .split(',').map((x) => x.trim()).filter(Boolean);
+    if (lhs) contexts.add(lhs);
+    for (const r of rhs) modules.add(lhs ? `${lhs} → ${r}` : r);
+  }
+  return { modules: [...modules].sort(), contexts: [...contexts].sort() };
+}
+
 // --- per-file extraction ---------------------------------------------------
 
 function parseFile(filePath) {
@@ -127,8 +156,11 @@ function parseFile(filePath) {
   const { layers, dependsOn } = extractSections(md);
 
   // Affected modules: only extracted from the "Layers affected" section so
-  // unrelated paths in preamble/comments don't pollute the list.
-  const modules = extractModules(layers);
+  // unrelated paths in preamble/comments don't pollute the list. Both input
+  // shapes contribute (FOLLOW-UP 54): backtick file paths (/plan) and
+  // declared `- **Module:**` lines (slice doc).
+  const declared = extractDeclaredModules(layers);
+  const modules = [...new Set([...extractModules(layers), ...declared.modules])].sort();
 
   // Edges: scanned over the WHOLE document — preambles, "Layers affected",
   // dependency graphs all carry edge claims. Real plans put a sizable share of
@@ -187,6 +219,7 @@ function parseFile(filePath) {
     issue_number: issueNumber,
     file: filePath,
     affected_modules: modules,
+    declared_contexts: declared.contexts,
     references_to_issues: [...edgeMap.values()].sort(
       (a, b) => (a.to - b.to) || a.kind.localeCompare(b.kind),
     ),
@@ -231,7 +264,7 @@ function addCrossWarnings(records) {
 // --- public API ------------------------------------------------------------
 // Exported so the two downstream consumers (PR-Group's grouping algorithm and
 // PR-M's module-count detector) import the same parser instead of re-parsing.
-export { parseFile, addCrossWarnings, extractModules, issueNumberFromPath };
+export { parseFile, addCrossWarnings, extractModules, extractDeclaredModules, issueNumberFromPath };
 
 // --- CLI -------------------------------------------------------------------
 // Only runs when executed directly (`node parse-layers-affected.mjs ...`), not

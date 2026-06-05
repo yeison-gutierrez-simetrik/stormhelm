@@ -1089,3 +1089,31 @@ test('FU-48: queue-integration/<n> branch is deleted after the child run', () =>
     assert.equal(git('branch', '--list', 'queue-integration/4').stdout.trim(), '', 'ephemeral base cleaned up');
   });
 });
+
+// ── FOLLOW-UP 52: the engine injects the invariant gate result ────────────────
+
+// reviewer.md mandated `node scripts/check-invariants.mjs`, but agent
+// sandboxes refuse the invocation — two live slices shipped "could not run
+// the gate" caveats. The contract flipped to the FU-33 pattern: ENGINE runs,
+// agent reads. The acceptance prompt must carry the result.
+test('FU-52: acceptance prompt carries the engine-run invariant result (real gate output)', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    writeFileSync(join(dir, 'scripts', 'check-invariants.mjs'),
+      'console.log("❌ INV-2 §87 — sensitive paths but no threat model");process.exit(1);');
+    const { status } = runRalph(dir, ['1', '3'], {});
+    assert.equal(status, 0);
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.match(prompts, /INVARIANT GATE RESULT \(engine-run/, 'injection present');
+    assert.match(prompts, /❌ INV-2 §87/, 'the actual gate output travels, failing line included');
+  });
+});
+
+test('FU-52: missing check-invariants.mjs → injected as an explicit blocking-finding marker', () => {
+  withConsumer((dir) => {
+    runRalph(dir, ['1', '3'], {});
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.match(prompts, /check-invariants\.mjs NOT FOUND.*blocking finding/,
+      'a consumer missing the runtime scripts is named, never silently skipped');
+  });
+});

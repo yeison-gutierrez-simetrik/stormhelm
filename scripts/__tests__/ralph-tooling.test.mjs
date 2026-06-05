@@ -322,3 +322,54 @@ test('watch --queue: a CHILD session.ended is informational, never terminal for 
     assert.match(out, /queue COMPLETED/, 'the night ends on queue.completed');
   });
 });
+
+// ── FOLLOW-UP 50: status-aware cucumber config template ───────────────────────
+
+// §58 lands approved features BEFORE steps exist; §60 CI must not run them.
+// The narrowing lives INSIDE the config (cucumber v12 merges CLI paths with
+// config paths — a wrapper file-list is a silent no-op, hit live).
+const importCucumberCfg = async (dir, env) => {
+  copyFileSync(join(TEMPLATES, 'cucumber.mjs.tmpl'), join(dir, 'cucumber.mjs'));
+  const r = spawnSync('node', ['-e', `
+    import(${JSON.stringify('file://' + join(dir, 'cucumber.mjs'))})
+      .then((m) => console.log(JSON.stringify(m.default.paths)));
+  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+  return { paths: JSON.parse(r.stdout.trim()), stderr: r.stderr, status: r.status };
+};
+
+test('FU-50: implemented-only gate runs implemented features, skips approved LOUDLY', async () => {
+  // NOTE: withDir is sync (its finally would rm the dir under the pending
+  // promise) — manage the tmp dir manually for this async test.
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu50-'));
+  try {
+    mkdirSync(join(dir, 'features', 'pay'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'pay', 'done.feature'), '# status: implemented\nFeature: Done\n');
+    writeFileSync(join(dir, 'features', 'pay', 'planned.feature'), '# status: approved\nFeature: Planned\n');
+    writeFileSync(join(dir, 'features', 'legacy.feature'), 'Feature: Legacy headerless\n');
+    const on = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.deepEqual(on.paths.sort(), ['features/legacy.feature', 'features/pay/done.feature'],
+      'implemented + legacy join the surface; approved stays off');
+    assert.match(on.stderr, /skipping 1 in-flight feature file/, 'never silent truncation');
+    assert.match(on.stderr, /planned\.feature \(# status: approved\)/);
+    const off = await importCucumberCfg(dir, {});
+    assert.deepEqual(off.paths, ['features/**/*.feature'], 'flag unset → full suite (today\'s behavior)');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Consumer-review round-2: ZERO implemented features (a fresh consumer's
+// FIRST planning PR). paths: [] would make cucumber v12 fall back to default
+// discovery and run the full suite — the exact headline failure, reproduced
+// empirically by the consumer. The config must emit a benign non-matching
+// glob, never an empty array.
+test('FU-50: zero implemented features → benign glob + explicit log, never paths []', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu50z-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'planned.feature'), '# status: approved\nFeature: Planned\n');
+    const { paths, stderr } = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notDeepEqual(paths, [], 'an empty array re-opens the v12 default-discovery fallback');
+    assert.deepEqual(paths, ['features/__none__/*.feature'], 'benign non-matching glob → 0 scenarios, exit 0');
+    assert.match(stderr, /no implemented features yet — regression surface empty/);
+    assert.match(stderr, /skipping 1 in-flight feature file/, 'the skip list still names what is off-surface');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
