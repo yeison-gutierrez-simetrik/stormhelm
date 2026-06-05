@@ -530,8 +530,18 @@ for i in $(seq 1 "$MAX_ITER"); do
   # session that skips the write produces result-file-missing: an
   # unambiguous contract violation, never confusable with staleness.
   rm -f "$ACCEPT_RESULT_FILE" "$REVIEWER_REPORT_FILE"
+  # FOLLOW-UP 52: the ENGINE runs the invariant gate and injects the result —
+  # the reviewer's sandbox refuses node invocations (live: two consecutive
+  # slices shipped "I could not run the executable gate" caveats), so the
+  # mandate moved from "agent shells out" to "engine injects, agent reads"
+  # (the FU-33 structured-contract pattern).
+  if [ -f scripts/check-invariants.mjs ]; then
+    INVARIANTS_RESULT=$(node scripts/check-invariants.mjs 2>&1 || true)
+  else
+    INVARIANTS_RESULT="scripts/check-invariants.mjs NOT FOUND — consumer missing the /setup runtime scripts; treat as a blocking finding"
+  fi
   CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
-  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, gates{} (including gates.reviewer = your Step-8 reviewer severity), failure_reason — AND the full reviewer report to ${REVIEWER_REPORT_FILE}. ALWAYS rewrite both files fresh in THIS run — even if nothing changed since a previous green run. Do NOT run a separate code review afterwards: your Step-8 reviewer is the single invocation for this slice." >/dev/null || ACCEPTANCE_RC=$?
+  ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, gates{} (including gates.reviewer = your Step-8 reviewer severity), failure_reason — AND the full reviewer report to ${REVIEWER_REPORT_FILE}. ALWAYS rewrite both files fresh in THIS run — even if nothing changed since a previous green run. Do NOT run a separate code review afterwards: your Step-8 reviewer is the single invocation for this slice. INVARIANT GATE RESULT (engine-run; do NOT attempt to run it yourself — read it): ${INVARIANTS_RESULT}" >/dev/null || ACCEPTANCE_RC=$?
   ralph_call_completed "run-acceptance" "$CALL_START" "$CALL_TOKENS_BEFORE"
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"

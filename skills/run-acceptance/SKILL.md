@@ -271,8 +271,15 @@ Regardless of pass/fail in Steps 2-7, invoke the `reviewer` agent:
 
 ```
 Task tool, subagent_type: "reviewer"
-Prompt: "Review the diff on branch <branch>. Scenarios: <scn-NNN list>. Produce the standard structured report."
+Prompt: "Review the diff on branch <branch>. Scenarios: <scn-NNN list>. INVARIANT GATE RESULT (engine-run): <paste the INVARIANT GATE RESULT from your own context — the Ralph engine injects it into the acceptance prompt>. Produce the standard structured report."
 ```
+
+**Forward the INVARIANT GATE RESULT verbatim (FOLLOW-UP 52).** The engine runs
+`check-invariants.mjs` and injects its output into YOUR prompt precisely
+because the reviewer's sandbox cannot run `node` — if you omit it, the
+reviewer must emit a 🛑 "result absent" finding and the pass fails. Outside
+the Ralph loop (manual `/run-acceptance`), run
+`node scripts/check-invariants.mjs` yourself and paste the output.
 
 The reviewer's findings are appended to the acceptance report.
 
