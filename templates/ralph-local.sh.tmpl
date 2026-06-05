@@ -175,7 +175,16 @@ if [ -z "$ISSUE_NUM" ]; then
         st=$(queue_state_of "$d")
         if [ "$st" = "CLOSED" ]; then continue; fi
         if [ "$st" = "MISSING" ]; then
-          echo "⚠️  Issue #$n depends on #$d which does not exist — treating as blocked (fix the Depends-on section)." >&2
+          # FOLLOW-UP 56: a '#N' that is a PULL REQUEST parses as a
+          # nonexistent ISSUE — name the real mistake instead of blocking
+          # the night with a misleading reason. The grammar: '## Depends
+          # on' lists same-repo ISSUES only (PRs are annotated elsewhere;
+          # cross-repo deps make the issue shift:hitl — see core/13).
+          if gh pr view "$d" >/dev/null 2>&1; then
+            echo "⚠️  Issue #$n: Depends-on ref #$d is a PULL REQUEST, not an issue — the section lists same-repo issues only. Treating as blocked." >&2
+          else
+            echo "⚠️  Issue #$n depends on #$d which does not exist — treating as blocked (fix the Depends-on section)." >&2
+          fi
           blocked_on="${blocked_on}${blocked_on:+,}$d"
           continue
         fi
@@ -708,6 +717,22 @@ EOF
     fi
     ralph_git_action "push" "success" "git push -u origin $BRANCH"
 
+    # FOLLOW-UP 55 (advisory, never blocking): duplication is the Quality-
+    # Gate class local lint structurally cannot see (cross-file, diff-
+    # relative). Warn BEFORE the PR exists so the extract-the-clone fix
+    # happens in-loop instead of post-PR (+1 CI cycle each time). npx -y
+    # keeps the zero-deps convention; any failure is swallowed — a missing
+    # npx or offline run must never block a green slice.
+    CHANGED_PROD=$(git diff --name-only "${BASE_REF:-origin/main}"...HEAD -- 'src/**' 2>/dev/null | grep -v __tests__ || true)
+    if [ -n "$CHANGED_PROD" ] && command -v npx >/dev/null 2>&1; then
+      DUP_OUT=$(npx -y jscpd --min-tokens 70 $CHANGED_PROD 2>/dev/null || true)
+      if printf '%s' "$DUP_OUT" | grep -qiE "clones? found|duplicated lines.*[1-9]"; then
+        echo "⚠️  ADVISORY: duplication detected in this slice's changed files — Sonar's QG will likely flag it post-PR. Extract the clone (never the threshold); locator output:" >&2
+        printf '%s
+' "$DUP_OUT" | grep -iE "clone|duplicat" | head -5 >&2
+        ralph_log_event "warn" "ralph.duplication.warned" "{\"files\":$(printf '%s' "$CHANGED_PROD" | grep -c . || echo 0)}"
+      fi
+    fi
     PR_TARGET="${PR_BASE_REF:-$BASE_REF}"
     PR_BASE_ARGS=()
     [ -n "$PR_TARGET" ] && PR_BASE_ARGS=(--base "$PR_TARGET")

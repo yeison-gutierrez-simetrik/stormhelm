@@ -207,6 +207,11 @@ All scenarios marked `@release` for this slice must pass via `/run-acceptance`.
 
 ## Depends on
 - #<issue> (what foundation this issue consumes; structured `#N` so the grouping graph can read it). `None (foundation)` for the slice root.
+<!-- Grammar (FOLLOW-UP 56): same-repo ISSUE refs only, one `- #N` per line.
+     NEVER cite PR numbers here (the queue parses them as nonexistent issues
+     and blocks); annotate PRs elsewhere in the body. A cross-repo dependency
+     cannot be expressed — it makes this issue shift:hitl (human gates the
+     foreign state; see core/13). -->
 
 ## Branch
 agent/feature-<slug>   (one cumulative branch per slice-group; see Step 5b)

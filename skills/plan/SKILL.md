@@ -197,7 +197,9 @@ load-bearing for the comments channel):
 - **Scenario changes** → edit `## Scenarios covered` in place, or append a
   literal `## Scope amendment` section listing the added `scn-NNN`.
 - **Dependency changes** → edit `## Depends on` in place (the queue reads
-  exactly that section).
+  exactly that section). Grammar (FOLLOW-UP 56): same-repo issue refs only
+  (`- #N`); never PR numbers (the queue parses them as nonexistent issues);
+  a cross-repo dependency makes the issue `shift:hitl` instead.
 - Either way, a dated one-line note in `## Scope amendment` keeps the audit
   trail human-readable.
 

@@ -40,7 +40,8 @@ if echo "$prompt" | grep -q "/tdd"; then
   # without a real commit per issue, branch-base pollution is undetectable).
   if [ -n "${MOCK_TDD_COMMIT:-}" ]; then
     issue=$(echo "$prompt" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
-    echo "work" >> "work-issue-${issue}.txt"
+    mkdir -p src
+    echo "work" >> "src/work-issue-${issue}.ts"
     git add -A >/dev/null 2>&1
     git -c user.email=ralph@mock -c user.name=ralph-mock commit -qm "tdd work for issue ${issue}" >/dev/null 2>&1 || true
   fi

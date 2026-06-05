@@ -16,7 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1115,5 +1115,65 @@ test('FU-52: missing check-invariants.mjs → injected as an explicit blocking-f
     const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
     assert.match(prompts, /check-invariants\.mjs NOT FOUND.*blocking finding/,
       'a consumer missing the runtime scripts is named, never silently skipped');
+  });
+});
+
+// ── FOLLOW-UP 55: advisory duplication warn before PR-open ────────────────────
+
+// The QG's "Duplication on New Code" is cross-file + diff-relative — eslint
+// structurally cannot see it; live it cost a post-PR CI cycle both times.
+// Advisory only: a warning NEVER blocks a green slice.
+const chainedSingleDepEnv = {
+  MOCK_QUEUE_JSON: JSON.stringify([{ number: 2, body: '## Depends on\n- #1 (x)\n' }]),
+  MOCK_ALL_JSON: JSON.stringify([
+    { number: 1, state: 'OPEN', labels: [{ name: 'ralph-done' }] },
+    { number: 2, state: 'OPEN', labels: [] },
+  ]),
+  MOCK_PR_BRANCH_1: 'agent/feature-found-1',
+  RALPH_QUEUE_CHAINED: '1',
+  MOCK_TDD_COMMIT: '1',
+};
+const withFoundationBranch = (dir) => {
+  const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+  git('checkout', '-qb', 'agent/feature-found-1');
+  writeFileSync(join(dir, 'base.txt'), 'foundation');
+  git('add', '-A'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'foundation');
+  git('checkout', '-q', '-');
+};
+
+test('FU-55: duplicated slice → advisory warning + event, PR STILL opens', () => {
+  withConsumer((dir) => {
+    withFoundationBranch(dir);
+    const { status, out } = runRalph(dir, [], { ...chainedSingleDepEnv, MOCK_JSCPD_CLONES: '1' });
+    assert.equal(status, 0, out);
+    assert.match(out, /ADVISORY: duplication detected/, 'warned pre-PR');
+    assert.match(out, /Extract the clone \(never the threshold\)/);
+    assert.ok(existsSync(join(dir, '.mock-gh-prcreate')), 'advisory never blocks the PR');
+    const dupEvents = readEvents(dir, 2).filter((e) => e.event === 'ralph.duplication.warned');
+    assert.equal(dupEvents.length, 1);
+  });
+});
+
+test('FU-55: clean slice → zero duplication noise', () => {
+  withConsumer((dir) => {
+    withFoundationBranch(dir);
+    const { status, out } = runRalph(dir, [], chainedSingleDepEnv);
+    assert.equal(status, 0, out);
+    assert.doesNotMatch(out, /ADVISORY: duplication/);
+  });
+});
+
+// ── FOLLOW-UP 56: a PR ref inside ## Depends on is named, not mislabeled ──────
+
+test('FU-56: Depends-on citing a PR number → "is a PULL REQUEST" warning, not "does not exist"', () => {
+  withConsumer((dir) => {
+    const { out } = runRalph(dir, [], {
+      MOCK_QUEUE_JSON: JSON.stringify([{ number: 42, body: '## Depends on\n- #35 (provider_agents anchor)\n' }]),
+      MOCK_ALL_JSON: JSON.stringify([{ number: 42, state: 'OPEN', labels: [] }]),
+      MOCK_PR_EXISTS: '35',
+    });
+    assert.doesNotMatch(out, /════════ Issue #42/, 'blocked, as before (loud-and-safe)');
+    assert.match(out, /#35 is a PULL REQUEST, not an issue/, 'the real mistake is named');
+    assert.doesNotMatch(out, /#35 which does not exist/, 'the misleading reason is gone');
   });
 });
