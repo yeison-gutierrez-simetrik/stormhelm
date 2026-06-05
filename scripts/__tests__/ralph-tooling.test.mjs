@@ -355,3 +355,21 @@ test('FU-50: implemented-only gate runs implemented features, skips approved LOU
     assert.deepEqual(off.paths, ['features/**/*.feature'], 'flag unset → full suite (today\'s behavior)');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Consumer-review round-2: ZERO implemented features (a fresh consumer's
+// FIRST planning PR). paths: [] would make cucumber v12 fall back to default
+// discovery and run the full suite — the exact headline failure, reproduced
+// empirically by the consumer. The config must emit a benign non-matching
+// glob, never an empty array.
+test('FU-50: zero implemented features → benign glob + explicit log, never paths []', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu50z-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'planned.feature'), '# status: approved\nFeature: Planned\n');
+    const { paths, stderr } = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notDeepEqual(paths, [], 'an empty array re-opens the v12 default-discovery fallback');
+    assert.deepEqual(paths, ['features/__none__/*.feature'], 'benign non-matching glob → 0 scenarios, exit 0');
+    assert.match(stderr, /no implemented features yet — regression surface empty/);
+    assert.match(stderr, /skipping 1 in-flight feature file/, 'the skip list still names what is off-surface');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

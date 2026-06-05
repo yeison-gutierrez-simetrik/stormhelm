@@ -60,7 +60,17 @@ if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') {
     if (st === null || st === 'implemented') implemented.push(f);
     else skipped.push(`${f} (# status: ${st})`);
   }
-  paths = implemented;
+  // ZERO implemented features (a fresh consumer's first planning PR — all
+  // approved, nothing implemented yet): `paths: []` does NOT mean "run
+  // nothing" — cucumber-js v12 falls back to default discovery (features/)
+  // and runs the full suite anyway (reproduced live). A benign non-matching
+  // glob keeps cucumber semantics: 0 scenarios, exit 0, green planning PR.
+  if (implemented.length === 0) {
+    console.error('[cucumber.mjs] implemented-only gate: no implemented features yet — regression surface empty (0 scenarios will run)');
+    paths = ['features/__none__/*.feature'];
+  } else {
+    paths = implemented;
+  }
   if (skipped.length) {
     // Never silent truncation: say exactly what the gate is not running.
     console.error(
