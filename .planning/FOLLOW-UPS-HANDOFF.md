@@ -1021,3 +1021,74 @@ note (FU-17).
 **Acceptance.** Fixture slice doc (3 modules in `### Layers`, 2 contexts in approved features) →
 detector emits `feature:multi-module` (+`cross-context` where the features/ dirs show ≥2); the
 existing /plan-format fixtures stay green; /to-issues docs updated to name both input shapes.
+
+---
+
+# Slice-03 campaign stragglers — FOLLOW-UPs 55-56 + a correction to FOLLOW-UP 53 (2026-06-05)
+
+**Context.** Two findings from the belong slice-03 campaign (2026-06-04/05) that batch 8 did not cover, plus a live-proven correction to FU-53's recovery claim. Forensics: belong PRs #35-#40/#48-#50, issues #42-#45.
+
+---
+
+## CORRECTION to FOLLOW-UP 53 — the dependent-PR closure is NOT irrecoverable (proven live, slice 03)
+
+FU-53 states the base-branch deletion closes the dependent PR "irrecoverably; recovery = recreate + re-run CI". The slice-03 merge train hit the identical trap (belong #35 merged `--delete-branch` → GitHub closed #36/#37/#38) and recovered **all three PRs without loss and without recreating anything**:
+
+```bash
+# 1. restore the deleted base branch at its merged head sha (no checkout needed):
+git push origin <merged-head-sha>:refs/heads/<base-branch>
+# 2. reopen each closed dependent, then retarget it:
+gh pr reopen <N> && gh pr edit <N> --base main
+# 3. delete the restored branch again (now nothing depends on it):
+git push origin --delete <base-branch>
+```
+
+Constraint discovered on the way: `gh pr edit --base` REFUSES on a closed PR, and `gh pr reopen` refuses while the base branch is missing — so the restore (step 1) must come first; the order is restore → reopen → retarget → delete. Worth folding into FU-53's core/13 documentation (and it makes the preferred prevention — retarget children BEFORE deleting the base — cheap to justify: the cure exists but is a 3-step dance).
+
+**Verify:** belong #36/#37/#38 timeline 2026-06-04 ~23:12-23:14Z (closed on #35's merge, reopened+retargeted minutes later, all three merged with original CI history intact).
+
+---
+
+## FOLLOW-UP 55 — FU-47a's Sonar left-shift cannot see duplication: the QG's `Duplication on New Code` failed twice in one campaign and the density math punishes SMALL diffs hardest  ·  **Severity: MEDIUM (bites any consumer PR that repeats ≥1 boilerplate block; eslint structurally cannot catch it)**
+
+**Problem.** FU-47a shipped `eslint-plugin-sonarjs` so the recurrent S-rule classes fail locally inside /tdd. That covers single-file rules (nested ternary, duplicated branches, optional chain) but **duplication density is cross-file and diff-relative** — lint runs per-file and cannot evaluate either. Two consequences proven live in one campaign:
+1. **Retarget re-evaluation:** a stacked PR that absorbs its base (merge train advance) SHRINKS its "new code" denominator — belong PR #38 went from QG-passed to **3.8% > 3% duplication** after retargeting to main, with zero new commits.
+2. **Small-diff density:** a surgical PR has a tiny denominator — belong PR #50 (85 insertions) hit **21.7%** from ONE 9-line mapping block repeated across two route files.
+
+Both were resolved the same way (the only correct way): locate the real clones and extract them (`managed-agent-gate.ts`, `idempotencyInFlight()` in `result-to-http.ts`) — never threshold-fiddling. But the loop is post-PR each time: push → wait for analysis → fail → locate clones locally → extract → re-push (≈10-15 min + a CI cycle per hit).
+
+**Live evidence:** belong PR #38 (Sonar comment "3.8% Duplication on New Code (required ≤ 3%)", resolved by commit `76c0139`); belong PR #50 (comment "21.7% Duplication on New Code", resolved by commit `894cf27`). Clone localization both times via ad-hoc `npx -y jscpd --min-tokens 70 <changed prod files>` — which found the exact blocks Sonar saw, locally, in seconds.
+
+**Verify:**
+```bash
+# the gap: nothing in the consumer's local gates measures duplication
+git -C <consumer> grep -ln "jscpd\|duplication" package.json eslint.config.js scripts/ .claude/skills/ | wc -l   # → 0
+# the locator that worked twice (run on any consumer diff):
+npx -y jscpd --min-tokens 70 $(git diff --name-only origin/main...HEAD -- 'src/**/*.ts' | grep -v __tests__)
+```
+
+**Fix — two halves, the second is the durable one:**
+1. **Document the pattern** where FU-47a's left-shift is described (skills/setup Sonar section + core/13 HC2 ownership note): *duplication findings are resolved by extracting the clone, never by threshold changes; `npx -y jscpd --min-tokens 70 <changed files>` locates Sonar's clones locally; stacked PRs re-evaluate density on retarget — expect QG flips with zero new commits.*
+2. **Left-shift the measurement** (recommended): an advisory duplication check before PR-open — e.g. `/run-acceptance` or the engine's pre-PR step runs the jscpd one-liner over the slice's changed production files and WARNS (not blocks) above ~3%. `npx -y` keeps the zero-deps convention (no package.json change); advisory keeps false-positive cost at zero while killing the post-PR discovery loop. If the maintainer prefers no npx-at-gate-time, half 1 alone is acceptable — mark that choice.
+
+**Acceptance.** The Sonar adoption docs state the duplication-resolution pattern + the retarget re-evaluation caveat; if half 2 lands: a consumer slice with a deliberately duplicated 9-line block sees the warning BEFORE `gh pr create` (loop-test pin with a fixture diff), and a clean slice sees none. Framework gates stay green.
+
+---
+
+## FOLLOW-UP 56 — multi-repo slice-groups: cross-repo dependencies are inexpressible to the queue's dep grammar, and PR refs inside `## Depends on` parse as nonexistent ISSUES  ·  **Severity: LOW-MEDIUM today (the §63 hitl rule absorbed it); decision (maintainer) on the durable grammar**
+
+**Problem.** Slice 04 is belong's first BI-REPO slice-group (belong #42-#45 + reform issues in `Belong-Universe/universe#46/#47`). Two grammar gaps surfaced in `ralph_deps_from_body` / the queue's eligibility logic:
+1. **Cross-repo deps are prose-only.** belong #42's `## Depends on` carries "- Universe reform issues (…tracked in `Belong-Universe/universe`)" — the parser extracts same-repo `#N` only, so the queue cannot gate on universe#46/#47. The slice survived because #42 is `shift:hitl` (capability introduction, §63 Step 3b) — the human IS the cross-repo gate. That coincidence is load-bearing and nowhere stated.
+2. **PR refs in the section parse as issues.** The same section says "(PRs #35-#38 — provider_agents anchor)" — the parser would extract #35..#38, `queue_state_of` looks them up as ISSUES (`gh issue list` doesn't return PRs) → MISSING → "depends on #35 which does not exist — treating as blocked". Loud-and-safe (never silent), but a ralph-ready issue whose author annotates a dep with PR numbers blocks the night with a misleading reason.
+
+**Verify:**
+```bash
+gh issue view 42 --repo Belong-Universe/belong-marketplace --json body --jq .body | sed -n '/## Depends on/,/^## /p'
+# parser behavior: source templates/ralph-lib.sh; <that section> | ralph_deps_from_body  → emits 35 36 37 38 (PRs-as-issues) and nothing for universe#46/#47
+```
+
+**Fix — present both, mark (a) recommended now:**
+- **(a) Rule + hygiene (documentation, cheap):** in /to-issues + /plan + core/13: *`## Depends on` lists ONLY same-repo issue refs (`- #N`), one per line; cross-repo dependencies make the issue `shift:hitl` (the human gates the cross-repo state — generalizing §63 Step 3b); never cite PR numbers inside the section (annotate them elsewhere in the body).* Optionally the FU-49-style backstop also warns when a `## Depends on` ref resolves to a PR instead of an issue.
+- **(b) Grammar support (build when a 2nd multi-repo consumer exists):** parser accepts `owner/repo#N`, `queue_state_of` resolves via `gh -R owner/repo`; chained mode necessarily excluded for foreign deps (no branch to chain). Costs cross-repo API calls per eligibility pass and a claim story per §63 — not justified by one consumer.
+
+**Acceptance.** (a): the three artifacts state the same contract (the FU-17 anti-drift rule); a fixture issue whose Depends-on cites a PR number produces the explicit warning, not "nonexistent issue". (b) if ever built: diamond fixture with a foreign dep pins merged-deps-only gating. Suite green either way.
