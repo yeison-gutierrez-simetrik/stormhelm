@@ -210,3 +210,57 @@ test('INV-5 still reports a real orphan (a scn no label form mentions)', () => {
   assert.equal(status, 1, 'dropping the only reference to scn-002 must fail INV-5');
   assert.match(out, /❌ INV-5.*scn-002/);
 });
+
+// ── FOLLOW-UP 57: INV-5 ignores the §58 in-flight window ──────────────────────
+
+// The lifecycle GUARANTEES a window where @release scns exist with no issues
+// (between /to-scenarios' '# status: draft' and /to-issues). INV-5 counted
+// them and went structurally red — a concurrent session investigating the
+// false alarm live could not tell it from a real orphan.
+test('FU-57: @release scns in a DRAFT feature do not trip INV-5 (the normal window)', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'features', 'inflight.feature'), [
+      '# status: draft',
+      'Feature: Parallel slice mid-pipeline',
+      '  @scn-093 @release',
+      '  Scenario: written by /to-scenarios, issues not created yet',
+      '    Given the §58 window is open',
+    ].join('\n'));
+  });
+  assert.equal(status, 0, `the in-flight window must not fail the gate:\n${out}`);
+  assert.doesNotMatch(out, /scn-093/, 'draft scns are invisible to INV-5');
+});
+
+test('FU-57: an APPROVED feature with an issue-less @release scn still fails (real orphans stay caught)', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'features', 'orphan.feature'), [
+      '# status: approved',
+      'Feature: Approved but never issued',
+      '  @scn-094 @release',
+      '  Scenario: post-approval orphan — the case INV-5 exists for',
+      '    Given approval happened but /to-issues never ran',
+    ].join('\n'));
+  });
+  assert.equal(status, 1, 'a post-approval orphan is the real defect');
+  assert.match(out, /INV-5.*scn-094/s);
+});
+
+// ── FOLLOW-UP 58: failures recap survives a truncated capture ─────────────────
+
+// Operators keep piping the gate into `tail -N` (3rd live recurrence): the
+// tail kept the count line while cutting the inline ❌ naming the failure.
+test('FU-58: the LAST lines of a failing run name the failing invariant (recap block)', () => {
+  const { out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'features', 'orphan.feature'),
+      '# status: approved\nFeature: O\n  @scn-095 @release\n  Scenario: x\n    Given y\n');
+  });
+  const tail3 = out.trim().split('\n').slice(-3).join('\n');
+  assert.match(tail3, /Failures recap:/);
+  assert.match(tail3, /❌ INV-5.*scn-095/, 'the tailed capture still names WHAT failed');
+});
+
+test('FU-58: green runs carry no recap block (output contract unchanged)', () => {
+  const { status, out } = run(FIXTURE);
+  assert.equal(status, 0);
+  assert.doesNotMatch(out, /Failures recap/);
+});

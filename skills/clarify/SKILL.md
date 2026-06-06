@@ -115,6 +115,33 @@ Each unchecked box produces a targeted question for Step 2 unless the spec alrea
 
 ### Step 2 — Ask targeted questions
 
+**Orientation preamble — MANDATORY before question 1 (FOLLOW-UP 59).** The
+asymmetry is structural: you just read the whole spec; the human may be
+returning after days, or another session wrote the spec entirely. The answers
+collected here become audit-grade contracts (the Clarifications log is
+reviewer-citable) — a disoriented answer is a wrong contract, and the round
+spends zero tokens protecting against it unless you do this. Before the first
+question, output ONE compact block (≤12 lines):
+
+```markdown
+## Orienting: <slice name> — clarification round
+
+**What this slice does:** <2-3 lines, plain language — the user-visible
+behavior, not the architecture.>
+
+**Key vocabulary for this round:** <3-6 terms that will appear in the
+questions, one line each, sourced from CONTEXT.md / the spec's closed sets.
+Only terms the questions actually use.>
+
+**This round:** ~<N> questions about <the 2-3 ambiguity areas>. Your answers
+become the spec's Clarifications log (contract-grade).
+```
+
+Direct operator feedback after 4 live slices: *"no siempre estamos al tanto
+de lo que hace el slice"* — both live Q1s (closed-set mechanics, outbox
+ordering) presumed full spec recall and worked only because the same sitting
+had produced the spec.
+
 Different from `/grill-me`:
 
 - Each question quotes the **exact sentence** that is ambiguous.
