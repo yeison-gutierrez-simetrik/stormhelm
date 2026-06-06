@@ -1092,3 +1092,127 @@ gh issue view 42 --repo Belong-Universe/belong-marketplace --json body --jq .bod
 - **(b) Grammar support (build when a 2nd multi-repo consumer exists):** parser accepts `owner/repo#N`, `queue_state_of` resolves via `gh -R owner/repo`; chained mode necessarily excluded for foreign deps (no branch to chain). Costs cross-repo API calls per eligibility pass and a claim story per §63 — not justified by one consumer.
 
 **Acceptance.** (a): the three artifacts state the same contract (the FU-17 anti-drift rule); a fixture issue whose Depends-on cites a PR number produces the explicit warning, not "nonexistent issue". (b) if ever built: diamond fixture with a foreign dep pins merged-deps-only gating. Suite green either way.
+
+---
+
+# Batch 10 — post-batch-8 session tail (belong, 2026-06-06): two gate-ergonomics findings with same-day live evidence
+
+Context: the same session that filed batch 8 continued through the slice-04 deferred-findings night
+(#56/#62 → PRs #63/#64, both 1-iteration green) and the merge train. Both findings below surfaced in
+the final hour, while a PARALLEL session was mid-pipeline on slice 05 — the collision of those two
+facts is itself the evidence. Order: 57 then 58 (independent).
+
+## FOLLOW-UP 57 — INV-5 counts `@release` scenarios from `# status: draft` features: the gate is structurally red during the NORMAL /to-scenarios → /to-issues window, and any concurrent session/CI reading it gets a false alarm  ·  **Severity: MEDIUM (every feature passes through this window on every slice; multi-session operation makes it visible)**
+
+**Problem.** `check-invariants.mjs` builds `releaseScns` from EVERY `.feature` file with no
+`# status:` discrimination (the loop greps `@release` lines per file, header unread), then INV-5
+demands an issue reference for each. But the §58 lifecycle GUARANTEES a window where `@release`
+scenarios exist with no issues: between /to-scenarios (writes `# status: draft`) and /to-issues
+(creates the issues, AFTER the human approval checkpoint). During that window the gate reports
+`❌ INV-5 @release scns with no issue: scn-XXX…` for work that is exactly on-process. Single-session
+operation never sees it (the same session runs /to-issues before invoking the gate); concurrent
+sessions and any CI/cron invocation DO — and the red is indistinguishable from a real orphan.
+Note the asymmetry with INV-3, which already discriminates by status (`status === 'approved' ||
+status === 'implemented'`) — INV-5 simply never got the same treatment.
+
+**Live evidence:** belong, 2026-06-06: session A merges PRs #63/#64, runs the gate on main →
+`❌ INV-5 … scn-093..122` — those 30 scenarios belong to session B's slice-05 `.feature` files,
+both headers `# status: draft`, /to-issues not yet run. Session A spent an investigation cycle
+ruling out its own merges before attributing the red to B's mid-pipeline state.
+
+**Verify:**
+```bash
+git show origin/main:scripts/check-invariants.mjs | grep -n -A4 "releaseScns"   # no status filter
+# Repro: add a `# status: draft` feature with one @release scn and no issue → gate exits 1.
+```
+
+**Fix.** Status-discriminate INV-5 exactly like INV-3: collect release scns only from features whose
+header is `approved` or `implemented` (drafts/clarifying are pre-checkpoint — no issues are EXPECTED
+yet). Optionally report draft-file scns as an informational `⏭️ INV-5: N scns in draft features
+(pre-checkpoint, exempt)` line so the window stays visible without failing. Keep the strictness for
+approved features — an APPROVED scenario with no issue is the real defect INV-5 exists to catch.
+Sync: script + the §59 doc sentence describing INV-5 (FU-17).
+
+**Acceptance.** Fixture: draft feature + orphan @release scn → gate green with the informational
+line; same feature flipped to `approved` → gate red. Existing INV-5 fixtures unchanged.
+
+## FOLLOW-UP 58 — check-invariants prints failures only inline: any truncated capture (`tail -N`, CI log folding) shows "1 invariant(s) failed" without WHICH — recap failing lines after the summary  ·  **Severity: LOW (defense-in-depth for a documented, thrice-recurring operator error)**
+
+**Problem.** The gate prints the per-invariant lines first and the `❌ N invariant(s) failed…`
+summary LAST. The campaign's "never pipe a gate" lesson exists precisely because operators keep
+capturing gates through `| tail -N` — and when they do, the tail keeps the summary but cuts the
+inline ❌ line naming the failing invariant: the operator learns THAT it failed but not WHAT. Exit
+codes are already correct; this is output-ordering ergonomics for the failure path of a
+known-recurring misuse (3rd live occurrence on 2026-06-06: `… | tail -2` showed the failure count
+while hiding the INV-5 detail line, costing a re-run).
+
+**Verify:** any failing invariant + `node scripts/check-invariants.mjs | tail -2`.
+
+**Fix.** After the summary line, re-print every ❌ line (a "failures recap" block). One loop over the
+already-collected results; no contract change for green runs (recap only on failure). Update the
+script's header comment to note the recap is part of the output contract.
+
+**Acceptance.** Fixture: failing invariant → last N output lines contain both the summary AND the
+named ❌ recap; green run output unchanged.
+
+## FOLLOW-UP 59 — /clarify and /grill-me open question rounds cold: no orientation step exists between "read the spec" and "ask Q1", so the human signs contract-grade answers without shared context  ·  **Severity: MEDIUM (HITL answer quality — clarifications persist as audit-grade contracts; a disoriented answer is a wrong contract, not a wasted question)**
+
+**Problem.** Direct operator feedback after 4 slices of live use (belong maintainer, 2026-06-06,
+verbatim): *"cuando se hace el clarify podrían dar un contexto corto de lo que trata el slice y
+aclarar nomenclatura clave antes de comenzar con las preguntas. No siempre estamos al tanto de lo
+que hace el slice."*
+
+The mechanism: `skills/clarify/SKILL.md` goes **Step 1 — Read with adversarial eye** (the AGENT
+reads the spec) directly into **Step 2 — Ask targeted questions** (one per turn). There is no step
+in between that shares what the agent just loaded. The first thing the HUMAN sees is a
+multiple-choice question dense with FR-Ns, scn-NNNs, closed-set values and CONTEXT.md terms — all
+presuming the spec is fresh in their head. The asymmetry is structural: the agent read the whole
+spec seconds ago; the human may be days away from it, or it was authored by a different session
+entirely. `skills/grill-me/SKILL.md` has the same gap at round start (its Step 3 quotes back
+PREVIOUS answers, which helps mid-round, but nothing orients at Q1).
+
+Blast radius: every HITL round of every consumer. These answers are not throwaway — /clarify
+answers persist into the spec's **Clarifications log** (reviewer-citable contracts, §57/§22
+findings if violated) and /grill-me answers become **ADR Considered Options**. The skills currently
+spend zero tokens protecting the quality of the single human input they exist to collect.
+
+**Live evidence:** belong slice-03 /clarify (2026-06-04) Q1 opened directly on `ProviderAgentState`
+closed-set semantics; slice-04 /clarify (2026-06-04) Q1 on submit-vs-outbox-ordering internals —
+both answerable only with full spec recall. The operator answered well *because the same sitting
+had produced the specs*; the feedback arrived the first time the rounds were experienced at a
+distance from the spec's authoring.
+
+**Verify:**
+```bash
+git show origin/main:skills/clarify/SKILL.md | grep -cin "preamble|orientation|context summary"   # → 0
+git show origin/main:skills/clarify/SKILL.md | sed -n '/### Step 1/,/### Step 2/p'   # no human-facing step between read and ask
+git show origin/main:skills/grill-me/SKILL.md | grep -n "Step 3"                      # quotes back answers; no round-start orientation
+```
+
+**Fix.** Add a mandatory **Step 2a — orientation preamble** to `skills/clarify/SKILL.md`, with a
+mirrored "round-start preamble" addition to `skills/grill-me/SKILL.md` Step 3. The preamble is a
+structured three-part contract (structured > prose so it cannot degrade into a spec re-dump):
+
+1. **What this slice does** — 2-4 lines in business language, LIFTED from the spec's "What changes
+   after this ships" (quote, don't paraphrase — paraphrase invites drift).
+2. **Key nomenclature** — ONLY the 3-7 CONTEXT.md terms / closed sets that the planned questions
+   will use, one line each (`term — definition`). Not the whole glossary.
+3. **Where we are** — one line: spec status, what prior rounds settled (counts suffice), what THIS
+   round will decide.
+
+Hard rules, stated in both skills: the preamble is informational (never a question, never skippable
+by the agent); it does NOT count toward the question-count calibration (10-120); it is NEVER
+persisted into the Clarifications log or grilling transcript (it orients, it is not a decision —
+keep the audit artifacts decision-only). Recommended placement: emitted in the same turn as Q1, so
+the flow stays one-question-per-turn.
+
+Artifacts to keep in sync (FU-17 anti-drift): `skills/clarify/SKILL.md` (Step 2a + the example
+flow), `skills/grill-me/SKILL.md` (Step 3 preamble), `skills/clarify/references/
+clarifications-log-format.md` and `skills/grill-me/references/transcript-format.md` (both must
+state the preamble is excluded from persistence).
+
+**Acceptance.** Both SKILL.md files carry the three-part preamble contract with the
+never-persisted / never-counted rules; the reference format docs explicitly exclude the preamble;
+a doc example shows preamble → Q1 ordering in one turn. Consumer-visible outcome: a human
+cold-opening a /clarify round can answer Q1 correctly without opening the spec — the orientation
+travels with the question.
