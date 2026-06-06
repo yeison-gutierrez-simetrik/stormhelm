@@ -101,6 +101,12 @@ already quote PREVIOUS answers per the rule below — the orientation frames
 them). Grilling answers become ADR Considered Options: answer quality is the
 deliverable, and a cold-opened question degrades it.
 
+Hard rules (FOLLOW-UP 59): the orientation is **informational** — never a
+question, never skippable when the round is not same-sitting. It does **NOT
+count toward the question-count calibration** (the 10-120 table). It is
+**NEVER persisted into the grilling transcript** — the transcript is
+decision-only (see `references/transcript-format.md`).
+
 Rules of asking:
 
 - **One question per turn**, until you have a clear answer. Don't ask 5 things at once.

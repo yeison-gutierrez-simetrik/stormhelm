@@ -2,6 +2,8 @@
 
 `/grill-me` writes a transcript to `docs/decisions/grilling/<slug>-<YYYYMMDD>.md` using this shape. The transcript is the canonical record of the design tree resolution and is read by `/domain-model`, `/specify`, and the `reviewer` agent.
 
+**The round orientation is EXCLUDED from the transcript (FOLLOW-UP 59).** The transcript is decision-only — resolved nodes, confirmed assumptions, open questions. The orientation block that opens a returning-session round is framing, not a decision, and must never be persisted here (nor counted toward the question-count calibration).
+
 ## Template
 
 ```markdown

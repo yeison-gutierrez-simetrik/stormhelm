@@ -137,6 +137,12 @@ Only terms the questions actually use.>
 become the spec's Clarifications log (contract-grade).
 ```
 
+Hard rules (FOLLOW-UP 59): the preamble is **informational** — never a
+question, never skippable by the agent. It is **NEVER persisted into the
+Clarifications log**: the log is a reviewer-citable audit artifact,
+decision-only by design — the preamble orients, it is not a decision (see
+`references/clarifications-log-format.md`).
+
 Direct operator feedback after 4 live slices: *"no siempre estamos al tanto
 de lo que hace el slice"* — both live Q1s (closed-set mechanics, outbox
 ordering) presumed full spec recall and worked only because the same sitting
