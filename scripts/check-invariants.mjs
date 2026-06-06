@@ -100,6 +100,17 @@ for (const f of featureFiles) {
 const releaseScns = new Set();
 for (const f of featureFiles) {
   const t = read(f);
+  // FOLLOW-UP 57: the same status discrimination INV-3 got in FOLLOW-UP 39 —
+  // the §58 lifecycle GUARANTEES a window where @release scns exist with no
+  // issues (between /to-scenarios writing '# status: draft' and /to-issues
+  // creating the issues, post-approval). Counting draft/clarifying features
+  // made INV-5 structurally red during normal operation; a concurrent
+  // session/CI reading the gate got a false alarm indistinguishable from a
+  // real orphan (live: 30 scns of a parallel slice). Header-less legacy
+  // features still count (they are on the regression surface, like the
+  // cucumber template treats them).
+  const status = (t.match(/^#\s*status:\s*([a-zA-Z]+)/im) || [, null])[1]?.toLowerCase();
+  if (status === 'draft' || status === 'clarifying') continue;
   // a scn is @release if its tag line contains @release
   for (const line of t.split('\n')) { const m = line.match(/@(scn-\d+)/); if (m && /@release/.test(line)) releaseScns.add(m[1]); }
 }
@@ -233,15 +244,22 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 // --- report -----------------------------------------------------------------
 const icon = { pass: '✅', fail: '❌', na: '⏭️', skip: '⚠️' };
 let blocking = 0;
+const failedLines = [];
 console.log('Invariant checks:');
 for (const r of results) {
   let { status } = r;
   if (status === 'fail' && overrides[r.id]) { status = 'skip'; r.detail = `OVERRIDDEN — ${overrides[r.id]} (orig: ${r.detail})`; }
-  if (status === 'fail') blocking++;
+  if (status === 'fail') { blocking++; failedLines.push(`  ❌ ${r.id} ${r.rule}: ${r.detail}`); }
   console.log(`  ${icon[status]} ${r.id} ${r.rule}: ${r.detail}`);
 }
 if (blocking) {
   console.error(`\n❌ ${blocking} invariant(s) failed. Fix, or override with a line "skip-invariant: INV-X — <reason>".`);
+  // FOLLOW-UP 58: recap AFTER the summary — operators keep capturing gates
+  // through `| tail -N` despite the never-pipe rule (3rd live occurrence),
+  // and the tail kept the count while cutting the line naming the failure.
+  // The recap is part of the output contract; green runs are unchanged.
+  console.error('Failures recap:');
+  for (const l of failedLines) console.error(l);
   process.exit(1);
 }
 console.log('\n✅ All invariants met (or N/A).');

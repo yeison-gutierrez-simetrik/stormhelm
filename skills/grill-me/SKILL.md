@@ -92,6 +92,21 @@ Each branch with uncertainty becomes a question.
 
 ### Step 3 — Ask, one node at a time
 
+**Round orientation (FOLLOW-UP 59).** When this round is not in the same
+sitting that produced the input (a returning session, or the design doc came
+from another session): before the first question, orient in ≤12 lines —
+what is being designed (2-3 plain-language lines), the 3-6 key terms the
+questions will use (one-line glosses), and where the round left off (you
+already quote PREVIOUS answers per the rule below — the orientation frames
+them). Grilling answers become ADR Considered Options: answer quality is the
+deliverable, and a cold-opened question degrades it.
+
+Hard rules (FOLLOW-UP 59): the orientation is **informational** — never a
+question, never skippable when the round is not same-sitting. It does **NOT
+count toward the question-count calibration** (the 10-120 table). It is
+**NEVER persisted into the grilling transcript** — the transcript is
+decision-only (see `references/transcript-format.md`).
+
 Rules of asking:
 
 - **One question per turn**, until you have a clear answer. Don't ask 5 things at once.

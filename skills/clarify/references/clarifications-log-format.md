@@ -2,6 +2,8 @@
 
 `/clarify` appends a `Clarifications log` section to `docs/specs/<feature-slug>.md`. The log preserves both the chosen interpretation **and** the rejected one(s), so a future reviewer can audit what the spec deliberately excludes.
 
+**The orientation preamble is EXCLUDED from this log (FOLLOW-UP 59).** The log is decision-only: one entry per answered question. The preamble that opens the round (slice summary + vocabulary) orients the human — it is not a decision and must never appear here.
+
 ## Template
 
 ```markdown
