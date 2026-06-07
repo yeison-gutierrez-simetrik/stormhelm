@@ -361,6 +361,9 @@ insufficient, which was precisely the activation criterion the original
 DEFER recorded). Merge trains with:
 
 ```bash
+node scripts/sonar-sweep.mjs <pr>   # post-PR QG + open-issues read-out
+                                    # (FOLLOW-UP 65; --files locates clones;
+                                    # exit 1 on QG ERROR — pipeable here)
 node scripts/train-merge.mjs <pr>   # asserts CLEAN → retargets every open
                                     # dependent → merge commit + safe delete
                                     # → post-merge verify

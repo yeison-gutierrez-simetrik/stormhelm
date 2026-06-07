@@ -417,3 +417,55 @@ test('FU-60: train-merge retargets open dependents to the train base, THEN merge
     assert.match(log[firstMerge], /--merge --delete-branch/, 'merge commit + safe deletion');
   });
 });
+
+// ── FOLLOW-UP 65: sonar-sweep — the post-PR read-out, fixture-served ──────────
+// (an http.Server hung under the sandbox; the script's fixture hook mirrors
+//  the RALPH_WATCH_REPLAY pattern — the unit is parsing/exit logic, not HTTP)
+
+const SONAR_FIXTURE = {
+  '/api/qualitygates/project_status': {
+    projectStatus: {
+      status: 'ERROR',
+      conditions: [
+        { status: 'ERROR', metricKey: 'new_duplicated_lines_density', comparator: 'GT', errorThreshold: '3', actualValue: '6.7' },
+        { status: 'OK', metricKey: 'new_violations', comparator: 'GT', errorThreshold: '0', actualValue: '0' },
+      ],
+    },
+  },
+  '/api/issues/search': {
+    issues: [
+      { severity: 'MAJOR', rule: 'typescript:S1871', component: 'proj:src/routes/a.ts', line: 42, message: 'duplicated branches' },
+    ],
+  },
+  '/api/measures/component_tree': {
+    components: [
+      // BOTH new-code shapes — the periods[0] pitfall that cost a re-diagnosis:
+      { path: 'src/routes/a.ts', measures: [{ metric: 'new_duplicated_lines', period: { value: '9' } }] },
+      { path: 'src/routes/b.ts', measures: [{ metric: 'new_duplicated_lines', periods: [{ value: '9' }] }] },
+      { path: 'src/clean.ts', measures: [{ metric: 'new_duplicated_lines', period: { value: '0' } }] },
+    ],
+  },
+};
+
+test('FU-65: sonar-sweep prints QG conditions + issues + per-file dups, exits 1 on ERROR', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sonar-sweep-'));
+  try {
+    writeFileSync(join(dir, 'sonar-project.properties'), 'sonar.projectKey=proj\n');
+    for (const [path, body] of Object.entries(SONAR_FIXTURE)) {
+      writeFileSync(join(dir, path.replace(/\//g, '_') + '.json'), JSON.stringify(body));
+    }
+    const r = spawnSync('node', [join(TEMPLATES, '..', 'scripts', 'sonar-sweep.mjs'), '73', '--files'], {
+      cwd: dir, encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, SONARQ_TOKEN: 't', SONAR_API_FIXTURE_DIR: dir },
+    });
+    assert.equal(r.status, 1, `QG ERROR must exit 1 (pipeable into the train guard):\n${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /Quality Gate \(PR #73\): ❌ ERROR/);
+    assert.match(r.stdout, /new_duplicated_lines_density: 6\.7 \(required ≤ 3\)/, 'failing condition named');
+    assert.match(r.stdout, /\[MAJOR\] typescript:S1871 src\/routes\/a\.ts:42/, 'issue with rule/file:line');
+    assert.match(r.stdout, /9\tsrc\/routes\/a\.ts/, 'period.value shape read');
+    assert.match(r.stdout, /9\tsrc\/routes\/b\.ts/, 'periods[0].value shape read — the live pitfall');
+    assert.doesNotMatch(r.stdout, /clean\.ts/, 'zero-dup files stay out');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
