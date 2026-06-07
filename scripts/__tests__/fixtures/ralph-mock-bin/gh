@@ -18,6 +18,14 @@ budget:50k}"
       printf '%s\n' "$labels"
     elif printf '%s\n' "$@" | grep -q title; then
       printf '%s\n' "${MOCK_TITLE:-Feature X}"
+    elif printf '%s\n' "$@" | grep -q body; then
+      # FOLLOW-UP 64: dep-of-dep lookups — per-issue body via MOCK_BODY_<n>,
+      # falling back to the global MOCK_BODY.
+      if eval "[ -n \"\${MOCK_BODY_${3}:-}\" ]"; then
+        eval "printf '%s\n' \"\$MOCK_BODY_${3}\""
+      else
+        printf '%s\n' "${MOCK_BODY:-}"
+      fi
     fi ;;
   "issue list")
     # FOLLOW-UP 43 (dependency-aware queue): two JSON variants —

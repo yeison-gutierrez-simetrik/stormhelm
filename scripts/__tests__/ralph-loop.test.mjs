@@ -1183,3 +1183,52 @@ test('FU-56: Depends-on citing a PR number → "is a PULL REQUEST" warning, not 
     assert.doesNotMatch(out, /#35 which does not exist/, 'the misleading reason is gone');
   });
 });
+
+// ── FOLLOW-UP 64: single-issue runs resolve their PR base from declared deps ──
+
+// Live: a recovered single-issue run opened against main — the diff and
+// Sonar's new-code spanned 4 issues, and the QG failed on duplication that
+// was already fixed on a DEP branch.
+test('FU-64: single-issue run with one open dep → PR based on the dep branch', () => {
+  withConsumer((dir) => {
+    withFoundationBranch(dir);
+    const { status, out } = runRalph(dir, ['2', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (foundation)\n',
+      MOCK_PR_BRANCH_1: 'agent/feature-found-1',
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-found-1/, 'base = the dep branch, not main');
+    assert.match(pr, /STACKED PR \(FOLLOW-UP 64\)/, 'the reviewer is told');
+  });
+});
+
+test('FU-64: true multi-root deps → base stays main + the honest stacked-diff note', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['5', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (root A)\n- #2 (root B)\n',
+      MOCK_PR_BRANCH_1: 'agent/feature-a-1',
+      MOCK_PR_BRANCH_2: 'agent/feature-b-2',
+      MOCK_BODY_2: '## Depends on\nNone (foundation)\n',  // #2 does NOT depend on #1 → true multi-root
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.doesNotMatch(pr, /--base/, 'multi-root keeps main');
+    assert.match(pr, /STACKED DIFF \(FOLLOW-UP 64\).*#1 #2/, 'the honest note names the spanned deps');
+  });
+});
+
+test('FU-64: linear dep chain → base = the chain tail (highest dep covering the rest)', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['5', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (foundation)\n- #2 (middle)\n',
+      MOCK_BODY_2: '## Depends on\n- #1 (foundation)\n',   // #2 depends on #1 → linear chain, tail = #2
+      MOCK_PR_BRANCH_1: 'agent/feature-a-1',
+      MOCK_PR_BRANCH_2: 'agent/feature-b-2',
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-b-2/, 'chain tail carries the full stack');
+    assert.match(pr, /STACKED PR \(FOLLOW-UP 64\)/);
+  });
+});

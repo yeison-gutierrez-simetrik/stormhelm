@@ -743,9 +743,56 @@ EOF
       fi
     fi
     PR_TARGET="${PR_BASE_REF:-$BASE_REF}"
+    # FOLLOW-UP 64: a SINGLE-issue run (no --base) with declared deps used
+    # to open against main — the diff and Sonar's new-code period spanned
+    # every unmerged dep (live: a PR showed 4 issues' work and its QG
+    # failed on duplication already fixed on a DEP branch). Resolve:
+    #   exactly one dep with an open PR  → its branch is the base (the
+    #     chain-tail case; deps are created foundations-first, so with >1
+    #     we take the HIGHEST-numbered dep whose deps include the others —
+    #     a linear chain — otherwise it is a true multi-root);
+    #   multi-root / nothing resolvable → keep main, but say so in the PR
+    #     body (an honest stacked diff beats a silent one).
+    STACKED_DIFF_NOTE=""
+    if [ -z "$PR_TARGET" ]; then
+      SINGLE_DEPS=$(printf '%s' "$ISSUE_BODY" | ralph_deps_from_body | tr '\n' ' ')
+      if [ -n "${SINGLE_DEPS// /}" ]; then
+        OPEN_DEP_LIST=""
+        for d in $SINGLE_DEPS; do
+          b=$(gh pr list --state open --json headRefName,body \
+            --jq ".[] | select(.body | contains(\"Closes #${d}\")) | .headRefName" 2>/dev/null | head -1)
+          [ -n "$b" ] && OPEN_DEP_LIST="${OPEN_DEP_LIST}${OPEN_DEP_LIST:+ }${d}:${b}"
+        done
+        DEP_COUNT=$(printf '%s\n' $OPEN_DEP_LIST | grep -c . || true)
+        if [ "$DEP_COUNT" = "1" ]; then
+          PR_TARGET="${OPEN_DEP_LIST#*:}"
+          STACKED_DIFF_NOTE="> 🔗 **STACKED PR (FOLLOW-UP 64):** based on \`${PR_TARGET}\` — this issue's declared dependency. Merge that PR first; merge commit only (§123)."
+        elif [ "$DEP_COUNT" -gt 1 ]; then
+          # Chain check: the highest-numbered open dep must itself depend on
+          # every other open dep (linear chain) for its branch to contain
+          # the full stack. Otherwise: true multi-root → honest note.
+          LAST_DEP=$(printf '%s\n' $OPEN_DEP_LIST | sed 's/:.*//' | sort -n | tail -1)
+          LAST_BRANCH=$(printf '%s\n' $OPEN_DEP_LIST | grep "^${LAST_DEP}:" | head -1 | cut -d: -f2-)
+          LAST_DEP_DEPS=$(gh issue view "$LAST_DEP" --json body --jq .body 2>/dev/null | ralph_deps_from_body | tr '\n' ' ' || true)
+          CHAIN=1
+          for d in $(printf '%s\n' $OPEN_DEP_LIST | sed 's/:.*//'); do
+            [ "$d" = "$LAST_DEP" ] && continue
+            case " $LAST_DEP_DEPS " in *" $d "*) : ;; *) CHAIN=0 ;; esac
+          done
+          if [ "$CHAIN" = "1" ]; then
+            PR_TARGET="$LAST_BRANCH"
+            STACKED_DIFF_NOTE="> 🔗 **STACKED PR (FOLLOW-UP 64):** based on \`${PR_TARGET}\` — the chain tail of this issue's declared dependencies. Merge the chain in order; merge commits only (§123)."
+          else
+            STACKED_DIFF_NOTE="> ⚠️ **STACKED DIFF (FOLLOW-UP 64):** this PR's base is \`main\` but its diff spans unmerged dependencies ($(printf '%s\n' $OPEN_DEP_LIST | sed 's/:.*//' | sed 's/^/#/' | tr '\n' ' ' | sed 's/ $//')) — review this issue's commits only; analyzer new-code metrics may attribute dep-branch findings here until the deps merge."
+          fi
+        fi
+      fi
+    fi
     PR_BASE_ARGS=()
     [ -n "$PR_TARGET" ] && PR_BASE_ARGS=(--base "$PR_TARGET")
-    if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY"; then
+    if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY${STACKED_DIFF_NOTE:+
+
+$STACKED_DIFF_NOTE}"; then
       ralph_git_action "pr-create" "success" "gh pr create --draft"
       # FOLLOW-UP 41: provision ralph-done just-in-time (mirror of the block
       # path's ralph-blocked). Re-sync-adopted consumers never re-run /setup,
