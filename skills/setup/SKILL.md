@@ -318,6 +318,7 @@ cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 # path, add it here AND to the validation `ls` below — otherwise it ships broken.
 mkdir -p scripts
 for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
+         train-merge.mjs sonar-sweep.mjs \
          group-slice-issues.mjs parse-layers-affected.mjs detect-ceremony.mjs \
          sync-closed-sets.mjs compose-sonar-properties.mjs; do
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"

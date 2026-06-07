@@ -373,3 +373,47 @@ test('FU-50: zero implemented features → benign glob + explicit log, never pat
     assert.match(stderr, /skipping 1 in-flight feature file/, 'the skip list still names what is off-surface');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── FOLLOW-UP 60: train-merge retargets dependents BEFORE deleting the base ───
+
+// Second live incident of the closed-siblings class (manual deletion, then
+// the --delete-branch flag path): the runbook alone was demonstrably
+// insufficient — the FU-53 DEFER's exact activation criterion. The script
+// mechanizes retarget-before-delete (the Graphite/ghstack pattern).
+test('FU-60: train-merge retargets open dependents to the train base, THEN merges', () => {
+  withDir((dir) => {
+    // Real repo so check-merge-safety post verifies a REAL merge commit.
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+    writeFileSync(join(dir, 'a.txt'), '1'); git('add', '-A'); git('commit', '-qm', 'init');
+    git('checkout', '-qb', 'train-head');
+    writeFileSync(join(dir, 'b.txt'), '2'); git('add', '-A'); git('commit', '-qm', 'work');
+    const headOid = git('rev-parse', 'HEAD').stdout.trim();
+    git('checkout', '-q', '-');
+    git('merge', '--no-ff', '-q', '--no-edit', 'train-head');
+    const mergeSha = git('rev-parse', 'HEAD').stdout.trim();
+    // The framework scripts must be reachable as scripts/ from cwd:
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of ['train-merge.mjs', 'check-merge-safety.mjs']) {
+      copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    }
+    const r = spawnSync('node', ['scripts/train-merge.mjs', '71'], {
+      cwd: dir, encoding: 'utf8',
+      env: {
+        ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`,
+        MOCK_TRAIN_PRE_JSON: JSON.stringify({ number: 71, state: 'OPEN', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', headRefOid: headOid, baseRefOid: 'base', isDraft: false, title: 'train first' }),
+        MOCK_TRAIN_VIEW_JSON: JSON.stringify({ headRefName: 'train-head', baseRefName: 'main', headRefOid: headOid }),
+        MOCK_PR_DEPENDENTS_JSON: JSON.stringify([{ number: 72 }, { number: 73 }]),
+        MOCK_TRAIN_POST_JSON: JSON.stringify({ number: 71, state: 'MERGED', mergedAt: 'x', mergeCommit: { oid: mergeSha }, headRefOid: headOid }),
+      },
+    });
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const log = readFileSync(join(dir, '.mock-gh-trainlog'), 'utf8').trim().split('\n');
+    const firstMerge = log.findIndex((l) => l.startsWith('MERGE'));
+    const edits = log.filter((l) => l.startsWith('EDIT'));
+    assert.equal(edits.length, 2, 'both dependents retargeted');
+    assert.match(edits[0], /72 --base main/, 'retargeted to the TRAIN base, not left on the doomed branch');
+    assert.ok(log.findIndex((l) => l.startsWith('EDIT')) < firstMerge, 'retarget happens BEFORE the merge');
+    assert.match(log[firstMerge], /--merge --delete-branch/, 'merge commit + safe deletion');
+  });
+});

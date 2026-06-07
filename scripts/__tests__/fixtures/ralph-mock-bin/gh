@@ -34,6 +34,11 @@ budget:50k}"
       printf '%s\n' "${MOCK_READY:-1}"
     fi ;;
   "pr list")
+    # FOLLOW-UP 60: --base queries answer the dependents JSON.
+    if printf '%s\n' "$@" | grep -q -- "--base"; then
+      printf '%s\n' "${MOCK_PR_DEPENDENTS_JSON:-[]}"
+      exit 0
+    fi
     # Pre-formatted rows (the real call uses --jq); empty by default so the
     # watcher's empty-list path (FOLLOW-UP 32 lesson 3) is exercised.
     # FOLLOW-UP 48: per-dep branch discovery — when the --jq carries a
@@ -44,11 +49,27 @@ budget:50k}"
       eval "printf '%s\n' \"\$MOCK_PR_BRANCH_${dep}\""
     elif [ -n "${MOCK_PR_LIST:-}" ]; then printf '%s\n' "$MOCK_PR_LIST"; fi ;;
   "pr view")
-    # FOLLOW-UP 56: exists only when listed in MOCK_PR_EXISTS (space-sep).
-    case " ${MOCK_PR_EXISTS:-} " in
-      *" $3 "*) echo "pr #$3" ;;
-      *) echo "no pull requests found" >&2; exit 1 ;;
-    esac ;;
+    # FOLLOW-UP 60 (train-merge): JSON views keyed by requested fields.
+    # NOTE: no inline JSON defaults — a literal '}' inside ${VAR:-...}
+    # terminates the expansion early and emits garbage.
+    if printf '%s\n' "$@" | grep -q "mergeCommit"; then
+      printf '%s\n' "${MOCK_TRAIN_POST_JSON:-null}"
+    elif printf '%s\n' "$@" | grep -q "mergeable"; then
+      printf '%s\n' "${MOCK_TRAIN_PRE_JSON:-null}"
+    elif printf '%s\n' "$@" | grep -q "headRefName"; then
+      printf '%s\n' "${MOCK_TRAIN_VIEW_JSON:-null}"
+    else
+      # FOLLOW-UP 56: exists only when listed in MOCK_PR_EXISTS (space-sep).
+      case " ${MOCK_PR_EXISTS:-} " in
+        *" $3 "*) echo "pr #$3" ;;
+        *) echo "no pull requests found" >&2; exit 1 ;;
+      esac
+    fi ;;
+  "pr edit")
+    # FOLLOW-UP 60: ordering log — retarget must precede merge.
+    printf 'EDIT %s\n' "$*" >> .mock-gh-trainlog ;;
+  "pr merge")
+    printf 'MERGE %s\n' "$*" >> .mock-gh-trainlog ;;
   "pr create")
     # Real gh contract (FOLLOW-UP 29): creating a PR for a branch that was
     # never pushed aborts. The sentinel is written by the mock git's `push`.

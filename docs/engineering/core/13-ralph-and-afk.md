@@ -350,11 +350,24 @@ of them destroyed a PR live:
    merge (full SHA).
 
 (External confirmation: GitHub's retarget-on-merge changelog and cli/cli
-#1168 document exactly the §2/§3 behaviors.) A `merge-train.sh` template
-that mechanizes this sequence is deliberately DEFERRED: the human merger +
-this runbook + `check-merge-safety.mjs` cover the majority case; build the
-script if a consumer's trains grow past ~3 PRs or a second live incident
-happens despite the runbook.
+#1168 document exactly the §2/§3 behaviors.)
+
+**Use the tool, not bare gh (FOLLOW-UP 60).** Inside a slice-group train,
+bare `gh pr merge --delete-branch` is **FORBIDDEN**: merging the train's
+FIRST PR with that flag deletes the head that is the BASE of the stacked
+siblings and GitHub closes them (second live incident of the class — the
+first was manual deletion; the runbook alone was demonstrably
+insufficient, which was precisely the activation criterion the original
+DEFER recorded). Merge trains with:
+
+```bash
+node scripts/train-merge.mjs <pr>   # asserts CLEAN → retargets every open
+                                    # dependent → merge commit + safe delete
+                                    # → post-merge verify
+```
+
+The runbook above remains the WHY; the script is the HOW (the ecosystem
+pattern — Graphite/ghstack/spr all mechanize stack merges).
 
 ### Post-PR analysis findings are owned by HUMAN CHECKPOINT 2 (FOLLOW-UP 47)
 

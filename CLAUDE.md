@@ -46,6 +46,8 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 │   ├── check-framework-metadata.mjs    — [self-maint]       self-consistency linter (PR-A)
 │   ├── check-invariants.mjs            — [consumer-runtime] executable §N invariants (PR-D / INV-N)
 │   ├── check-merge-safety.mjs          — [consumer-runtime] mergeable + post-merge verify (PR-Sec / FW-5)
+│   ├── train-merge.mjs                 — [consumer-runtime] stacked-train merge: retarget-before-delete (FU-60)
+│   ├── sonar-sweep.mjs                 — [consumer-runtime] post-PR Sonar QG/issues read-out (FU-65)
 │   ├── compose-sonar-properties.mjs    — [consumer-runtime] capability-driven Sonar config (PR-Sonar / FW-6)
 │   ├── group-slice-issues.mjs          — [consumer-runtime] slice-group resolver (PR-Group / FW-2)
 │   ├── parse-layers-affected.mjs       — [consumer-runtime] shared AST parser, imported by group-slice (future PR-M)
@@ -79,7 +81,7 @@ All three must be ✅ before merge. CI runs `check-framework-metadata.mjs` (`ver
 Two kinds of script live in `scripts/`, and the distinction matters for adoption:
 
 - **`[self-maint]`** — run only against *this* repo while maintaining the framework: `check-framework-metadata.mjs` and the `__tests__/` suite. Consumers do **not** need these.
-- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), and `compose-sonar-properties`. Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
+- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), and `sonar-sweep` (post-PR QG read-out). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
 
 ## Key conventions
 
