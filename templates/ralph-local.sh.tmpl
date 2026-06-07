@@ -755,7 +755,7 @@ EOF
     #     body (an honest stacked diff beats a silent one).
     STACKED_DIFF_NOTE=""
     if [ -z "$PR_TARGET" ]; then
-      SINGLE_DEPS=$(printf '%s' "$ISSUE_BODY" | ralph_deps_from_body | tr '\n' ' ')
+      SINGLE_DEPS=$(printf '%s' "$ISSUE_BODY" | ralph_deps_from_body | tr '\n' ' ' || true)
       if [ -n "${SINGLE_DEPS// /}" ]; then
         OPEN_DEP_LIST=""
         for d in $SINGLE_DEPS; do
