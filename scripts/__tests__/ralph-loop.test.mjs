@@ -1007,8 +1007,14 @@ test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, cl
     const { out } = runRalph(dir, [], diamondEnv);
     assert.doesNotMatch(out, /════════ Issue #4/, 'never built on one side of a divergence');
     assert.match(out, /dep branches CONFLICT|dep branches diverge/);
-    const skip = queueLog(dir).find((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.match(out, /files: shared\.txt/, 'FU-61: the human line names the conflicting file');
+    assert.match(out, /Reconcile \(core\/13\)/, 'FU-61: the recipe travels with the skip');
+    const skips = queueLog(dir).filter((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.equal(skips.length, 1, 'emitted ONCE, at detection');
+    const skip = skips[0];
     assert.equal(skip?.details?.reason, 'dep-branches-conflict');
+    assert.deepEqual(skip.details.conflict_files, ['shared.txt'], 'FU-61: files in the event');
+    assert.deepEqual(skip.details.dep_branches, ['agent/feature-dep-2', 'agent/feature-dep-3'], 'FU-61: branches in the event');
   });
 });
 

@@ -230,7 +230,16 @@ if [ -z "$ISSUE_NUM" ]; then
             shift
             for b in "$@"; do
               if ! git merge -q --no-edit "$b" >/dev/null 2>&1; then
-                echo "⚠️  Issue #$n: dep branches diverge — 'git merge $b' conflicts on the integration base. Siblings must reconcile before this issue can run." >&2
+                # FOLLOW-UP 61: the engine HAS the forensics right here —
+                # name branches and files in the event so the skip is
+                # self-service, and print the reconciliation recipe.
+                CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null | head -10)
+                CF_JSON=$(printf '%s\n' "$CONFLICT_FILES" | grep . | jq -R . | jq -cs . 2>/dev/null || echo '[]')
+                DB_JSON=$(printf '%s\n' $done_branches | jq -R . | jq -cs . 2>/dev/null || echo '[]')
+                echo "⚠️  Issue #$n: dep branches diverge — 'git merge $b' conflicts on the integration base (files: $(printf '%s' "$CONFLICT_FILES" | tr '\n' ' '))." >&2
+                echo "    Reconcile (core/13): merge the ADVANCED dep tip into the diverged sibling (newest into oldest), resolve keeping both sides' intent, push, relaunch issue #$n." >&2
+                ralph_log_event "warn" "ralph.queue.skipped" \
+                  "{\"issue\":${n},\"reason\":\"dep-branches-conflict\",\"dep_branches\":${DB_JSON},\"conflict_files\":${CF_JSON},\"mode\":\"${QUEUE_MODE_NAME}\"}"
                 git merge --abort >/dev/null 2>&1 || true
                 git checkout -q --detach "$QUEUE_START_REF" 2>/dev/null || true
                 git branch -q -D "$INTEGRATION" 2>/dev/null || true
@@ -287,9 +296,9 @@ if [ -z "$ISSUE_NUM" ]; then
     done
     case "$CONFLICTED" in
       *" $n "*)
-        echo "⏭  Issue #$n skipped — dep branches CONFLICT on the integration base (siblings diverged; reconcile before this issue can run)"
-        ralph_log_event "warn" "ralph.queue.skipped" \
-          "{\"issue\":${n},\"blocked_on\":[${blocked_on:-}],\"mode\":\"${QUEUE_MODE_NAME}\",\"reason\":\"dep-branches-conflict\"}"
+        # FOLLOW-UP 61: the detailed event (branches + files + recipe)
+        # was emitted at detection time — only the human recap here.
+        echo "⏭  Issue #$n skipped — dep branches CONFLICT on the integration base (see the ralph.queue.skipped event for branches/files + the core/13 recipe)"
         continue ;;
     esac
     echo "⏭  Issue #$n skipped — waiting on: #${blocked_on:-?} (mode: ${QUEUE_MODE_NAME})"

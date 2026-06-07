@@ -480,6 +480,17 @@ structured precisely so automation can read it):
   actually needed, the designed fix is a `ralph-claimed:<worker>` label
   applied before processing and cleared after — build it then, not
   speculatively.)
+- **Sibling-divergence reconciliation (FOLLOW-UP 61):** a Day-Shift push to
+  dep branch A after sibling B already chained from A's older tip makes the
+  integration-base merge CONFLICT — the queue skips the issue (correctly:
+  building on one side would hide a real divergence) and the
+  `ralph.queue.skipped` event names the branches and files. The recipe:
+  **merge the advanced dep tip INTO the diverged sibling** (newest into
+  oldest, topological order), resolve keeping both sides' intent, push,
+  relaunch the skipped issue (single-issue mode rebuilds the base clean).
+  An auto-reconcile attempt (skip only on REAL conflict after a trial
+  merge) is deliberately DEFERRED until a third incident shows the manual
+  recipe is toil.
 - **Watching the night:** `./ralph-watch.sh --queue [root]` follows the
   whole queue — it rebinds to the newest session log regardless of issue,
   surfaces `queue.skipped` reasons as notifications, treats a CHILD's
