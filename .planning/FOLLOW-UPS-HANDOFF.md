@@ -1216,3 +1216,165 @@ never-persisted / never-counted rules; the reference format docs explicitly excl
 a doc example shows preamble → Q1 ordering in one turn. Consumer-visible outcome: a human
 cold-opening a /clarify round can answer Q1 correctly without opening the spec — the orientation
 travels with the question.
+# Batch 13 — slice-05 execution + close-out retrospective (belong, 2026-06-07)
+
+Context: the first full slice executed END-TO-END in one session arc — chained Night Shift
+(#65→#68), Day-Shift Sonar sweeps DURING the night, a cross-service contract realignment, an E2E
+phase extension (28/28 vs the real second service), and the close-out. Two incidents and four
+structural gaps surfaced; all with live evidence in belong PRs #71-#78 and universe PRs #52-#56.
+Suggested order: FU-60 (train guard) and FU-62 (double fidelity) first — both bit hardest.
+
+## FOLLOW-UP 60 — `gh pr merge --delete-branch` on a stacked train's first merge deletes a branch that is the BASE of open sibling PRs → GitHub closes them irrecoverably; the FU-53 runbook covers only the manual-deletion path  ·  **Severity: HIGH (second live incident of the class; docs-only mitigation demonstrably insufficient)**
+
+**Problem.** FU-53's resolution was a runbook in `docs/engineering/core/13` ("never manually delete
+a base branch; retarget dependents first or delete only via merge"). The flag path was not covered:
+merging the train's FIRST PR with `--delete-branch` deletes its head — which is the BASE of the
+stacked siblings — and GitHub CLOSES those PRs. A closed PR with a deleted base cannot be reopened
+or re-based (`Cannot change the base branch of a closed pull request`). Recovery = recreate PRs
+from the (intact) branches, losing PR continuity (reviewer reports survive only on the closed
+originals).
+
+**Live evidence:** belong train 2026-06-07 — `gh pr merge 71 --merge --delete-branch` (head
+`agent/...-an-65`, the base of #72/#73) → #72/#73 CLOSED; recovered as #76/#77; matrix
+`docs/audit/traceability-v0.5.0-final.md` records the supersession. First incident: slice-04 #52
+(manual deletion). Two incidents, two slices.
+
+**Verify:**
+```bash
+# any repo: stack B on A, merge A with --delete-branch, observe B close;
+# then: gh pr edit B --base main  →  "Cannot change the base branch of a closed pull request"
+```
+
+**Fix.** Tooling, not more prose (the runbook existed and the operator still hit the variant):
+a vendored `scripts/train-merge.mjs <pr>` (or a `merge_train` helper in ralph-lib.sh) that, BEFORE
+merging: (1) `gh pr list --base <headRef> --state open` — if non-empty, retarget each dependent to
+the merging PR's base (`gh pr edit N --base <target>`) and only then merge with `--delete-branch`;
+(2) assert MERGEABLE/CLEAN in the command. Document in core/13 that bare
+`gh pr merge --delete-branch` is FORBIDDEN inside a slice-group train. Runbook stays as the why;
+the helper is the how.
+
+**Acceptance.** Fixture test: repo with stacked PRs (mock gh bin) — train-merge retargets the
+dependent before deletion; the dependent PR remains OPEN after the first merge. Consumer outcome:
+a 4-PR train merges top-down with zero closed siblings.
+
+## FOLLOW-UP 61 — chained-queue multi-dep integration base: sibling divergence (a dep branch advancing AFTER a later sibling chained from its older tip) makes the queue's integration-base merge CONFLICT and skip the issue, with no reconciliation recipe in the event or docs  ·  **Severity: MEDIUM (any Day-Shift push to an in-train branch triggers it; the skip is correct but a dead end)**
+
+**Problem.** FU-46/FU-46a gave multi-dep issues an integration base built by merging dep branches.
+When the Day Shift pushes to dep branch A (e.g. a Sonar dedup) AFTER sibling B already chained from
+A's older tip, A and B diverge on the same files; the queue's integration-base merge for a later
+multi-dep issue conflicts → `ralph.queue.skipped` ("dep branches CONFLICT on the integration base
+(siblings diverged; reconcile before this issue can run)"). Correctly conservative — but the event
+names neither the branches nor the files, and no documented recipe exists. The operator had to
+diagnose from scratch.
+
+**Live evidence:** belong queue log 2026-06-06 (`ralph-queue-slice05.log` tail): issue #68 skipped
+after commit `4b67d82` (Day-Shift dedup on `...-ve-66`) diverged from `...-de-67` (chained earlier
+from `f93833d`). Reconciliation that worked: merge A's tip INTO B (commit `ad30bd9` on the de-67
+branch, conflict resolved keeping both sides), push, relaunch the issue.
+
+**Fix.** (a) Event payload: `ralph.queue.skipped` for this cause should carry
+`{dep_branches: [...], conflict_files: [...]}` (the engine just attempted the merge — it HAS this
+from `git merge` output); the human-readable line prints them. (b) core/13 runbook: "sibling
+divergence reconciliation" = merge the advanced dep tip into the diverged sibling (newest-into-
+oldest, topological), resolve keeping both sides' intent, push, relaunch the skipped issue
+(single-issue mode rebuilds the base clean). (c) optional, `decision (maintainer)`: an
+auto-reconcile attempt (try the merge; only skip on REAL conflict after auto-merge) — recommend
+(a)+(b) now, (c) only if a third incident shows the manual recipe is toil.
+
+**Acceptance.** Fixture: two dep branches with a forced divergence → the skip event carries
+branches+files; docs name the recipe. Consumer outcome: the next sibling-divergence skip is
+self-service from the event text alone.
+
+## FOLLOW-UP 62 — the in-repo service double can silently drift from the ADR-pinned contract: 30 BDD scenarios ran green against invented routes and wrong response bodies; nothing checks double↔contract fidelity  ·  **Severity: HIGH (false-green acceptance for any cross-service slice; the whole point of the double is the contract)**
+
+**Problem.** The slice-05 night built the Universe double from the ISSUE text, not the ADR
+contract, and drifted: invented routes (`POST /api/v1/discover/listings`,
+`GET /api/v1/discover/listings/:ref` — the real surface is `POST /api/v1/discover/search` +
+`GET /api/v1/listings/{uuid}`), a wrong path (`/submit-verification` vs `/submit-for-verification`),
+a wrong field (`provider_agent_ref` vs `agent_external_ref`), and token bodies (`{result:
+"published"}`) where the real service returns the entity representation + `{detail, reason_code}`
+errors. All 30 scenarios stayed green because the belong adapter was written against the SAME
+wrong double. Only the cross-service E2E exposed it (the adapter would have infinite-retried
+against the real service: 2xx-with-entity parsed as malformed → CATALOG_UNAVAILABLE).
+
+**Live evidence:** belong close-out commit `f220596` (the realignment diff: double + adapter), E2E
+evidence `e2e/slice-05-e2e-result-20260607.txt` (28/28 only AFTER realignment), universe#56
+(machine reason codes added to make the response contract §19-clean).
+
+**Fix.** Structured contract over prose, two layers: (1) NOW — a reviewer (§114) rule + /plan
+template line: every route a double registers MUST cite the ADR/contract line it mirrors, and the
+reviewer greps the double's route table against the ADR amendment's endpoint list (a mismatch or
+an uncited route = should-fix). (2) END-STATE (`decision (maintainer)`) — the §103 module-contract
+artifact (`openapi-spec.yaml`) becomes the single source: a vendored
+`scripts/check-double-fidelity.mjs` lints the double's registered routes/methods against it, and
+the adapter's paths too. (2) is the FU-of-record's real ask; (1) is the cheap interim.
+
+**Acceptance.** A double registering a route absent from the contract file fails the check; the
+slice-05 drift (all four mismatches) reproduces as failures against the slice-04/05 contract.
+Consumer outcome: a green BDD suite implies the double speaks the pinned contract.
+
+## FOLLOW-UP 63 — §61 use-case-direct steps cannot see HTTP serializer gaps: two console-surface fields were dropped (view + route both) while the "reason observable" scenarios stayed green; observability FRs need a surface-level assertion rule  ·  **Severity: MEDIUM-HIGH (a §19 value-discriminated field silently absent from the API is a spec violation BDD blessed)**
+
+**Problem.** §61 steps invoke use cases directly — correct for speed/isolation, but the HTTP route
+re-serializes views FIELD BY FIELD, and a field the spec demands observable (`lastTransitionFailure`,
+spec 05 FR-11/C1 "fails with the reason observable") was dropped twice: by the use-case view AND by
+the route serializer. scn-102/105 asserted via the anchor/use case and stayed green; the E2E
+phase-C (`C4b`) caught it against the real HTTP surface.
+
+**Live evidence:** belong commits in close-out PR #78 (read-listing view + listings.routes
+serializer + ListingDetailView type); E2E run 17/18 → 28/28 across the fix.
+
+**Fix.** Two complementary contracts: (1) TypeScript-structural (capability stack rule,
+typescript-hono/09): route response literals MUST be declared `satisfies <ViewType>` (or spread
+the view object and only ADD transport fields) — a dropped field becomes a compile error, killing
+the field-by-field re-serialization class entirely. (2) §61 addendum: an FR whose verb is
+"observable from the console/API" gets at least ONE assertion through the HTTP boundary (a route
+test or an `app.request`-level step), not only the use-case return. State the rule in BOTH the
+skill (/tdd) and the docs (§61 section) — FU-17 anti-drift.
+
+**Acceptance.** A route serializer omitting a view field fails typecheck in the template stack;
+reviewer flags observability FRs lacking a surface-level assertion. Consumer outcome: "observable"
+in a spec provably means observable over HTTP.
+
+## FOLLOW-UP 64 — single-issue Ralph runs open the PR with base=main even when the issue declares deps: review diff and Sonar new-code measure the whole accumulated stack, not the issue's delta  ·  **Severity: MEDIUM (attribution noise on every recovered/standalone multi-dep run)**
+
+**Problem.** Queue-chained runs pass `--base <prev sibling>`; a SINGLE-issue run
+(`./ralph-local.sh 68`) builds its integration base from `## Depends on` for the WORK, but opens
+the PR against `main`. The PR diff (and Sonar's new-code period) then spans every unmerged dep —
+in the live case PR #74 showed #65+#66+#67+#68 and its Sonar QG failed on duplication that belonged
+to (and was already fixed on) a DEP branch, costing a diagnosis cycle.
+
+**Live evidence:** belong PR #74 (base `main`, QG ERROR 4.4% from pre-dedup dep code; fixed by
+merging the dep tip `be09d51` into the head — the QG then passed with zero head-side changes).
+
+**Fix.** At PR-open time, when `deps_from_body` is non-empty: if the dep set forms a chain
+(topological order exists), `--base <topologically-last dep branch>`; if it does not (true
+multi-root), keep `main` but the engine PREPENDS a body note "diff spans unmerged deps #a/#b —
+review the last commits" and (optional) labels `stacked-diff`. The chain case covers every
+slice-group; the note covers the rest honestly.
+
+**Acceptance.** Mock-gh fixture: single-issue run with one dep → PR created with the dep branch as
+base; with two divergent roots → base main + the body note. Consumer outcome: Sonar new-code on a
+recovered sibling measures only its own delta.
+
+## FOLLOW-UP 65 — post-PR Sonar sweep is undocumented manual ritual: QG status + open issues via the API token were hand-curled 5+ times across two campaigns; the recipe belongs in a vendored tool  ·  **Severity: MEDIUM (every require-human-review PR repeats it; FU-55's left-shift covers duplication pre-PR but not the post-PR QG/issue read-out)**
+
+**Problem.** The Day Shift's per-PR routine (read QG conditions, list open issues with rule/file/
+line, re-poll after a push) is pure API mechanics repeated by hand: slice-04 #54 (2 real findings),
+slice-05 #71 (4 issues), #72 (QG dup 5.7%), #73 (QG dup 6.7% + per-file `new_duplicated_lines`
+sweep to locate clones), #74 (QG dup 4.4%). Each time: same curl shapes, same `periods[0].value`
+parsing pitfall (one sweep silently read all-zeros from a wrong key and cost a re-diagnosis).
+
+**Live evidence:** belong session 2026-06-06/07 transcripts; matrix v0.5.0-final "Sonar" section;
+`SONARQ_TOKEN` already provisioned in the consumer's `.env`.
+
+**Fix.** Vendored `scripts/sonar-sweep.mjs <pr-number>`: reads `SONARQ_TOKEN` + the
+`sonar-project.properties` projectKey; prints (a) QG status + failing conditions, (b) open issues
+(severity/rule/file:line/message), (c) `--files` mode: per-file new_duplicated_lines (the
+clone-locator). Exit 1 on QG ERROR (pipeable into the train guard, FU-60). NOT a merge gate by
+default — the analyzer is post-PR and HC2-owned (04 precedent); it is the standard read-out tool.
+Reference it from /run-acceptance's "post-PR" note and core/13's train runbook.
+
+**Acceptance.** Mocked Sonar API fixture: sweep prints conditions+issues and exits 1 on ERROR;
+`--files` locates a seeded dup. Consumer outcome: the next QG failure is one command, not six
+curls.
