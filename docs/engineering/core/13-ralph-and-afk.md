@@ -432,6 +432,18 @@ The launch pattern for a chained group, in topological order from `group-slice-i
 ./ralph-isolated.sh 16 --base agent/feature-<slug15>-15
 ```
 
+**Worktree provisioning (FOLLOW-UP 69).** A `ralph-isolated` worktree shares
+`.git` but gets a FRESH working dir — the untracked runtime surface does not
+come with it. The script provisions BOTH pieces the loop needs before handing
+off: `.env` (copied; secrets for the env pre-flight + acceptance stack) AND
+`node_modules` (**symlinked** from the primary checkout — `/tdd` runs vitest,
+`/run-acceptance` runs cucumber-js, §60's pre-push smoke runs `pnpm
+test:smoke`, every binary resolved from `node_modules/.bin`). Without the link
+the first command in the worktree fails 127 (`cucumber-js: command not
+found`). The symlink is read-only during a run so sharing is safe; if the
+primary checkout has no `node_modules`, the script falls back to an install in
+the worktree.
+
 ### Accumulate-and-drain: the dependency-aware queue (FOLLOW-UP 43)
 
 The supported multi-slice pattern: the Day Shift specifies slices ahead

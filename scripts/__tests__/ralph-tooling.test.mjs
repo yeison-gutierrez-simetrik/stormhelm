@@ -469,3 +469,45 @@ test('FU-65: sonar-sweep prints QG conditions + issues + per-file dups, exits 1 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── FOLLOW-UP 69: the isolated worktree exposes resolvable node_modules ───────
+
+// A git worktree gets a FRESH working dir with no node_modules — yet /tdd
+// (vitest), /run-acceptance (cucumber-js) and §60's pre-push smoke all resolve
+// binaries from node_modules/.bin. Without provisioning, the first command in
+// the worktree fails 127. The script symlinks the primary checkout's
+// node_modules.
+test('FU-69: ralph-isolated symlinks node_modules so the worktree can run the loop', () => {
+  withDir((dir) => {
+    for (const [src, dst] of [['ralph-lib.sh', 'ralph-lib.sh'], ['ralph-blocked-comment.md.tmpl', 'ralph-blocked-comment.md.tmpl'], ['ralph-local.sh.tmpl', 'ralph-local.sh']]) {
+      copyFileSync(join(TEMPLATES, src), join(dir, dst));
+    }
+    copyFileSync(ISOLATED, join(dir, 'ralph-isolated.sh'));
+    chmodSync(join(dir, 'ralph-local.sh'), 0o755);
+    chmodSync(join(dir, 'ralph-isolated.sh'), 0o755);
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+    // Real consumers gitignore node_modules → it is UNTRACKED, so a worktree
+    // does NOT receive it (the whole point of FU-69). The fixture must mirror
+    // that, or the worktree would inherit a committed copy and mask the bug.
+    writeFileSync(join(dir, '.gitignore'), 'node_modules/\n.worktrees/\n.planning/\n');
+    // A primary node_modules with a resolvable .bin (the thing the loop needs):
+    mkdirSync(join(dir, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', '.bin', 'cucumber-js'), '#!/bin/sh\necho ok\n');
+    chmodSync(join(dir, 'node_modules', '.bin', 'cucumber-js'), 0o755);
+    writeFileSync(join(dir, 'package.json'), '{ "name": "c" }');
+    git('add', '-A'); git('commit', '-qm', 'init');
+
+    const r = spawnSync('bash', [join(dir, 'ralph-isolated.sh'), '1', '--max-iterations', '1'], {
+      cwd: dir, encoding: 'utf8',
+      env: { ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`, RALPH_WORKER_ID: 'w0' },
+    });
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.match(`${r.stdout}${r.stderr}`, /Linked node_modules/);
+    const wt = join(dir, '.worktrees', readdirSync(join(dir, '.worktrees'))[0]);
+    // The worktree's node_modules/.bin/cucumber-js resolves through the link.
+    const probe = spawnSync('sh', ['-c', 'node_modules/.bin/cucumber-js'], { cwd: wt, encoding: 'utf8' });
+    assert.equal(probe.status, 0, 'cucumber-js must resolve in the worktree (127 = the bug)');
+    assert.match(probe.stdout, /ok/);
+  });
+});

@@ -138,4 +138,34 @@ test('FU-66: a schema-only slice owning ≥2 modules tables is still multi-modul
     assert.ok(out.labels.includes('feature:multi-module'),
       'conservative default INTACT — detector does not silently relax; INV-6 is resolved by the canonical skip-invariant reason, not by changing the count');
   } finally { rms(dir, { recursive: true, force: true }); }
+// ── FOLLOW-UP 70: one bounded context across hexagonal layers is single-module ─
+
+// §3: a module IS a bounded context, not a hexagonal layer. A normal vertical
+// slice in ONE context touching domain+application+infrastructure is ONE
+// module — the old `module_count >= 3` arm read it as multi-module and forced
+// a bespoke INV-6 override on the most common slice shape. The §107 count now
+// collapses `src/<layer>/<ctx>` to `<ctx>`.
+test('FU-70: one context across domain/application/infrastructure → single-module', () => {
+  const r = detectCeremony([rec([
+    'src/domain/audit', 'src/application/audit', 'src/infrastructure/audit',
+  ])]);
+  assert.equal(r.module_count, 1, 'three layers of ONE context collapse to one module');
+  assert.equal(r.context_count, 1);
+  assert.deepEqual(r.labels, ['feature:single-module'], 'no bespoke INV-6 override needed for a normal slice');
+});
+
+test('FU-70: a genuine multi-context slice still escalates (collapse is per-context)', () => {
+  const r = detectCeremony([rec([
+    'src/domain/audit', 'src/application/audit',
+    'src/domain/billing', 'src/infrastructure/billing',
+  ])]);
+  assert.equal(r.module_count, 2, 'audit + billing = two distinct contexts');
+  assert.ok(r.labels.includes('feature:multi-module'));
+  assert.ok(r.labels.includes('feature:cross-context'));
+});
+
+test('FU-70: three distinct non-layer module roots still count as three (no false collapse)', () => {
+  const r = detectCeremony([rec(['src/core', 'src/lib', 'src/api'])]);
+  assert.equal(r.module_count, 3, 'non-layer roots are not collapsed');
+  assert.ok(r.labels.includes('feature:multi-module'));
 });

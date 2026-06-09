@@ -43,6 +43,18 @@ const KNOWN_LAYERS = new Set([
 export function detectCeremony(records) {
   const modules = new Set();
   const contexts = new Set();
+  // FOLLOW-UP 70: the §107 module count must be by BOUNDED CONTEXT, not by
+  // hexagonal layer-dir. §3 defines a module AS a bounded context — so a
+  // normal vertical slice wholly inside one context (`src/domain/audit`,
+  // `src/application/audit`, `src/infrastructure/audit`) is ONE module, not
+  // three. The old `module_count >= 3` arm read every such slice as
+  // multi-module, forcing a bespoke INV-6 override on the MOST COMMON slice
+  // shape (FU-66's blessed reason only covers schema-only). The effective set
+  // collapses `src/<known-layer>/<ctx>` entries to `<ctx>`; anything else
+  // (non-layer roots like `src/core`, declared `- **Module:**` entries, a
+  // file directly under a layer) stays distinct — preserving every prior
+  // genuine multi-module case.
+  const effectiveModules = new Set();
   for (const r of records) {
     for (const m of r.affected_modules ?? []) {
       modules.add(m);
@@ -50,15 +62,23 @@ export function detectCeremony(records) {
       if (segs[0] === 'src' && KNOWN_LAYERS.has(segs[1]) && segs[2]) {
         // strip a trailing file (e.g. "company.ts") — a context is a directory
         const ctx = /\.[a-z]+$/i.test(segs[2]) ? null : segs[2];
-        if (ctx) contexts.add(ctx);
+        if (ctx) {
+          contexts.add(ctx);
+          effectiveModules.add(ctx);            // collapse this layer to its context
+          continue;
+        }
       }
+      effectiveModules.add(m);                   // non-collapsible module stays distinct
     }
     // FOLLOW-UP 54: slice-doc `- **Module:** <Context> → …` lines declare
     // their bounded context explicitly — an in-document cross-context source
     // that works at /to-issues time and is layout-independent.
     for (const c of r.declared_contexts ?? []) contexts.add(c);
   }
-  const module_count = modules.size;
+  // module_count is the §107 trigger count: distinct bounded-context-level
+  // modules (FU-70). `modules` (the output list) stays the raw affected set
+  // for transparency.
+  const module_count = effectiveModules.size;
   const context_count = contexts.size;
   const multiModule = module_count >= 3 || context_count >= 2;
   const labels = [multiModule ? 'feature:multi-module' : 'feature:single-module'];
