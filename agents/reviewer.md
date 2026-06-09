@@ -95,6 +95,7 @@ Categories to scan in order:
 7. **Testability** (§25, §26, §29): clock/IDs injected? Tests through public boundaries?
 8. **Async and runtime** (§50, §51, §52, §53): no floating promises? Timeouts on external calls? Bounded concurrency?
 9. **BDD and acceptance** (§56-§62, §103-§106): scenarios referenced? `.feature` file untouched (§58)? Stubs detected (§106)?
+   **Service-double fidelity (FOLLOW-UP 62):** when the diff adds or edits an in-repo double of another service, every route it registers MUST cite the ADR/contract line it mirrors (the /plan contract). Grep the double's route table against the pinned contract's endpoint list — a route absent from the contract, or registered without its citation, is a ⚠️ should-fix naming the uncited route. Live cost of skipping this: 30 scenarios ran green against four invented/wrong routes — the adapter was written against the same wrong double, and only the cross-service E2E exposed it. The double exists to BE the contract; an uncited route is an invented one until proven otherwise.
 10. **Bug-fix discipline** (§91-§96) — only if the PR is a bug fix: reproduction documented? Regression test fails-first? Root cause explained? One bug, one PR?
 11. **Improvement discipline** (§97-§102) — only if the PR is an improvement: baseline measured? Existing tests unmodified for a refactor?
 12. **Code review meta** (§35): does the PR description explain the user-visible change clearly?

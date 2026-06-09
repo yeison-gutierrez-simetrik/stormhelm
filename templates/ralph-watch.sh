@@ -205,8 +205,14 @@ process_line() {
       ;;
     ralph.queue.skipped)
       # FOLLOW-UP 46b: the queue's own forensics, surfaced — nobody read
-      # these events before.
-      notify "⏭ queue: $(printf '%s' "$line" | jq -r '"#\(.details.issue) skipped — blocked on \(.details.blocked_on | map("#\(.)") | join(", ")) (\(.details.mode))"')"
+      # these events before. FOLLOW-UP 61: the conflict shape carries
+      # branches + files (no blocked_on) — render each shape correctly.
+      notify "⏭ queue: $(printf '%s' "$line" | jq -r '
+        if .details.reason == "dep-branches-conflict" then
+          "#\(.details.issue) skipped — dep branches CONFLICT: \(.details.dep_branches // [] | join(" + ")) on \(.details.conflict_files // [] | join(", ")) — reconcile newest-into-oldest, push, relaunch (core/13)"
+        else
+          "#\(.details.issue) skipped — blocked on \(.details.blocked_on // [] | map("#\(.)") | join(", ")) (\(.details.mode))"
+        end')"
       ;;
     ralph.queue.completed)
       notify "🌅 queue COMPLETED — $(printf '%s' "$line" | jq -r '"\(.details.processed) processed, \(.details.skipped) skipped, rc \(.details.rc) (\(.details.mode))"')"

@@ -359,6 +359,17 @@ Field rules:
 The filenames are **per-issue** (`issue-<N>-result.json` / `issue-<N>-reviewer.md`)
 so parallel workers never race on shared files.
 
+### Post-PR note — the Sonar read-out (FOLLOW-UP 65)
+
+Server-side analysis lands minutes AFTER the PR opens (HUMAN CHECKPOINT 2
+owns the findings, core/13). The standard read-out is one command, not
+hand-curled API calls:
+
+```bash
+node scripts/sonar-sweep.mjs <pr>          # QG status + open issues
+node scripts/sonar-sweep.mjs <pr> --files  # + per-file new duplicated lines
+```
+
 ### Step 11 — Return
 
 If all gates pass with no blocking reviewer findings → exit 0, workflow continues.

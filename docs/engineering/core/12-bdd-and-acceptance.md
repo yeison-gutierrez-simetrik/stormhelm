@@ -381,6 +381,19 @@ Why bad:
 
 ---
 
+### "Observable" means observable over HTTP (FOLLOW-UP 63)
+
+§61 steps invoke use cases directly — right for speed and isolation, but
+blind to the HTTP serializer: a field the spec demands observable can be
+dropped at the route layer while every scenario stays green (live: dropped
+twice — view AND serializer — caught only by the E2E phase against the real
+surface). The rule: **an FR whose verb is "observable from the console/API"
+gets at least ONE assertion through the HTTP boundary** (a route test or an
+`app.request`-level step), not only the use-case return. Pair with the
+stack-side guarantee (`satisfies <ViewType>` on route literals,
+typescript-hono §42 addendum) — the type kills the dropped-field class, the
+boundary assertion proves the spec's observability verb end-to-end.
+
 ## §62. Feature files are versioned auditable evidence (living documentation)
 
 `.feature` files are part of the audit trail required by compliance (EU AI Act, SOC2, ISO 27001). They must be versioned in Git, tied to issues and commits, and queryable via the traceability matrix.

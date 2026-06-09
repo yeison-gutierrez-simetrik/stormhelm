@@ -361,6 +361,29 @@ The handler does **not** branch on `instanceof DomainError` to map to specific s
 
 ---
 
+### §42 addendum — route response literals declare `satisfies <ViewType>` (FOLLOW-UP 63)
+
+The route layer re-serializing a view FIELD BY FIELD is how spec-mandated
+fields silently vanish: a `lastTransitionFailure` the spec demanded
+observable was dropped twice (use-case view AND route serializer) while the
+BDD scenarios stayed green (§61 steps invoke use cases directly — they never
+see the HTTP body). The rule:
+
+```ts
+// ✅ the literal is CHECKED against the view type — a dropped field is a compile error
+return c.json(toListingDetailView(listing) satisfies ListingDetailView);
+
+// ✅ spreading the view and only ADDING transport fields is equally safe
+return c.json({ ...view, _links: links } satisfies ListingDetailView & { _links: Links });
+
+// ❌ field-by-field re-serialization — the compiler cannot know a field is missing
+return c.json({ id: v.id, status: v.status /* …lastTransitionFailure forgotten… */ });
+```
+
+`satisfies` keeps the literal's inferred type (no widening, unlike a cast)
+while proving completeness — the entire dropped-field class becomes a
+typecheck failure instead of an E2E discovery.
+
 ## §43. All HTTP errors share a single response shape
 
 Every error response uses `{ code, message, requestId, details? }`.

@@ -373,3 +373,99 @@ test('FU-50: zero implemented features → benign glob + explicit log, never pat
     assert.match(stderr, /skipping 1 in-flight feature file/, 'the skip list still names what is off-surface');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── FOLLOW-UP 60: train-merge retargets dependents BEFORE deleting the base ───
+
+// Second live incident of the closed-siblings class (manual deletion, then
+// the --delete-branch flag path): the runbook alone was demonstrably
+// insufficient — the FU-53 DEFER's exact activation criterion. The script
+// mechanizes retarget-before-delete (the Graphite/ghstack pattern).
+test('FU-60: train-merge retargets open dependents to the train base, THEN merges', () => {
+  withDir((dir) => {
+    // Real repo so check-merge-safety post verifies a REAL merge commit.
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+    writeFileSync(join(dir, 'a.txt'), '1'); git('add', '-A'); git('commit', '-qm', 'init');
+    git('checkout', '-qb', 'train-head');
+    writeFileSync(join(dir, 'b.txt'), '2'); git('add', '-A'); git('commit', '-qm', 'work');
+    const headOid = git('rev-parse', 'HEAD').stdout.trim();
+    git('checkout', '-q', '-');
+    git('merge', '--no-ff', '-q', '--no-edit', 'train-head');
+    const mergeSha = git('rev-parse', 'HEAD').stdout.trim();
+    // The framework scripts must be reachable as scripts/ from cwd:
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of ['train-merge.mjs', 'check-merge-safety.mjs']) {
+      copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    }
+    const r = spawnSync('node', ['scripts/train-merge.mjs', '71'], {
+      cwd: dir, encoding: 'utf8',
+      env: {
+        ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`,
+        MOCK_TRAIN_PRE_JSON: JSON.stringify({ number: 71, state: 'OPEN', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', headRefOid: headOid, baseRefOid: 'base', isDraft: false, title: 'train first' }),
+        MOCK_TRAIN_VIEW_JSON: JSON.stringify({ headRefName: 'train-head', baseRefName: 'main', headRefOid: headOid }),
+        MOCK_PR_DEPENDENTS_JSON: JSON.stringify([{ number: 72 }, { number: 73 }]),
+        MOCK_TRAIN_POST_JSON: JSON.stringify({ number: 71, state: 'MERGED', mergedAt: 'x', mergeCommit: { oid: mergeSha }, headRefOid: headOid }),
+      },
+    });
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    const log = readFileSync(join(dir, '.mock-gh-trainlog'), 'utf8').trim().split('\n');
+    const firstMerge = log.findIndex((l) => l.startsWith('MERGE'));
+    const edits = log.filter((l) => l.startsWith('EDIT'));
+    assert.equal(edits.length, 2, 'both dependents retargeted');
+    assert.match(edits[0], /72 --base main/, 'retargeted to the TRAIN base, not left on the doomed branch');
+    assert.ok(log.findIndex((l) => l.startsWith('EDIT')) < firstMerge, 'retarget happens BEFORE the merge');
+    assert.match(log[firstMerge], /--merge --delete-branch/, 'merge commit + safe deletion');
+  });
+});
+
+// ── FOLLOW-UP 65: sonar-sweep — the post-PR read-out, fixture-served ──────────
+// (an http.Server hung under the sandbox; the script's fixture hook mirrors
+//  the RALPH_WATCH_REPLAY pattern — the unit is parsing/exit logic, not HTTP)
+
+const SONAR_FIXTURE = {
+  '/api/qualitygates/project_status': {
+    projectStatus: {
+      status: 'ERROR',
+      conditions: [
+        { status: 'ERROR', metricKey: 'new_duplicated_lines_density', comparator: 'GT', errorThreshold: '3', actualValue: '6.7' },
+        { status: 'OK', metricKey: 'new_violations', comparator: 'GT', errorThreshold: '0', actualValue: '0' },
+      ],
+    },
+  },
+  '/api/issues/search': {
+    issues: [
+      { severity: 'MAJOR', rule: 'typescript:S1871', component: 'proj:src/routes/a.ts', line: 42, message: 'duplicated branches' },
+    ],
+  },
+  '/api/measures/component_tree': {
+    components: [
+      // BOTH new-code shapes — the periods[0] pitfall that cost a re-diagnosis:
+      { path: 'src/routes/a.ts', measures: [{ metric: 'new_duplicated_lines', period: { value: '9' } }] },
+      { path: 'src/routes/b.ts', measures: [{ metric: 'new_duplicated_lines', periods: [{ value: '9' }] }] },
+      { path: 'src/clean.ts', measures: [{ metric: 'new_duplicated_lines', period: { value: '0' } }] },
+    ],
+  },
+};
+
+test('FU-65: sonar-sweep prints QG conditions + issues + per-file dups, exits 1 on ERROR', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sonar-sweep-'));
+  try {
+    writeFileSync(join(dir, 'sonar-project.properties'), 'sonar.projectKey=proj\n');
+    for (const [path, body] of Object.entries(SONAR_FIXTURE)) {
+      writeFileSync(join(dir, path.replace(/\//g, '_') + '.json'), JSON.stringify(body));
+    }
+    const r = spawnSync('node', [join(TEMPLATES, '..', 'scripts', 'sonar-sweep.mjs'), '73', '--files'], {
+      cwd: dir, encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, SONARQ_TOKEN: 't', SONAR_API_FIXTURE_DIR: dir },
+    });
+    assert.equal(r.status, 1, `QG ERROR must exit 1 (pipeable into the train guard):\n${r.stdout}${r.stderr}`);
+    assert.match(r.stdout, /Quality Gate \(PR #73\): ❌ ERROR/);
+    assert.match(r.stdout, /new_duplicated_lines_density: 6\.7 \(required ≤ 3\)/, 'failing condition named');
+    assert.match(r.stdout, /\[MAJOR\] typescript:S1871 src\/routes\/a\.ts:42/, 'issue with rule/file:line');
+    assert.match(r.stdout, /9\tsrc\/routes\/a\.ts/, 'period.value shape read');
+    assert.match(r.stdout, /9\tsrc\/routes\/b\.ts/, 'periods[0].value shape read — the live pitfall');
+    assert.doesNotMatch(r.stdout, /clean\.ts/, 'zero-dup files stay out');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

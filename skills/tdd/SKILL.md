@@ -149,6 +149,14 @@ siblings merge (cucumber refuses to guess between multiple matches; live:
 resolve the union of the flows' fields — exactly one is populated per
 scenario. Slice-specific steps stay in your `features/<context>/steps/`.
 
+**Observability FRs assert through the HTTP boundary (FOLLOW-UP 63, §61
+addendum):** if the FR's verb is "observable from the console/API", write at
+least ONE assertion at the HTTP surface (`app.request`-level step or route
+test) — use-case-direct steps cannot see a serializer dropping the field
+(it happened twice, live, while 30 scenarios stayed green). On the TS+Hono
+stack, route response literals declare `satisfies <ViewType>` (typescript-
+hono §42 addendum) so a dropped field is a compile error.
+
 **Anti-pattern (forbidden):** Writing tests that "happen to pass" because they don't actually exercise the new behavior. Per §92, the Write→Pass→Revert→Fail→Restore→Pass sequence verifies this.
 
 ### Step 3 — Green phase: implement minimally

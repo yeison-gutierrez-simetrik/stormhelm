@@ -350,11 +350,27 @@ of them destroyed a PR live:
    merge (full SHA).
 
 (External confirmation: GitHub's retarget-on-merge changelog and cli/cli
-#1168 document exactly the §2/§3 behaviors.) A `merge-train.sh` template
-that mechanizes this sequence is deliberately DEFERRED: the human merger +
-this runbook + `check-merge-safety.mjs` cover the majority case; build the
-script if a consumer's trains grow past ~3 PRs or a second live incident
-happens despite the runbook.
+#1168 document exactly the §2/§3 behaviors.)
+
+**Use the tool, not bare gh (FOLLOW-UP 60).** Inside a slice-group train,
+bare `gh pr merge --delete-branch` is **FORBIDDEN**: merging the train's
+FIRST PR with that flag deletes the head that is the BASE of the stacked
+siblings and GitHub closes them (second live incident of the class — the
+first was manual deletion; the runbook alone was demonstrably
+insufficient, which was precisely the activation criterion the original
+DEFER recorded). Merge trains with:
+
+```bash
+node scripts/sonar-sweep.mjs <pr>   # post-PR QG + open-issues read-out
+                                    # (FOLLOW-UP 65; --files locates clones;
+                                    # exit 1 on QG ERROR — pipeable here)
+node scripts/train-merge.mjs <pr>   # asserts CLEAN → retargets every open
+                                    # dependent → merge commit + safe delete
+                                    # → post-merge verify
+```
+
+The runbook above remains the WHY; the script is the HOW (the ecosystem
+pattern — Graphite/ghstack/spr all mechanize stack merges).
 
 ### Post-PR analysis findings are owned by HUMAN CHECKPOINT 2 (FOLLOW-UP 47)
 
@@ -467,6 +483,17 @@ structured precisely so automation can read it):
   actually needed, the designed fix is a `ralph-claimed:<worker>` label
   applied before processing and cleared after — build it then, not
   speculatively.)
+- **Sibling-divergence reconciliation (FOLLOW-UP 61):** a Day-Shift push to
+  dep branch A after sibling B already chained from A's older tip makes the
+  integration-base merge CONFLICT — the queue skips the issue (correctly:
+  building on one side would hide a real divergence) and the
+  `ralph.queue.skipped` event names the branches and files. The recipe:
+  **merge the advanced dep tip INTO the diverged sibling** (newest into
+  oldest, topological order), resolve keeping both sides' intent, push,
+  relaunch the skipped issue (single-issue mode rebuilds the base clean).
+  An auto-reconcile attempt (skip only on REAL conflict after a trial
+  merge) is deliberately DEFERRED until a third incident shows the manual
+  recipe is toil.
 - **Watching the night:** `./ralph-watch.sh --queue [root]` follows the
   whole queue — it rebinds to the newest session log regardless of issue,
   surfaces `queue.skipped` reasons as notifications, treats a CHILD's

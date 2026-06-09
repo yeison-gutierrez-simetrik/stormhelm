@@ -1007,8 +1007,14 @@ test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, cl
     const { out } = runRalph(dir, [], diamondEnv);
     assert.doesNotMatch(out, /════════ Issue #4/, 'never built on one side of a divergence');
     assert.match(out, /dep branches CONFLICT|dep branches diverge/);
-    const skip = queueLog(dir).find((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.match(out, /files: shared\.txt/, 'FU-61: the human line names the conflicting file');
+    assert.match(out, /Reconcile \(core\/13\)/, 'FU-61: the recipe travels with the skip');
+    const skips = queueLog(dir).filter((e) => e.event === 'ralph.queue.skipped' && e.details.issue === 4);
+    assert.equal(skips.length, 1, 'emitted ONCE, at detection');
+    const skip = skips[0];
     assert.equal(skip?.details?.reason, 'dep-branches-conflict');
+    assert.deepEqual(skip.details.conflict_files, ['shared.txt'], 'FU-61: files in the event');
+    assert.deepEqual(skip.details.dep_branches, ['agent/feature-dep-2', 'agent/feature-dep-3'], 'FU-61: branches in the event');
   });
 });
 
@@ -1175,5 +1181,54 @@ test('FU-56: Depends-on citing a PR number → "is a PULL REQUEST" warning, not 
     assert.doesNotMatch(out, /════════ Issue #42/, 'blocked, as before (loud-and-safe)');
     assert.match(out, /#35 is a PULL REQUEST, not an issue/, 'the real mistake is named');
     assert.doesNotMatch(out, /#35 which does not exist/, 'the misleading reason is gone');
+  });
+});
+
+// ── FOLLOW-UP 64: single-issue runs resolve their PR base from declared deps ──
+
+// Live: a recovered single-issue run opened against main — the diff and
+// Sonar's new-code spanned 4 issues, and the QG failed on duplication that
+// was already fixed on a DEP branch.
+test('FU-64: single-issue run with one open dep → PR based on the dep branch', () => {
+  withConsumer((dir) => {
+    withFoundationBranch(dir);
+    const { status, out } = runRalph(dir, ['2', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (foundation)\n',
+      MOCK_PR_BRANCH_1: 'agent/feature-found-1',
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-found-1/, 'base = the dep branch, not main');
+    assert.match(pr, /STACKED PR \(FOLLOW-UP 64\)/, 'the reviewer is told');
+  });
+});
+
+test('FU-64: true multi-root deps → base stays main + the honest stacked-diff note', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['5', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (root A)\n- #2 (root B)\n',
+      MOCK_PR_BRANCH_1: 'agent/feature-a-1',
+      MOCK_PR_BRANCH_2: 'agent/feature-b-2',
+      MOCK_BODY_2: '## Depends on\nNone (foundation)\n',  // #2 does NOT depend on #1 → true multi-root
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.doesNotMatch(pr, /--base/, 'multi-root keeps main');
+    assert.match(pr, /STACKED DIFF \(FOLLOW-UP 64\).*#1 #2/, 'the honest note names the spanned deps');
+  });
+});
+
+test('FU-64: linear dep chain → base = the chain tail (highest dep covering the rest)', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['5', '3'], {
+      MOCK_BODY: '## Depends on\n- #1 (foundation)\n- #2 (middle)\n',
+      MOCK_BODY_2: '## Depends on\n- #1 (foundation)\n',   // #2 depends on #1 → linear chain, tail = #2
+      MOCK_PR_BRANCH_1: 'agent/feature-a-1',
+      MOCK_PR_BRANCH_2: 'agent/feature-b-2',
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base agent\/feature-b-2/, 'chain tail carries the full stack');
+    assert.match(pr, /STACKED PR \(FOLLOW-UP 64\)/);
   });
 });

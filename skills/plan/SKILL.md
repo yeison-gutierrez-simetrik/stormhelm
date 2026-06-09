@@ -37,7 +37,16 @@ A spec says "what." A scenario says "observable result." A plan says **exactly w
 - The active capability stack (`AGENTS.md`).
 - `docs/CONTEXT.md` (vocabulary).
 - `docs/constitution.md`.
-- For multi-module: module contracts (§103).
+- For multi-module: module contracts (§103). **Doubles cite their contract
+  (FOLLOW-UP 62):** when the plan includes an in-repo double of another
+  service, EVERY route the double will register must name the ADR/contract
+  line it mirrors (e.g. `POST /api/v1/discover/search ← ADR-0007 §endpoints`)
+  — the reviewer greps the double against that list. A double built from the
+  issue's prose instead of the pinned contract drifted on 4 routes live and
+  stayed green for 30 scenarios. (A vendored contract-vs-double linter over
+  the §103 `openapi-spec.yaml` is the recorded end-state — deferred until a
+  second drift incident or the openapi artifact is standard across ≥2
+  consumers; the citation rule is the interim that costs one plan line.)
 
 ## Outputs
 

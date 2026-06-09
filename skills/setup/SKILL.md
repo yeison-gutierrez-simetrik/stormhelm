@@ -318,6 +318,7 @@ cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 # path, add it here AND to the validation `ls` below — otherwise it ships broken.
 mkdir -p scripts
 for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
+         train-merge.mjs sonar-sweep.mjs \
          group-slice-issues.mjs parse-layers-affected.mjs detect-ceremony.mjs \
          sync-closed-sets.mjs compose-sonar-properties.mjs; do
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
@@ -595,7 +596,7 @@ After generation, the skill runs a self-check:
 1. Verify every `§N` referenced in the generated `AGENTS.md` exists in a file present in the project.
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
-4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
+4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.cjs .claude/hooks/closed-set-check.cjs .claude/hooks/context-monitor.cjs .claude/hooks/webfetch-cache-pre.cjs .claude/hooks/webfetch-cache-post.cjs` all resolve, and `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs` — otherwise the destructive-git guard is silently absent.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
