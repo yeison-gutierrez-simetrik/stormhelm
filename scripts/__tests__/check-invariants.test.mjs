@@ -264,3 +264,31 @@ test('FU-58: green runs carry no recap block (output contract unchanged)', () =>
   assert.equal(status, 0);
   assert.doesNotMatch(out, /Failures recap/);
 });
+
+// ── FOLLOW-UP 71: a >50-char scenarios list lives in the FILE, not a GH label ─
+
+// GitHub's 50-char label limit blocks `gh label create` for a many-scenario
+// foundation slice, but the issue FILE's **Labels:** line has no such limit —
+// and INV-5 reads `scn-NNN` from the FILE (check-invariants is offline; it
+// never sees GitHub labels). So omitting the GH `scenarios:` label and keeping
+// the full compact list in the file is SAFE: every @release scenario still
+// maps to its issue.
+test('FU-71: a 19-scenario compact label (>50 chars) in the issue file maps via INV-5', () => {
+  const longList = Array.from({ length: 19 }, (_, k) => 137 + k); // scn-137..155
+  const compact = 'scn-' + longList.join('+').replace(/\+(?=\d)/g, '+'); // scn-137+138+…+155
+  const labelToken = `scenarios:${compact}`;
+  assert.ok(labelToken.length > 50, `the label must overflow 50 chars to be the FU-71 case (got ${labelToken.length})`);
+
+  const { status, out } = runMutated((dir) => {
+    // A foundation feature carrying all 19 @release scenarios.
+    writeFileSync(join(dir, 'features', 'foundation.feature'),
+      '# status: approved\nFeature: Foundation substrate\n' +
+      longList.map((n) => `  @scn-${n} @release\n  Scenario: s${n}\n    Given x\n`).join(''));
+    // An issue whose **Labels:** carries the >50-char compact list (no GH label needed).
+    writeFileSync(join(dir, 'issues', '099-foundation.md'),
+      `# Issue 099 — foundation\n\n**Labels:** \`ralph-ready\` \`shift:afk\` \`${labelToken}\` \`budget:200k\` \`tier:0\`\n\nFoundation slice.\n`);
+  });
+  assert.equal(status, 0, `INV-5 must map all 19 file-listed scenarios:\n${out}`);
+  assert.match(out, /INV-5.*mapped/, 'INV-5 ran and passed');
+  assert.doesNotMatch(out, /scn-1[3-5][0-9].*no issue/, 'none of scn-137..155 is a false orphan');
+});
