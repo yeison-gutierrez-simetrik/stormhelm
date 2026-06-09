@@ -138,6 +138,8 @@ test('FU-66: a schema-only slice owning ≥2 modules tables is still multi-modul
     assert.ok(out.labels.includes('feature:multi-module'),
       'conservative default INTACT — detector does not silently relax; INV-6 is resolved by the canonical skip-invariant reason, not by changing the count');
   } finally { rms(dir, { recursive: true, force: true }); }
+});
+
 // ── FOLLOW-UP 70: one bounded context across hexagonal layers is single-module ─
 
 // §3: a module IS a bounded context, not a hexagonal layer. A normal vertical
