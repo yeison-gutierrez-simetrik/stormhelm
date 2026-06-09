@@ -134,10 +134,19 @@ For the active testing stack:
 - Domain unit tests location and count.
 - Use case unit tests with mocked ports.
 - Adapter integration tests (DB, HTTP client).
-- Step definitions for the `.feature` scenarios (§61 — must reuse use case directly, not HTTP).
+- Step definitions for the `.feature` scenarios (§61 — reuse the use case directly, not HTTP). **Schema-only / foundation slice (FOLLOW-UP 66):** there is NO use case to reuse — `@structural` scenarios are satisfied by integration/migration tests (probing the World DB / `information_schema`, or a vitest constraint test), and a migration up/down scenario spins its own ephemeral Postgres (never the shared World DB). Cite the §61 "Foundation / schema-only slices" sub-pattern here instead of inventing the exception.
 - E2E if necessary (rare; most coverage via integration).
 
 ### Step 5 — Identify migrations
+
+**Schema-only substrate slice (FOLLOW-UP 66):** if the slice is a pure
+migration foundation (tables only, no use case, no API), its tables may span
+several modules' contexts — `detect-ceremony` will read that as multi-module
+and INV-6 will block. This is the canonical, pre-blessed
+`skip-invariant: INV-6` case: copy the reason string from core/12 §57
+("Schema-only substrate is a canonical … case"). The classification stays
+conservative on purpose; the override is the deliberate single-module
+affirmation, not a mask.
 
 If schema changes:
 

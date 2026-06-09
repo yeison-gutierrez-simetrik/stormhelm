@@ -107,3 +107,35 @@ test('FU-54: two Module lines with distinct contexts → cross-context, layout-i
     assert.ok(out.labels.includes('feature:multi-module'), '3 modules + 2 contexts');
   } finally { rms(dir, { recursive: true, force: true }); }
 });
+
+// ── FOLLOW-UP 66: schema-only substrate stays conservatively multi-module ─────
+
+// A schema substrate slice lands tables OWNED by several modules — table
+// ownership is persistence span, NOT runtime coupling. Per the maintainer
+// decision (Option A, docs-only), the classification is left CONSERVATIVE:
+// detect-ceremony still flags multi-module, and the resolution is the
+// canonical pre-blessed `skip-invariant: INV-6` reason (core/12 §57) — a
+// deliberate human single-module affirmation, not an auto-suppression. This
+// test PINS that contract: the detector must NOT silently relax for
+// persistence-only slices (which a future refactor toward "Option A +
+// detector signal" would change — and would need to update this pin AND the
+// docs together).
+test('FU-66: a schema-only slice owning ≥2 modules tables is still multi-module (override is the contract)', () => {
+  const dir = mdt(j(tmpd(), 'fu66-'));
+  try {
+    const doc = j(dir, '06-schema-foundations.md');
+    wfs(doc, [
+      '# Slice 06 — schema foundations (substrate, no behavior)', '',
+      '### Layers',
+      '- **Module:** Contract Engine → msas, sow_fixed_details',
+      '- **Module:** Settlement → service_scopings',
+      'API: none',
+      'use-cases: none',
+      '', '## Depends on', 'None (foundation)', '',
+    ].join('\n'));
+    const out = detectCeremony([pf(doc)]);
+    assert.ok(out.context_count >= 2, 'table ownership genuinely spans contexts');
+    assert.ok(out.labels.includes('feature:multi-module'),
+      'conservative default INTACT — detector does not silently relax; INV-6 is resolved by the canonical skip-invariant reason, not by changing the count');
+  } finally { rms(dir, { recursive: true, force: true }); }
+});

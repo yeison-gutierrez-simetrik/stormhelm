@@ -172,6 +172,14 @@ Spec **and** `.feature` ceremony scale with the feature's *detected* classificat
 
 - **Classification is detected, recorded as labels, overridden loudly.** `scripts/detect-ceremony.mjs` emits the `feature:*-module`/`cross-context` labels at `/to-issues`; the sensitive-path scan emits `require-human-review`. A human may override only via an audited label flip (GitHub timeline) — never a silent spec frontmatter field.
 - **Escalation is one-way and gated.** A feature auto-promotes light → full when a detector fires on the diff; it is **never** auto-degraded. `INV-6` (`scripts/check-invariants.mjs`) blocks merge if a `feature:single-module` issue's plan grows to multi-module without the backfill (SAD + the sections above) or an audited `skip-invariant: INV-6` flip. The `reviewer` re-detects on the live diff (incl. sensitive paths) and emits a `requires-escalation` finding.
+- **Schema-only substrate is a canonical, pre-blessed `skip-invariant: INV-6` case (FOLLOW-UP 66).** `detect-ceremony` counts a substrate slice as multi-module because its migration lands tables OWNED by ≥2 modules — but table-ownership is **persistence span, not runtime coupling**. A slice that ships **no API surface, no use case, no §103 module contract** is deliberately single-module for §107 purposes even when its tables span contexts. The classification is left conservative on purpose (over-classification is safe; the override is a *deliberate human affirmation* that this multi-module-table migration is intentionally single-ceremony — exactly the call worth signing off, not auto-suppressing). The canonical reason string to copy:
+
+  ```
+  skip-invariant: INV-6 — schema-only substrate. detect-ceremony counts ≥2 bounded
+  contexts because the migration lands tables OWNED by N modules, but the span is
+  PERSISTENCE-ONLY: one migration, no API surface, no use case, no runtime
+  cross-module coupling, no §103 module contracts. Deliberately single-module.
+  ```
 
 ---
 
@@ -393,6 +401,37 @@ gets at least ONE assertion through the HTTP boundary** (a route test or an
 stack-side guarantee (`satisfies <ViewType>` on route literals,
 typescript-hono §42 addendum) — the type kills the dropped-field class, the
 boundary assertion proves the spec's observability verb end-to-end.
+
+### Foundation / schema-only slices: `@structural` scenarios (FOLLOW-UP 66)
+
+§61 assumes each scenario maps to a use case its step reuses. A **substrate
+slice** — a migration that lands tables with zero business behavior (no use
+case, no endpoint, no read path) — has no use case to reuse; its contract is
+**structural** (a `UNIQUE`/`CHECK` rejects a row; a migration applies and
+rolls back; a table exists with exactly these columns). The pattern, so no
+consumer re-invents it:
+
+- **A substrate scenario's `scn-NNN` may be satisfied by an
+  integration/migration test instead of a use-case step**, and is tagged
+  `@structural`. It stays pinned to the scenario for traceability (INV-3/INV-5
+  still see it) — the change is only *which lane proves it*: the step probes
+  the shared World DB / `information_schema` and asserts via caught DB errors,
+  or a vitest integration test against real Postgres carries the assertion.
+  The use-case-direct rule (§61 above) does not apply where there is no use
+  case; cite this sub-pattern in `/plan` rather than improvising the
+  exception.
+- **A migration up/down (idempotency) scenario must NOT run against the
+  shared acceptance World DB** — rolling its schema back corrupts every other
+  scenario. Such a scenario spins its **own ephemeral Postgres** inside the
+  `When` step (a container for that scenario only) and tears it down after.
+  Expect it to be heavier than a normal scenario; it is the only correct
+  place to assert reversibility.
+- **Avoid duplicate ceremony.** The structural facts are usually also covered
+  by fast integration tests (real constraints, real Postgres). A substrate
+  slice's `@structural` scenarios should pin the traceability and assert the
+  *contract-visible* facts (a constraint exists and bites) — not re-test every
+  column the integration suite already covers. One scn-NNN per structural
+  invariant, not per column.
 
 ## §62. Feature files are versioned auditable evidence (living documentation)
 

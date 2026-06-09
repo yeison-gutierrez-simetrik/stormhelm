@@ -93,7 +93,7 @@ Two kinds of script live in `scripts/`, and the distinction matters for adoption
 - INV-3 §63 — ralph-ready scns are in approved `.feature`
 - INV-4 — ADR Accepted ⇒ has a Date
 - INV-5 §59 — @release scn referenced by some issue
-- INV-6 — *(reserved: ADR-0002 Accepted, classification-stability detector — to be implemented by PR-N; cites `—`, NOT a §rule)*
+- INV-6 — *(reserved: ADR-0002 Accepted, classification-stability detector — to be implemented by PR-N; cites `—`, NOT a §rule)*. **Schema-only substrate slices are the canonical pre-blessed `skip-invariant: INV-6` case** (FOLLOW-UP 66): tables spanning ≥2 modules' contexts are persistence span, not runtime coupling — the reason string lives in `core/12` §57.*
 - INV-7 — *intentionally NOT an executable invariant. Finding-attribution (PR-Attr / FW-3) shipped in #38 as a reviewer + process concern (`agents/reviewer.md` blame→owning-branch, `core/13` §67) — there is no offline artifact to check. Slot kept so INV-8 isn't renumbered.*
 - INV-8 §58 — feature 'implemented' ⇒ traceability-v*-final.md exists
 - CONFIG — issues exist but none carry `**Labels:**` line (PR #31 fix)
