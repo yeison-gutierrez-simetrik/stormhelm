@@ -1378,3 +1378,50 @@ Reference it from /run-acceptance's "post-PR" note and core/13's train runbook.
 **Acceptance.** Mocked Sonar API fixture: sweep prints conditions+issues and exits 1 on ERROR;
 `--files` locates a seeded dup. Consumer outcome: the next QG failure is one command, not six
 curls.
+
+---
+
+## FOLLOW-UP 66 — foundation / schema-only slices have no first-class track: a Tier-0 substrate slice (no use case, no API) must shoehorn structural invariants into use-case Gherkin (§61 exception) AND override INV-6 because detect-ceremony reads table-ownership as multi-module  ·  **Severity: decision (maintainer) — recurring-by-design friction, not a bug; two facets, one root**
+
+**Context.** belong slice 06 "schema foundations" (issue #80, PRs #81 `e79f206` + close-out #82 `4c8b956`, shipped v0.6.0-final 2026-06-09) was the first **pure schema substrate** slice: it lands 8 net-new tables (`msas`, 5× `sow_*_details`, `service_scopings`, `reviews`) + a behavior-preserving reshape of one live table (`integration_events`), with **zero business behavior** — no use case, no endpoint, no read path. The whole framework BDD+classification chain assumes a *behavioral* scenario (an actor invokes a use case, an observable result), so a foundation slice has to improvise the same two workarounds, and every future migration-only / substrate slice will repeat them.
+
+**Problem — facet A (acceptance / §57-§61).** `/to-scenarios` + §61 assume each scenario maps to a use case the step definition reuses ("step defs reuse the use case directly, not HTTP"). A schema slice has **no use case** — its contract is structural (a UNIQUE/CHECK rejects a row; a migration applies + rolls back; a table exists with exactly these columns). Consequences observed:
+- The 14 acceptance scenarios (scn-123..136) became cucumber step defs that probe the shared World DB / `information_schema` directly and assert via caught DB errors — a **documented §61 exception** the implementer had to invent and justify in `/plan` ("schema scenarios have no use case to reuse; steps operate on the shared World DB handle"). The reviewer *accepted* it as correct, which means §61 already tolerates this — but there is no documented pattern, so each consumer re-derives it.
+- The migration up/down idempotency scenario (scn-123) **cannot run against the shared acceptance World DB** (rolling its schema back would corrupt every other scenario), so the step had to **spin its own ephemeral Postgres** inside the When step. That works but is undocumented and heavy (a container per such scenario).
+- Net: the structural facts are ALSO covered by fast vitest integration tests (real Postgres, real constraints) — so the cucumber layer is largely duplicate ceremony for a schema slice. There is no guidance on whether a substrate slice should have @release Gherkin at all, or whether structural invariants belong in a different (vitest/migration-test) acceptance lane that still pins a scn-NNN for traceability.
+
+**Problem — facet B (classification / detect-ceremony / INV-6).** `scripts/detect-ceremony.mjs` counts bounded contexts from the issue's `### Layers` `**Module:**` line. A schema substrate lands tables OWNED by several modules (here: Contract Engine / Service Scoping / Reputation / Settlement), so the detector returns ≥2 contexts → `feature:multi-module` / `cross-context`. `INV-6` then flags escalation ("declared single-module, plan detects multi-module") and **blocks** unless overridden — even though the slice has **zero runtime cross-module coupling**, ships **no API**, and **no §103 module contract is possible** (there is nothing to parallelize across teams). The only resolution was a documented override:
+```
+skip-invariant: INV-6 — schema-only substrate. The detector counts ≥2 bounded contexts because the
+migration lands tables OWNED by 4 modules … but the span is PERSISTENCE-ONLY: one migration, no API
+surface, no runtime cross-module coupling, no §103 module contracts … Deliberately single-module.
+```
+The reviewer judged the override "honest, not a mask." But it will be needed on **every** schema-substrate slice that touches >1 module's tables — i.e. recurring toil, and a signal that the classification model conflates "vocabulary spans N contexts' tables" (true, persistence-only) with "multi-module behavioral feature needing the §107 ceremony" (false here).
+
+**Live evidence.**
+- belong `issues/06-schema-foundations.md` — the `## Plan` §61-exception text + the `skip-invariant: INV-6` line.
+- belong `docs/specs/06-schema-foundations.md` (Released) — the `pending-promotion` block arguing single-module for a schema substrate.
+- belong `features/{contract-engine,service-scoping,reputation,settlement}/steps/*schema*.steps.ts` — the no-use-case step defs (World-DB probes, `information_schema`, an ephemeral-Postgres `startPostgres()` inside scn-123's When).
+- belong vitest `…/drizzle/schema/__tests__/schema-foundations.test.ts` + `…/migrations/__tests__/schema-foundations-migration.test.ts` — the same facts covered fast, making the cucumber layer duplicate.
+- belong `docs/audit/traceability-v0.6.0-final.md` — records the §61 exception + INV-6 override as close-out evidence.
+- `node scripts/check-invariants.mjs` on belong main: INV-6 shows `OVERRIDDEN` with the reason; all others pass.
+
+**Verify (against belong main, where the slice shipped):**
+```bash
+# detect-ceremony classifies a schema-only slice as multi-module from table ownership
+node scripts/detect-ceremony.mjs issues/06-schema-foundations.md   # → ≥2 contexts
+# INV-6 needs the override to pass
+grep -n "skip-invariant: INV-6" issues/06-schema-foundations.md
+# the §61 exception + ephemeral-DB scenario
+grep -n "no use case\|startPostgres\|information_schema" features/*/steps/*schema*.steps.ts
+```
+
+**Fix (decision — two viable directions, present both).**
+- **Option A — name the track, keep the escape hatches (recommended, low-cost).** Document a **"foundation / schema-only slice"** pattern in the BDD + ceremony docs: (1) §61 gains an explicit *structural-assertion* sub-pattern — a substrate slice's scn-NNN may be satisfied by an integration/migration test (not a use-case step), still pinned to the scenario for traceability; `/to-scenarios` may tag such scenarios `@structural` and `/plan` records the no-use-case rationale from a template instead of the implementer inventing it. (2) `INV-6` documents **"schema-only substrate spanning multiple modules' tables, persistence-only"** as a *canonical, pre-blessed* `skip-invariant` reason (or `detect-ceremony` learns a `persistence-only` signal: a slice whose `### Layers` has `API: none` + `MCP/CLI: none` + no use-case files is NOT multi-module-for-§107-purposes even if its tables span contexts). This makes the override a named recipe, not a per-consumer rediscovery.
+- **Option B — first-class substrate slice type.** Add a `slice-type: schema-foundation` (or `tier:0`-derived) classification that `/to-issues` emits, which auto-exempts the slice from the §107 multi-module ceremony (no SAD, no module contracts, no multi-actor/capacity sections) and routes its acceptance to a structural lane. Heavier (new label + detector + skill branches) but removes the override + §61-exception entirely.
+
+Recommended: **Option A** — it is documentation + one detector/INV refinement, lifts the exact friction belong hit, and keeps the conservative "over-classification is safe" default intact (the override just becomes blessed-and-cheap).
+
+**Acceptance.** A fresh consumer's first schema-only / migration-foundation slice: (1) has a documented acceptance pattern for structural invariants (no improvised §61 exception, no surprise that the shared World DB can't host a migration up/down scenario), and (2) passes `check-invariants` without the implementer discovering INV-6 + authoring a bespoke `skip-invariant` reason — either via a pre-blessed canonical reason string the docs name, or via `detect-ceremony` recognizing persistence-only slices. Pin with a `scripts/__tests__/detect-ceremony.test.mjs` fixture (a schema-only multi-table-owner issue → not flagged, or flagged-but-with-the-canonical-skip documented) and a BDD-doc reference a reviewer can cite.
+
+**Not framework (recorded for honesty, fix is belong-local):** the heaviest manual toil this session — `drizzle-kit generate` requiring a TTY to resolve column renames (piped input errors; `expect` keystrokes mis-fire on the TUI redraw) — is **drizzle-kit tooling, not Stormhelm**; handled belong-side (rename-isolated generate + hand-edit the SQL; snapshot records only final columns so it stays correct) and recorded in belong memory. No FU.
