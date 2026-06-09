@@ -99,6 +99,13 @@ Every scenario must have at least one runtime tag (§60):
 
 Untagged scenarios fail CI (§60).
 
+**Schema-only / foundation slices (FOLLOW-UP 66):** a substrate slice (a
+migration with no use case — see §61 "Foundation / schema-only slices") tags
+its structural scenarios `@structural` IN ADDITION to a runtime tag. They are
+satisfied by an integration/migration test rather than a use-case step, still
+pinned to their `scn-NNN`. Do not improvise a §61 exception — cite the
+documented sub-pattern.
+
 ### Step 5 — Save as draft and flag for review
 
 Save `features/<context>/<feature-slug>.feature`. Mark the PR/branch as `feature-review` so the human reviewer knows this file requires explicit approval.
