@@ -31,7 +31,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs"
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs\""
           }
         ]
       }
@@ -42,7 +42,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs"
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs\""
           }
         ]
       },
@@ -51,7 +51,7 @@ Hooks are **opt-in per project** (§113). To enable, add entries to `.claude/set
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs"
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs\""
           }
         ]
       }
