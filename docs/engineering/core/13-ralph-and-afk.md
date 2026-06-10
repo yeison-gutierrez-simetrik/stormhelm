@@ -534,6 +534,25 @@ Stormhelm ships its own `hooks/git-guardrails.cjs` (zero-dependency Node script)
 - `git stash`, `git stash pop`
 - `git rebase` interactive on local-only branches (not yet pushed)
 
+### Matching scope (FOLLOW-UP 68)
+
+The guard matches §68 patterns against the command at **command position**,
+with **heredoc payloads stripped first**. Prose that merely NAMES a blocked
+operation — quoted inside a `<<EOF … EOF` body — is **not** blocked: the
+framework prescribes exactly such writing (filing FOLLOW-UPs, postmortems
+§95, runbooks, ADRs quoting this very list), and `cat >> doc << EOF … EOF`
+appends data, not git commands. A real destructive command is still caught
+everywhere it can execute — on its own line, after `&&`/`||`/`|`/`;`, or
+**before** a heredoc opener (`git reset --hard && cat <<EOF…`).
+
+**Residual gap, stated honestly:** a heredoc body piped straight into an
+interpreter (`bash <<EOF … git push --force … EOF`) is NOT inspected by this
+hook — the body is data to *this* command. That inner execution is the
+harness's to guard (the interpreter's own Bash invocation re-enters the hook
+only if it runs through the tool layer). Smuggling a destructive op this way
+is a deliberate, conspicuous construction — not the accidental false positive
+this scoping fixes.
+
 ### Why
 
 - AFK without guardrails is one bad iteration away from data loss.

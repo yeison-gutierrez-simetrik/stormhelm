@@ -324,7 +324,7 @@ for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
 
-# Consumer-runtime hooks. Installed at `${CLAUDE_PROJECT_DIR}/.claude/hooks/<x>.js`
+# Consumer-runtime hooks. Installed at `${CLAUDE_PROJECT_DIR}/.claude/hooks/<x>.cjs`
 # — the conventional Claude Code project-hook location, matching the README Phase 0
 # adoption path and existing consumers; the `.claude/settings.json` wiring below
 # references it. All 5 are consumer-runtime: git-guardrails.cjs is mandatory whenever
@@ -487,20 +487,20 @@ COVERAGE_CMD="uv run pytest --cov"
 
 ### `.claude/settings.json` — hooks + MCP servers
 
-The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `.claude/hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.js`. `git-guardrails.cjs` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
+The wizard writes the `hooks` wiring **and** an `mcpServers` block. Hooks were copied to `.claude/hooks/` above; they are **registered here** — Claude Code does not auto-discover them. Registration is per **§113** (`docs/engineering/core/19-hooks-and-runtime-guards.md`), which is the **canonical wiring reference**; keep this block in sync with it. The commands reference `"${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.cjs"` — **shell-quoted** (FOLLOW-UP 67: Claude Code runs hook commands via `/bin/sh -c`, which word-splits an unquoted path; any consumer repo at a path containing a space then has ALL hooks die silently, non-blocking, including the §68 guard). `git-guardrails.cjs` is wired **always** (mandatory whenever Ralph runs, §68); the other four are **opt-in** (§113) — the wizard enables the sensible defaults below, each individually removable:
 
 ```jsonc
 {
   "permissions": { /* ... */ },
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs" }] },
-      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs" }] }
+      { "matcher": "Bash",     "hooks": [{ "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs\"" }] },
+      { "matcher": "WebFetch", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-pre.cjs\"" }] }
     ],
     "PostToolUse": [
-      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs" }] },
-      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs" }] },
-      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/closed-set-check.cjs" }] }
+      { "matcher": "WebFetch",             "hooks": [{ "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/webfetch-cache-post.cjs\"" }] },
+      { "matcher": "*",                    "hooks": [{ "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs\"" }] },
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/closed-set-check.cjs\"" }] }
     ]
   },
   "mcpServers": {
@@ -597,7 +597,16 @@ After generation, the skill runs a self-check:
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
 4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
-5. Verify the hooks copied and wired: `ls .claude/hooks/git-guardrails.cjs .claude/hooks/closed-set-check.cjs .claude/hooks/context-monitor.cjs .claude/hooks/webfetch-cache-pre.cjs .claude/hooks/webfetch-cache-post.cjs` all resolve, and `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113) pointing at `${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs` — otherwise the destructive-git guard is silently absent.
+5. Verify the hooks copied, wired, AND EXECUTABLE through the shell (FOLLOW-UP 67 — existence checking is what let the unquoted-path outage ship: the files were all there; none could run). `ls .claude/hooks/git-guardrails.cjs … webfetch-cache-post.cjs` all resolve, `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113), and the wired command string **runs green through `/bin/sh -c`** with the project path:
+
+   ```bash
+   # Execute the guard exactly as the wizard wired it (quoted path), feeding a benign payload.
+   # MUST print nothing and exit 0; a word-split path prints "No such file" / loader:1423.
+   CLAUDE_PROJECT_DIR="$PWD" sh -c 'printf "{}" | "${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs"'
+   echo "guard exit: $?"   # must be 0
+   ```
+
+   This gates on exit 0, so it also catches the next wiring-breakage class for free (a lost exec bit, a bad shebang, a future path-scheme change) — not just the quoting. If it is non-zero, the destructive-git guard is silently absent, exactly the failure §68 forbids.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
 8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44).

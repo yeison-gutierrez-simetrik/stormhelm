@@ -15,7 +15,7 @@
  *         {
  *           "matcher": "Bash",
  *           "hooks": [
- *             { "type": "command", "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/git-guardrails.cjs" }
+ *             { "type": "command", "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-guardrails.cjs\"" }
  *           ]
  *         }
  *       ]
@@ -130,9 +130,48 @@ function extractCommand(payload) {
   return null;
 }
 
+// FOLLOW-UP 68: strip heredoc PAYLOADS before pattern-matching. The §68 rules
+// must fire on executable git invocations, not on prose that merely NAMES a
+// blocked operation — and the framework prescribes exactly such prose
+// (filing FUs, postmortems §95, runbooks, ADRs quoting §68). A heredoc body
+// is unambiguously DATA, not commands, so removing it is safe and — unlike
+// "command-position" matching — does NOT weaken detection of a real
+// destructive command on its own line (which is also "after a newline" and
+// must still be caught; verified: a multi-line `…\ngit push --force` stays
+// blocked). Residual gap (documented in §68): a body fed straight to an
+// interpreter (`bash <<EOF … EOF`) is not inspected here — the inner
+// execution is the harness's to guard.
+function stripHeredocs(command) {
+  const lines = command.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    out.push(line); // keep the OPENING line (it may carry a real command before `<<`)
+    // Heredoc openers on this line: << DELIM, <<-DELIM, << 'DELIM', << "DELIM".
+    const openers = [...line.matchAll(/<<-?\s*(["']?)([A-Za-z_][A-Za-z0-9_]*)\1/g)];
+    if (openers.length === 0) {
+      i++;
+      continue;
+    }
+    const delim = openers[openers.length - 1][2]; // last opener's word closes the body
+    const dashed = /<<-/.test(line);
+    i++;
+    // Drop body lines until the closing delimiter (alone on its line; `<<-`
+    // allows leading tabs). The body is removed, never scanned.
+    while (i < lines.length) {
+      const trimmed = dashed ? lines[i].replace(/^\t+/, "") : lines[i];
+      i++;
+      if (trimmed === delim) break;
+    }
+  }
+  return out.join("\n");
+}
+
 function findMatch(command) {
+  const scannable = stripHeredocs(command);
   for (const entry of BLOCKED_PATTERNS) {
-    if (entry.regex.test(command)) {
+    if (entry.regex.test(scannable)) {
       return entry;
     }
   }
