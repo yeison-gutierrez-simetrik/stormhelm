@@ -821,11 +821,23 @@ ralph_call_claude_with_retry() {
       # directly is impossible — the file is the channel (see sync_tokens).
       local tokens result_text
       tokens=$(ralph_extract_tokens_from_output "$output")
-      if [ "$tokens" -gt 0 ]; then
-        ralph_add_tokens "$tokens"   # keeps non-subshell callers correct
-        if [ -n "$RALPH_TOKENS_FILE" ]; then
-          echo "$tokens" >> "$RALPH_TOKENS_FILE"
-        fi
+      # FOLLOW-UP 74: exit 0 with ZERO tokens is an ENGINE no-op (CLI crash,
+      # auth/limit window, transport) — the model never ran. Treat it as an
+      # engine failure, NOT a model result: surface the stderr tail and the
+      # exit, and return a DISTINCT code (125, vs 124 rate-limit) so the loop
+      # aborts the session instead of burning the iteration allowance on
+      # instant no-ops (live: i2–30 became 1–2s/0-token retries in ~90s).
+      if [ "$tokens" -le 0 ]; then
+        local stderr_tail
+        stderr_tail=$(tail -n 5 "$stderr_file" 2>/dev/null || true)
+        ralph_log_event "error" "ralph.error.engine" \
+          "{\"call\":\"claude\",\"exit\":0,\"tokens\":0,\"stderr_tail\":$(ralph_json_string "$stderr_tail")}"
+        [ -n "$stderr_tail" ] && printf '%s\n' "$stderr_tail" >&2
+        return 125
+      fi
+      ralph_add_tokens "$tokens"   # keeps non-subshell callers correct
+      if [ -n "$RALPH_TOKENS_FILE" ]; then
+        echo "$tokens" >> "$RALPH_TOKENS_FILE"
       fi
       # Hand the caller the assistant's TEXT (transcript consumers parse
       # prose/markers, not envelopes); fall back to raw output if the

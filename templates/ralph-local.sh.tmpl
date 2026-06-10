@@ -564,9 +564,30 @@ for i in $(seq 1 "$MAX_ITER"); do
   if [ -n "$LAST_FAIL_REASON" ]; then
     FAIL_FEEDBACK=" PREVIOUS ITERATION failed acceptance with: ${LAST_FAIL_REASON:0:600}. Address this FIRST, then continue."
   fi
-  CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
-  ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
-  ralph_call_completed "tdd" "$CALL_START" "$CALL_TOKENS_BEFORE"
+  # FOLLOW-UP 74: a claude call that exits 0 with ZERO tokens is an ENGINE
+  # outage, not an iteration outcome (ralph_call_claude_with_retry returns
+  # 125). Retry the SAME call after a backoff and, after K consecutive,
+  # END the session `engine_failure` WITHOUT consuming the iteration
+  # allowance — a resume then knows the WORK is fine, only the engine
+  # hiccupped. Knobs RALPH_ENGINE_MAX (3) / RALPH_ENGINE_BACKOFF (60s).
+  ENGINE_FAILS=0
+  while :; do
+    TDD_RC=0
+    CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
+    ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
+    ralph_call_completed "tdd" "$CALL_START" "$CALL_TOKENS_BEFORE"
+    if [ "$TDD_RC" -eq 125 ]; then
+      ENGINE_FAILS=$((ENGINE_FAILS + 1))
+      echo "⚠️  engine no-op (exit 0, 0 tokens) on /tdd — attempt ${ENGINE_FAILS}/${RALPH_ENGINE_MAX:-3} (CLI crash / auth window / transport)" >&2
+      if [ "$ENGINE_FAILS" -ge "${RALPH_ENGINE_MAX:-3}" ]; then
+        ralph_end_session "engine_failure" "claude produced zero tokens on ${ENGINE_FAILS} consecutive calls — engine outage, not a work problem (resume when the limit window resets)"
+        exit 1
+      fi
+      sleep "${RALPH_ENGINE_BACKOFF:-60}"
+      continue
+    fi
+    break
+  done
   if [ "$TDD_RC" -ne 0 ]; then
     if [ "$TDD_RC" -eq 124 ]; then
       # Rate-limit exhausted — block the issue and bail out.
@@ -611,6 +632,13 @@ for i in $(seq 1 "$MAX_ITER"); do
   CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
   ralph_call_claude_with_retry "/run-acceptance for the scn-* of issue #$ISSUE_NUM ($SCENARIOS). MANDATORY contract (skills/run-acceptance, final step): write the machine-readable result to ${ACCEPT_RESULT_FILE} with issue, exit_code, scenarios{}, ran, expected, gates{} (including gates.reviewer = your Step-8 reviewer severity), failure_reason — AND the full reviewer report to ${REVIEWER_REPORT_FILE}. ALWAYS rewrite both files fresh in THIS run — even if nothing changed since a previous green run. Do NOT run a separate code review afterwards: your Step-8 reviewer is the single invocation for this slice. INVARIANT GATE RESULT (engine-run; do NOT attempt to run it yourself — read it): ${INVARIANTS_RESULT}" >/dev/null || ACCEPTANCE_RC=$?
   ralph_call_completed "run-acceptance" "$CALL_START" "$CALL_TOKENS_BEFORE"
+  if [ "${ACCEPTANCE_RC:-0}" -eq 125 ]; then
+    # FOLLOW-UP 74: a zero-token engine no-op on /run-acceptance is an outage,
+    # not a failing gate — end the session engine_failure rather than logging
+    # a false acceptance failure and burning the next iteration.
+    ralph_end_session "engine_failure" "claude produced zero tokens on /run-acceptance — engine outage (resume when the limit window resets)"
+    exit 1
+  fi
   if [ "$ACCEPTANCE_RC" -eq 124 ]; then
     ralph_error_tool "claude" "/run-acceptance hit rate-limit exhaustion"
     ralph_iteration_end "rate-limit-exhausted"
