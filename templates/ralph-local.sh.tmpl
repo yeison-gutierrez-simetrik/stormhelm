@@ -70,6 +70,7 @@ WORKER_ID="${RALPH_WORKER_ID:-w0}"
 # commit required; finding-attribution mandatory; see core/13).
 BASE_REF=""
 PR_BASE_REF=""
+RESUMED=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --max-iterations) MAX_ITER="${2:?--max-iterations requires a value}"; shift 2 ;;
@@ -83,6 +84,11 @@ while [ "$#" -gt 0 ]; do
     # but the PR must target a REAL remote branch — the chain anchor.
     --pr-base) PR_BASE_REF="${2:?--pr-base requires a ref}"; shift 2 ;;
     --pr-base=*) PR_BASE_REF="${1#*=}"; shift ;;
+    # --resumed (FOLLOW-UP 77): ralph-isolated's resume path sets this. The
+    # issue was validated on its first launch and Ralph removed `ralph-ready`
+    # when it claimed it — bypass ONLY the ralph-ready existence check on
+    # re-entry (scenarios/budget/§63 grammar all still run).
+    --resumed) RESUMED=1; shift ;;
     --) shift; break ;;
     -*) echo "❌ unknown flag: $1" >&2; exit 2 ;;
     *)
@@ -330,9 +336,12 @@ if [ -z "$LABELS" ]; then
   exit 1
 fi
 
-if ! ralph_has_label "$LABELS" "ralph-ready"; then
+if [ "${RESUMED:-0}" != "1" ] && ! ralph_has_label "$LABELS" "ralph-ready"; then
   echo "❌ Issue #$ISSUE_NUM is missing label 'ralph-ready' (§63)" >&2
   exit 1
+fi
+if [ "${RESUMED:-0}" = "1" ] && ! ralph_has_label "$LABELS" "ralph-ready"; then
+  echo "🔁 --resumed: bypassing the ralph-ready check (Ralph removed the label when it claimed this issue; the scenarios/budget checks still run) — FOLLOW-UP 77." >&2
 fi
 
 # FOLLOW-UP 72: a foundation slice with >9 scenarios OMITS the GH scenarios:
