@@ -1232,3 +1232,47 @@ test('FU-64: linear dep chain → base = the chain tail (highest dep covering th
     assert.match(pr, /STACKED PR \(FOLLOW-UP 64\)/);
   });
 });
+
+// ── FOLLOW-UP 72: ralph-local sources scenarios from the body when the GH ─────
+// ── scenarios: label was omitted for >50-char overflow (the FU-71 completion) ─
+
+// FU-71 sanctioned omitting the GH scenarios: label for a >9-scenario
+// foundation slice (it overflows GitHub's 50-char limit) and made INV-5 read
+// the file. But ralph-local's §63 gate + the FU-49 cross-check also read the
+// GH label — so such a slice was un-launchable, one failure mode SILENT under
+// set -e. The gate + extraction now accept the body's scenarios:scn-* token.
+test('FU-72: a >9-scenario slice with NO GH label but a body scenarios: token launches', () => {
+  withConsumer((dir) => {
+    const compact = 'scn-' + Array.from({ length: 19 }, (_, k) => 137 + k).join('+');
+    const { status, out } = runRalph(dir, ['83', '3'], {
+      MOCK_LABELS: 'ralph-ready\nshift:afk\nbudget:200k\ntier:0',   // NO scenarios: label
+      MOCK_BODY: `# Slice 07\n\n**Labels:** \`ralph-ready\` \`shift:afk\` \`scenarios:${compact}\` \`budget:200k\` \`tier:0\`\n\nFoundation.\n`,
+    });
+    assert.equal(status, 0, `the foundation slice must launch, not abort the §63 gate:\n${out}`);
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.match(prompts, /run-acceptance for the scn-\* of issue #83 \(scn-137\+138/, 'scenarios sourced from the body and passed to acceptance');
+  });
+});
+
+test('FU-72: neither a GH label nor a body token → the EXPLICIT §63 error, not a silent set -e abort', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['84', '3'], {
+      MOCK_LABELS: 'ralph-ready\nshift:afk\nbudget:200k',
+      MOCK_BODY: '# Slice with no scenarios anywhere\n\nNothing here.\n',
+    });
+    assert.notEqual(status, 0);
+    assert.match(out, /declares no scenarios.*§63 mandatory/s, 'the failure is explicit, never a silent abort');
+  });
+});
+
+test('FU-72: a normal slice with a GH scenarios: label is unchanged', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], {
+      MOCK_LABELS: 'ralph-ready\nshift:afk\nscenarios:scn-001+002\nbudget:50k',
+      MOCK_BODY: '# Normal slice\n\nBody.\n',
+    });
+    assert.equal(status, 0, out);
+    const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
+    assert.match(prompts, /issue #1 \(scn-001\+002\)/, 'GH label still wins for normal slices');
+  });
+});

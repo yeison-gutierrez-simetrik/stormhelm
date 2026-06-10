@@ -335,8 +335,14 @@ if ! ralph_has_label "$LABELS" "ralph-ready"; then
   exit 1
 fi
 
-if ! echo "$LABELS" | grep -qE "^scenarios:"; then
-  echo "❌ Issue #$ISSUE_NUM is missing label 'scenarios:scn-*' (§63 mandatory)" >&2
+# FOLLOW-UP 72: a foundation slice with >9 scenarios OMITS the GH scenarios:
+# label (it overflows GitHub's 50-char limit — FU-71) and carries the spelled
+# list in the issue body's **Labels:** line instead. The §63 gate must accept
+# EITHER source — the GH label OR a scenarios:scn-* token in the body — or
+# every such slice is un-launchable (live: belong #83, 19 scns scn-137..155).
+if ! echo "$LABELS" | grep -qE "^scenarios:" \
+   && ! printf '%s' "$ISSUE_BODY" | grep -qE 'scenarios:scn-[0-9]'; then
+  echo "❌ Issue #$ISSUE_NUM declares no scenarios — neither a 'scenarios:scn-*' GitHub label nor a 'scenarios:scn-*' token in the issue body (§63 mandatory). For a >9-scenario slice, carry the spelled list in the body's **Labels:** line (FU-71)." >&2
   exit 1
 fi
 
@@ -346,8 +352,17 @@ if ! echo "$LABELS" | grep -qE "^budget:"; then
 fi
 
 # Extract labeled metadata
-SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")
-BUDGET=$(ralph_read_label_value "$LABELS" "budget:")
+# FOLLOW-UP 72: GH label first (normal slices, unchanged); fall back to the
+# body's scenarios:scn-* token when the label was omitted for overflow
+# (FU-71). The `|| true` is MANDATORY — ralph_read_label_value's grep|head
+# pipeline returns 1 on no-match, and under `set -euo pipefail` a bare
+# VAR=$(…) abort is SILENT (the second live failure shape — a run that died
+# before any fallback with no message). Same grammar as INV-5's parser.
+SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:" || true)
+if [ -z "$SCENARIOS" ]; then
+  SCENARIOS=$(printf '%s' "$ISSUE_BODY" | grep -oE 'scenarios:[a-z0-9+,-]+' | head -1 | sed 's/^scenarios://' || true)
+fi
+BUDGET=$(ralph_read_label_value "$LABELS" "budget:" || true)
 BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 
 # FOLLOW-UP 35: an unsupported label grammar (live near-miss: a range form
