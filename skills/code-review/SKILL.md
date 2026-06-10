@@ -55,15 +55,30 @@ Parse the input:
 
 If invalid → stop and ask for valid input.
 
-### Step 2 — Invoke the reviewer agent
+### Step 2 — Run the invariant gate, then invoke the reviewer agent
+
+**Pre-step — run `check-invariants` and inject its result (FOLLOW-UP 82).**
+The reviewer's contract (`agents/reviewer.md`, FU-52) REQUIRES an engine-run
+`INVARIANT GATE RESULT` in its prompt — its sandbox cannot run `node`, and a
+MISSING result is a 🛑 blocking finding it must emit (never a spot-check
+substitute). The Ralph loop injects this; the ad-hoc path must too, or every
+`/code-review` blocks procedurally. Run the gate and capture its verbatim
+output:
+
+```bash
+# When the target is a PR, run against its MERGED state (a temp worktree off
+# the base with the head merged — mirrors ralph-local's sim) so the gate sees
+# what merge will produce; for a local branch/diff, run in place.
+INVARIANT_RESULT=$(node scripts/check-invariants.mjs 2>&1 || true)
+```
 
 ```
 Task tool with:
   subagent_type: "reviewer"
-  prompt: "Review the diff on <target>. <optional scenarios>. Produce the standard structured report and save to .planning/reviews/<target>-<timestamp>.md."
+  prompt: "Review the diff on <target>. <optional scenarios>. INVARIANT GATE RESULT (engine-run; do NOT re-run it — your sandbox can't, and re-running would diverge): <paste $INVARIANT_RESULT verbatim>. Produce the standard structured report and save to .planning/reviews/<target>-<timestamp>.md."
 ```
 
-The Task tool runs the agent in a fresh context (key per §114 — confirmation bias avoidance).
+The Task tool runs the agent in a fresh context (key per §114 — confirmation bias avoidance). The injected result is byte-for-byte the FU-52 contract the reviewer already parses.
 
 ### Step 3 — Capture the report
 

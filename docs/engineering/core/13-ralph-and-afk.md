@@ -348,6 +348,21 @@ of them destroyed a PR live:
    likely landed.
 4. `node scripts/check-merge-safety.mjs <pr> post <head-sha>` after each
    merge (full SHA).
+5. **Phantom `CONFLICTING` after retarget — the double-merge-base trap
+   (FOLLOW-UP 81).** A chained branch that merged `origin/main` MID-RUN (it
+   needed a sibling's already-merged dependency — blessed, see §123 below)
+   has TWO common ancestors with main once the sibling merges (a criss-cross).
+   `git merge-ort` resolves multi-base via recursive virtual ancestors;
+   GitHub's PR **test-merge does not** — the PR shows `CONFLICTING/DIRTY`
+   stable across recomputes and `PUT /pulls/N/update-branch` returns **422
+   "merge conflict between base and head"**, even though a LOCAL merge is
+   conflict-free both directions. Signature = `CONFLICTING/DIRTY` + the 422 +
+   a clean local merge-sim. Recovery: **merge `main` INTO the head branch (a
+   merge commit, never a rebase) and push** — the state flips to `MERGEABLE`
+   immediately. Prevention: before retargeting a stacked PR whose branch ever
+   merged main, merge main into the head first. (A future train-merge.mjs
+   could detect `git merge-base --all <head> main | wc -l > 1` and pre-merge —
+   deferred; the runbook line is the cheap fix.)
 
 (External confirmation: GitHub's retarget-on-merge changelog and cli/cli
 #1168 document exactly the §2/§3 behaviors.)
@@ -420,7 +435,7 @@ A slice often decomposes into several issues that **share a foundation** (issue 
 A Night Shift slice-group is the one place stacking is **sanctioned**: each Ralph run is one issue, sessions run AFK while humans sleep, and waiting for a human merge between siblings would serialize the night on the reviewer's bed-time (live: belong #19 and #21 both branched from `main` and conflicted on the shared wiring files — the second PR needed manual resolution). The chain model trades §123's default for nocturnal throughput, **under four mandatory conditions**:
 
 1. **Merge commits only.** Squash-merging a base PR rewrites its commits and breaks every stacked diff above it. The engine's PR body states this; the merge guidance for chained PRs is merge-commit, base-first.
-2. **The engine carries the base.** `ralph-local.sh --base <prev-branch>` (also accepted by `ralph-isolated.sh`, which starts the worktree at that ref) branches the slice FROM the previous sibling's branch and opens the PR **against** it (`gh pr create --base`). Merge order = chain order; GitHub retargets child PRs automatically when the base merges and its branch is deleted.
+2. **The engine carries the base.** `ralph-local.sh --base <prev-branch>` (also accepted by `ralph-isolated.sh`, which starts the worktree at that ref) branches the slice FROM the previous sibling's branch and opens the PR **against** it (`gh pr create --base`). Merge order = chain order; GitHub retargets child PRs automatically when the base merges and its branch is deleted. A chained branch **may merge `origin/main` mid-run** when it needs a dependency that merged after the fork (merge commits only) — this is blessed, but it creates the double-merge-base trap on retarget; see the merge-train runbook point 5 (FOLLOW-UP 81) for the signature and recovery.
 3. **Finding-attribution (PR-Attr) is mandatory** — unchanged from the stacked rule above: a blocking finding is fixed on the branch that owns the offending code, never on a branch stacked above it.
 4. **Cascade procedure.** If the foundation changes post-review, each child refreshes with `git merge <prev-branch>` (in chain order) and re-gates. (Candidate for automation later; manual and documented for now.)
 
