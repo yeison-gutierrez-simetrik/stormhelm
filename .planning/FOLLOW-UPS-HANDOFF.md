@@ -1676,3 +1676,182 @@ gh pr create --base main        --head agent/x --title t --body b   # ✅
 belong consumer note: the run's work was recovered (branch was pushed green) by a manual `gh pr create --base main` → PR #90 (draft). No consumer patch to lift (the failure is in the launch arg + the late validation), but the operator lesson is "for a standalone slice, `--base main` or omit `--base`."
 
 **Acceptance.** `scripts/__tests__/ralph-local.test.mjs` (mock gh/git bins): (1) `--base origin/main` → the `gh pr create` invocation receives `--base main` (normalized); (2) a `--base` that resolves to no remote branch → pre-flight abort BEFORE iteration 1 with the actionable message; (3) `--base main` and the no-`--base` default → unchanged. Consumer-visible: a green run always yields a PR (or fails loudly up front), never a stranded branch after full spend.
+
+---
+
+## FOLLOW-UP 74 — a zero-token engine call is treated as "acceptance-failing": the loop burned 28 no-op iterations in 90 s (instant 1-2 s calls, tokens=0), never aborted, never captured the CLI's stderr — max-iterations consumed by an engine outage  ·  **Severity: HIGH (any engine hiccup converts the whole iteration allowance into noise; the failure cause is unrecoverable because stderr is dropped)**
+
+**Problem.** In ralph-local's iteration loop, a `claude` invocation that produces 0 tokens (CLI
+crash, auth/limit window, transport failure) is indistinguishable from a model that ran and failed
+acceptance: the loop logs `call.completed tokens:0`, then `iteration.completed outcome:
+acceptance-failing reason: result-file-missing`, increments the iteration counter, and immediately
+retries — at 1-2 s per "iteration". The engine outage consumed iterations 2-30 of a 30-iteration
+session in ~90 seconds. No stderr/exit-code of the failed CLI call is persisted anywhere, so the
+root cause (rate-limit vs auth vs crash) is unknowable post-hoc.
+
+**Live evidence:** belong issue #91, session log
+`.worktrees/ralph-91-w1-20260610-042931/.planning/ralph-sessions/91-20260610-060850.log` —
+i1 real (tdd 16868 tok / 292 s; run-acceptance 27428 tok), i2 tdd **223 s / 0 tok**, i3..i30 tdd
+**1-2 s / 0 tok** each, all `result-file-missing`, session ended 06:34:41 `max-iterations-reached`
+with cumulative 44 296 (i.e. only i1 was real). A later relaunch (11:16) worked — consistent with a
+limit window that reset.
+
+**Verify:**
+```bash
+# in the belong session log above:
+grep -c '"call":"tdd","tokens":0' <log>          # → 29
+python3 - <log> ...                              # timestamps show i3..i30 span 06:33:04→06:34:41
+```
+
+**Fix.** Structured contract in the loop: a completed call with `tokens == 0` (or missing token
+accounting) is an **engine failure**, not an iteration outcome. (1) Capture the CLI's exit code +
+last N lines of stderr into the session log event (`ralph.error.engine {exit, stderr_tail}`).
+(2) On first engine failure: retry the SAME iteration after a backoff (e.g. 60 s); on K consecutive
+(suggest K=3): END the session `status: engine-failure` WITHOUT consuming further iterations —
+distinct from `blocked`, so a resume knows nothing is wrong with the work. (3) Iteration counter
+only advances on calls that produced tokens.
+
+**Acceptance.** Fixture test (mock claude bin exiting non-zero/empty): session ends
+`engine-failure` after K attempts, iterations_completed unchanged, stderr_tail present in NDJSON;
+a real-call fixture still iterates normally.
+
+## FOLLOW-UP 75 — budget table underestimates greenfield-module + sensitive slices ~2×: two sessions died `budget_exceeded` with the work already green (307k/300k and 267k/250k), each losing the finish line by seconds  ·  **Severity: MEDIUM (every new-bounded-context or crypto-bearing slice; the failure mode is maximally frustrating — green work, dead ledger)**
+
+**Problem.** core/13 + /to-issues Step 4 calibrate `budget ≈ expected_iterations × 80k`. Measured
+on slice 08 (new Provider Gateway context, 24 scns, crypto): first `/tdd` call alone = **194 861**
+tokens; iteration 2's tdd = 55 543. Slice 09 (18 scns, 4 routes): i1 tdd 89 969, i2 tdd **150 432**.
+Both sessions exceeded immediately after a completing call (08: 307 509/300k after run-acceptance;
+09: 267 250/250k after tdd) — the work was green/complete and only the recording/PR steps were cut.
+The 80k/iter model holds for small slices but greenfield-module + many-scenario + sensitive slices
+run 120-220k per iteration.
+
+**Live evidence:** belong #91 session `91-20260610-042932.log` (ended 06:05:38 budget_exceeded,
+reason run-acceptance, 2 iterations green-after-fixups) and #95 session `95-20260610-114522.log`
+(ended 13:03:40 budget_exceeded, reason tdd, with the branch's last commits showing "full
+acceptance 203/203"). Both required a manual `--resume` relaunch (which finished in 78k/46k).
+
+**Fix.** Documentation-first: add a slice-class multiplier row to the Step 4 table —
+"new bounded context / `require-human-review` / >15 scenarios: budget ≈ iterations × 150k, round
+up to 400k-500k buckets". Optionally (decision): a soft-landing rule — when remaining budget <
+last-call cost, finish the in-flight iteration's recording + PR steps before enforcing (the cheap
+steps are exactly what gets cut today).
+
+**Acceptance.** Table updated in core/13 + /to-issues SKILL (same numbers, both artifacts);
+optional soft-landing covered by a fixture if adopted.
+
+## FOLLOW-UP 76 — `--resume` reuses the worktree's STALE engine scripts: a fixed bug (FU-73 pr-create) re-bit a resume because the worktree's ralph-local.sh predated the fix; FU-69 refreshes node_modules but nothing refreshes the engine  ·  **Severity: MEDIUM (any worktree created before an engine re-sync re-runs the old engine on resume — fixes silently don't apply to in-flight issues)**
+
+**Problem.** ralph-isolated creates the worktree with copies of ralph-local.sh/ralph-lib.sh at
+launch time. `--resume` reuses the worktree as-is. A consumer that re-syncs the engine mid-campaign
+(belong re-sync PR #98, canonical FU-72/73) gets the fix for NEW worktrees only: belong's slice-08
+resume (worktree created 04:29, pre-resync) re-failed `gh pr create` at the finish line — the exact
+FU-73 failure — while slice-09's fresh worktree (canonical copy) created its PR fine.
+
+**Live evidence:** belong #91 session `91-20260610-111659.log` ended `gh-pr-create-failed` (PR
+created by the supervising session as belong PR #99); #95 session `95-20260610-130520.log` shows
+`pr-create status:success` (belong PR #100). `diff` of the two worktrees' ralph-local.sh vs the
+primary checkout: wt-91 differs, wt-95 identical.
+
+**Verify:**
+```bash
+diff <primary>/ralph-local.sh <wt-created-before-resync>/ralph-local.sh   # non-empty
+```
+
+**Fix.** On `--resume`, refresh the worktree's engine scripts (ralph-local.sh, ralph-lib.sh,
+ralph-watch.sh) from the primary checkout BEFORE starting the loop — same posture as FU-69's
+node_modules link. Log a `ralph.engine.refreshed {files}` event when content changed so sessions
+are attributable to an engine version.
+
+**Acceptance.** Fixture: resume in a worktree with a doctored stale ralph-local → loop runs the
+primary's version (marker echoed); NDJSON carries the refresh event.
+
+## FOLLOW-UP 77 — `--resume` is blocked by the missing `ralph-ready` label that Ralph ITSELF removed when claiming the issue: every resume needs a manual re-label  ·  **Severity: LOW (one-line manual step, but it sits exactly on the unattended-recovery path where no human is watching)**
+
+**Problem.** Ralph removes `ralph-ready` at claim time (correct — prevents double-pickup). The §63
+pre-flight runs on resume too, so a crashed/budget-killed session can never be resumed without a
+human re-adding the label first. Three consecutive resumes in this campaign each required
+`gh issue edit <N> --add-label ralph-ready` by hand.
+
+**Live evidence:** `/tmp/ralph-91-resume.log` → `❌ Issue #91 is missing label 'ralph-ready' (§63)`;
+repeated for #95.
+
+**Fix.** In ralph-isolated/`--resume` path: accept the issue if it carries the claim marker of a
+prior session for the SAME issue+branch (or an explicit `ralph-blocked`/`ralph-resumable` label the
+loop sets on abnormal end), bypassing the ralph-ready check; alternatively, set `ralph-ready` back
+automatically on abnormal session end (budget/engine), keeping removal only for `completed`.
+
+**Acceptance.** Fixture: session ends budget_exceeded → immediate `--resume` starts without label
+surgery; a NEVER-started issue without ralph-ready still refuses (§63 preserved).
+
+## FOLLOW-UP 78 — `skip-invariant: INV-X` overrides are applied per-INVARIANT, not per-ISSUE: issue 06's blessed INV-6 reason decorated and overrode a DIFFERENT issue's (09) INV-6 failure — the gate passed for the wrong reason  ·  **Severity: MEDIUM (any repo with one historical override silently disables that invariant for every future issue)**
+
+**Problem.** check-invariants collects `skip-invariant` lines from issue files and applies them to
+the invariant globally. Live: belong's `issues/06-schema-foundations.md` carries the canonical
+schema-only INV-6 override; when `issues/09-*.md` later tripped INV-6 (a real
+declared-vs-detected mismatch from a parse artifact), the gate reported
+`⚠️ INV-6 OVERRIDDEN — schema-only substrate ... (orig: classification escalated ...
+09-readiness-check-and-sandbox.md ...)` and **passed**. The 09 mismatch was real and should have
+failed; it was only caught because the operator read the ⚠️ text.
+
+**Live evidence:** belong, gate run 2026-06-10 in worktree `chore/slice-09-planning` pre-fix
+(output quoted above); after fixing 09's Module line the gate ran clean WITHOUT the override
+banner — confirming the override had masked a genuine failure.
+
+**Verify:**
+```bash
+# repo with issue A carrying skip-invariant: INV-6 and issue B failing INV-6 → gate passes (bug)
+```
+
+**Fix.** Scope overrides to the declaring issue: an override line suppresses INV-X findings ONLY
+for the file that declares it. Findings for other files fail normally, listing which files are
+covered by overrides and which are not.
+
+**Acceptance.** Test: two issue files, one with override + one genuinely failing → gate FAILS
+naming only the second; single-file override case still passes.
+
+## FOLLOW-UP 79 — detect-ceremony splits the slice-doc `Module:` line on commas inside parentheses: `Onboarding (readiness orchestration, Agent Tester management), Provider Gateway (probe delivery)` reads as **3 modules**, escalating single-module slices  ·  **Severity: LOW (conservative direction, but it manufactures INV-6 mismatches that — combined with FU-78 — get silently overridden)**
+
+**Problem.** The `- **Module:** <Ctx> → A, B, C` parser splits the RHS on `,` without tracking
+parenthesis depth. Parenthesized clarifications (the natural way to annotate a module's
+responsibilities) inflate the count.
+
+**Live evidence:** belong `issues/09-readiness-check-and-sandbox.md` pre-fix line (see git history
+of `chore/slice-09-planning`): detector returned `module_count: 3 / contexts: 1`; after rewording
+to avoid commas → `module_count: 1`. The reword is the consumer workaround.
+
+**Fix.** Depth-aware split (ignore commas inside `()`); strip parenthetical suffixes from module
+names before counting. Pin with a fixture line exactly like the live one.
+
+**Acceptance.** Fixture: the quoted line → module_count 2 (Onboarding, Provider Gateway), names
+without parentheticals; existing fixtures unchanged.
+
+## FOLLOW-UP 80 — formalize an "autonomous planning (auto-pilot) mode": agent-answered grilling/clarify with a per-decision audit log (industry references + confidence/reversibility + human audit checkboxes), batch §58 post-hoc approval, and agent-merged docs-only planning PRs  ·  **Severity: decision (maintainer)**
+
+**Problem/opportunity.** The belong pilot ran the full pipeline for two slices with ZERO human
+checkpoints before draft PRs, under consumer-defined deviations: OD-1 (agent merges docs-only
+planning PRs at green CI), OD-2 (scenarios written `# status: approved` with §58 satisfied
+post-hoc by an audit log), P-3/P-4 (threat models self-reviewed, ratification deferred to the
+implementation-PR review). The compensating control is a structured decision log per slice
+(`docs/decisions/auto-clarify/<slice>-decisions.md`): every self-answered question with options,
+rationale, **industry reference (operator's rule: app stores / AWS-GCP / leading specs)**,
+confidence, reversibility, and an audit checkbox; deviations and doc supersessions flagged first.
+Empirical result: 2 slices to draft PRs; the §114 reviewer caught a constitution violation that
+originated in the pilot's own auto-generated plan (zod in domain layer) — i.e. the non-human gates
+held where the autonomous planner erred. The framework currently has no first-class home for this
+mode: §58 forbids agent-approved features, /to-scenarios forbids writing `approved`, and nothing
+specifies the decision-log artifact.
+
+**Live evidence:** belong PRs #92/#96 (planning, agent-merged), #99/#100 (impl drafts); decision
+logs in belong `docs/decisions/auto-clarify/`; reviewer blocker in #91's issue comments
+(iteration-2, zod-in-domain).
+
+**Decision needed.** (a) Adopt as a documented mode (new skill flag or `pilot:` frontmatter):
+§58/§87 checkpoints become post-hoc-auditable when the decision-log artifact exists, with the
+audit-checkbox sheet as the compliance record; (b) keep it consumer-side as a documented pattern
+(core/13 appendix) without relaxing §58; (c) reject — require the human checkpoints always.
+Present (a) vs (b); the belong operator's data point: he wants the audit AFTER, not interactive
+20-question rounds, and the override-rate sheet is the metric he'll use.
+
+**Acceptance (if a/b).** The decision-log format speced in one reference doc; /to-scenarios +
+/clarify + grill-me SKILLs name the mode and its compensating control; INV/§58 gate text updated
+so the mode isn't a per-consumer deviation.
