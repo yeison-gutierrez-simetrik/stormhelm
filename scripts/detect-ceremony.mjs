@@ -15,18 +15,21 @@
 //   multi-module  ⇔  >= 3 distinct modules  OR  >= 2 bounded contexts
 //   cross-context ⇔  >= 2 bounded contexts
 //
-// "Module" = an `affected_modules` entry (parse-layers groups by src/<layer>/<ctx>).
-// "Bounded context" = the context segment under a known layer dir (domain/, modules/,
-// contexts/, application/, infrastructure/, entrypoints/). The heuristic is
-// deliberately simple; over-classification is safe (it only adds ceremony, which a
-// human can downgrade via an audited label flip — never auto-degraded, ADR safeguard 3).
-//
-// LAYOUT ASSUMPTION: context detection assumes the §3 layer-first hexagonal layout
-// (`src/<layer>/<ctx>/…`, layers = KNOWN_LAYERS below). The MODULE count — the primary
-// §107 trigger — is layout-independent and always works. Only cross-context detection is
-// layout-sensitive: a project that nests differently (e.g. `src/features/<ctx>`, or no
-// `src/` prefix) UNDER-detects cross-context — safe by design (conservative + one-way
-// escalation), but set `feature:cross-context` by hand if your layout diverges.
+// "Module" = a BOUNDED CONTEXT, not a hexagonal layer-dir (§3; FOLLOW-UP 70).
+// The §107 count derives from distinct bounded contexts: layer entries under a
+// known layer collapse to their `<ctx>` segment, and a layer entry that carries
+// no context — a FUNCTIONAL bucket (`ports`, `config`, …), a file, or a bare
+// layer — adds no module (it is just a layer of the slice's context). Non-layer
+// roots (`src/core`, declared `- **Module:**` entries) stay distinct;
+// non-application roots (`features/`, `schema/`, …) are excluded. This is
+// layout-robust: both context-sub-organized (`src/domain/audit`) and
+// layer-first-FUNCTIONAL (`src/application/ports`) layouts classify a
+// single-context slice as single-module.
+// "Bounded context" = a non-bucket, non-file directory segment under a known
+// layer, OR an explicitly declared context (FOLLOW-UP 54). Over-classification
+// is safe (a human downgrades via an audited label flip — never auto-degraded,
+// ADR safeguard 3); the rare UNDER-classification (a context named like a
+// functional bucket) is bounded by the reviewer's live re-detect on the diff.
 //
 // Usage:  node scripts/detect-ceremony.mjs <issue1>.md <issue2>.md ...
 // Output: JSON { modules, module_count, contexts, context_count, labels }
