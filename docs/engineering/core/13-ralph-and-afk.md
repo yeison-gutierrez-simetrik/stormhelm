@@ -432,6 +432,14 @@ The launch pattern for a chained group, in topological order from `group-slice-i
 ./ralph-isolated.sh 16 --base agent/feature-<slug15>-15
 ```
 
+`--base` takes a value valid as a **git start point** AND as a **`gh pr create
+--base`** target. A remote-tracking ref like `origin/main` is fine for the
+checkout but `gh` needs a branch NAME — the engine normalizes the gh argument
+(strips a leading `origin/`) and **pre-flights the resolved base against
+`origin` BEFORE iteration 1** (FOLLOW-UP 73): an unresolvable base fails up
+front with an actionable message, never after the full spend at PR creation.
+For a standalone slice, `--base main` or omit `--base`.
+
 **Worktree provisioning (FOLLOW-UP 69).** A `ralph-isolated` worktree shares
 `.git` but gets a FRESH working dir — the untracked runtime surface does not
 come with it. The script provisions BOTH pieces the loop needs before handing

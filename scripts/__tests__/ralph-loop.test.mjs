@@ -1276,3 +1276,59 @@ test('FU-72: a normal slice with a GH scenarios: label is unchanged', () => {
     assert.match(prompts, /issue #1 \(scn-001\+002\)/, 'GH label still wins for normal slices');
   });
 });
+
+// ── FOLLOW-UP 73: --base normalization + fail-fast before the spend ───────────
+
+// `--base origin/main` is valid for `git checkout -b` but invalid for
+// `gh pr create --base` (needs a branch name). Without the fix a run does ALL
+// the work, pushes, then fails at PR creation — the deliverable stranded. The
+// gh --base argument is normalized (strip origin/) and an unresolvable base
+// fails BEFORE iteration 1.
+test('FU-73: --base origin/main → the PR is created with --base main (normalized)', () => {
+  withConsumer((dir) => {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    // origin/main must resolve as a git ref (the FU-38a rev-parse check) and
+    // exist on origin (the FU-73 ls-remote probe, mocked).
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const { status, out } = runRalph(dir, ['1', '--base', 'origin/main', '--max-iterations', '3'], {
+      MOCK_LSREMOTE_HEADS: 'main',                           // origin/main → main exists
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base main\b/, 'gh receives the branch name, not origin/main');
+    assert.doesNotMatch(pr, /--base origin\/main/, 'the remote-tracking ref must be normalized away');
+  });
+});
+
+test('FU-73: a --base that resolves to no remote branch aborts BEFORE iteration 1', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '--base', 'origin/typo-branch', '--max-iterations', '3'], {
+      MOCK_LSREMOTE_HEADS: 'main develop',                  // typo-branch is NOT here
+    });
+    assert.notEqual(status, 0);
+    assert.match(out, /not a branch on origin/, 'the explicit, actionable message');
+    assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0,
+      'fails pre-spend — zero iterations burned');
+  });
+});
+
+test('FU-73: --base main (a plain branch) is unchanged', () => {
+  withConsumer((dir) => {
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('branch', '-f', 'main', 'HEAD');                    // a local `main` the rev-parse check resolves
+    const { status, out } = runRalph(dir, ['1', '--base', 'main', '--max-iterations', '3'], {
+      MOCK_LSREMOTE_HEADS: 'main',
+    });
+    assert.equal(status, 0, out);
+    const pr = readFileSync(join(dir, '.mock-gh-prcreate'), 'utf8');
+    assert.match(pr, /--base main\b/);
+  });
+});
+
+test('FU-73: no --base (standalone default) skips the probe entirely', () => {
+  withConsumer((dir) => {
+    // No MOCK_LSREMOTE_HEADS, no --base → the probe must not run / not abort.
+    const { status } = runRalph(dir, ['1', '--max-iterations', '3'], {});
+    assert.equal(status, 0);
+  });
+});
