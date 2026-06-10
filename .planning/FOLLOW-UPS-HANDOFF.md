@@ -1573,3 +1573,53 @@ history rejected `..`; the omit-and-file pattern is the lower-risk recommendatio
 "INV-5 reads the file" rationale; a fixture asserts INV-5 maps the scns from the issue file with no GH
 `scenarios:` label present. Consumer outcome: a >50-char foundation slice is labeled consistently
 without reverse-engineering a prior issue.
+## FOLLOW-UP 67 — hook wiring templates emit unquoted `${CLAUDE_PROJECT_DIR}`: on any consumer whose absolute path contains a space, /bin/sh word-splits the expansion and ALL five hooks die on every tool call — non-blocking, so the outage is silent, and it includes the §68 destructive-git guard  ·  **Severity: HIGH (whole hook surface inert, invisible by design; git-guardrails.cjs absent exactly where it's declared mandatory)**
+
+**Problem.** The hook registration snippet — duplicated across three artifacts that the setup SKILL itself (line 490) says must stay in sync — writes the command as `"${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.cjs"` with the variable **unquoted at the shell layer** (the JSON quotes are not shell quotes). Claude Code executes hook commands via `/bin/sh -c`, which word-splits the expanded path. On a consumer repo at e.g. `/Users/equipo/Documents/Belong Project/belong-marketplace`, every hook invocation becomes `sh: /Users/equipo/Documents/Belong: No such file or directory` (direct-exec form) or `Error: Cannot find module '/Users/equipo/Documents/Belong'` at `node:internal/modules/cjs/loader:1423` (`node`-prefixed form, which is what belong's wizard-generated settings.json actually carried). Hook failures are **non-blocking** (exit ≠ 2), so the tool call proceeds and the operator sees only a dismissible status line — the consumer ran an entire multi-slice campaign with `context-monitor.cjs` (§112) and `closed-set-check.cjs` never having executed once, and `git-guardrails.cjs` — which SKILL.md:600 calls out as "otherwise the destructive-git guard is silently absent" — silently absent in precisely the way that sentence fears, while its verification step (`ls` the files) passed green. Spaces in macOS paths are not exotic (`~/Documents/<Client Name>/...`).
+
+Offending occurrences (all verified against `origin/main` today):
+- `skills/setup/SKILL.md` 497-498, 501-503 (the wizard's emitted wiring block) and 600 (verification step asserts the unquoted form as the CORRECT target).
+- `hooks/README.md` 34, 45, 54.
+- `docs/engineering/core/19-hooks-and-runtime-guards.md` (§113, the self-declared canonical wiring reference) 87, 95, 212, 241, 245, 251, 255.
+
+Same-touch nit while editing: `skills/setup/SKILL.md` 327 and 490 still say `.claude/hooks/<x>.js` / `<hook>.js` — the files have been `.cjs` since FOLLOW-UP 45.
+
+**Live evidence:** belong-marketplace, session of 2026-06-09. Repo path `/Users/equipo/Documents/Belong Project/belong-marketplace`. Operator-visible symptom: persistent `PostToolUse:Read hook error` / `PostToolUse:Edit hook error` → `Failed with non-blocking status code: node:internal/modules/cjs/loader:1423` on every Read/Edit/Write since /setup. Root-caused and reproduced byte-identically the same day; consumer-fix applied in belong `.claude/settings.json` (all 5 entries) — quoted form verified `exit 0` through `sh -c`. Immediately after the fix, the revived guard produced its first real §68 block in this repo's history (see FOLLOW-UP 68 below for the false-positive class that block also revealed).
+
+**Verify:**
+```bash
+# the unquoted form is what origin/main ships
+git show origin/main:skills/setup/SKILL.md | sed -n '497,503p'
+# reproduce both failure shapes + the fix on any path with a space
+mkdir -p "/tmp/space dir/.claude/hooks" && git show origin/main:hooks/context-monitor.cjs > "/tmp/space dir/.claude/hooks/context-monitor.cjs" && chmod +x "/tmp/space dir/.claude/hooks/context-monitor.cjs"
+export CLAUDE_PROJECT_DIR="/tmp/space dir"
+sh -c 'echo "{}" | ${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs'        # No such file or directory (doc form)
+sh -c 'echo "{}" | node ${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs'   # MODULE_NOT_FOUND, cjs/loader:1423 (belong's emitted form)
+sh -c 'echo "{}" | "${CLAUDE_PROJECT_DIR}/.claude/hooks/context-monitor.cjs"'      # exit 0
+```
+
+**Fix.** Two parts, prose → structured contract:
+
+1. **Quote the expansion in every occurrence** of all three artifacts (SKILL wiring block + SKILL:600 verification target + hooks/README + §113 doc, both per-hook snippets and the consolidated block): `"command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/<hook>.cjs\""` (or the `node "${CLAUDE_PROJECT_DIR}/..."` equivalent — pick ONE canonical form in §113 and make the other two artifacts quote it verbatim; recommended: keep direct-exec since the shebang + exec bit are already shipped, one less node-resolution variable). Fix the `.js`→`.cjs` stragglers at SKILL:327/490 in the same pass.
+2. **Pin it structurally, twice:**
+   a. A test in `scripts/__tests__/` (node:test, zero deps, per convention) that extracts every `"command"` value referencing `CLAUDE_PROJECT_DIR` from the three artifacts and asserts the quoted form — the wiring block is triplicated by design (SKILL:490 admits it), and tri-artifact sync enforced by prose is exactly the FU-17 drift class.
+   b. Upgrade setup SKILL step 600 from `ls`-existence to **executing** one registered hook with the exact command string the wizard just wrote: `CLAUDE_PROJECT_DIR="$PWD" sh -c 'echo "{}" | <command-as-written>'` → must exit 0. Existence checking is what let this ship: the files were all there; none of them could run. This also catches the next wiring-breakage class for free (bad shebang, lost exec bit, future path scheme changes).
+
+**Acceptance.** (1) All `CLAUDE_PROJECT_DIR` hook-command occurrences in the three artifacts carry shell quoting; the `__tests__` guard fails if any future edit drops it. (2) Setup verification executes a hook and gates on exit 0. (3) Consumer-visible outcome: a fresh `/setup` on a repo path containing a space produces hooks that run green on the first tool call — no non-blocking loader:1423 spam, and §68's guard demonstrably fires on a destructive-git dry probe. belong's quoted settings.json (all 5 entries, `node "$CLAUDE_PROJECT_DIR/..."` shape) is the validated consumer patch, liftable verbatim modulo the canonical-form decision in Fix-1.
+
+## FOLLOW-UP 68 — git-guardrails matches its destructive patterns against the WHOLE command string, including heredoc/document content: writing prose that merely MENTIONS a blocked operation is itself blocked  ·  **Severity: LOW (paper-cut, but it bites exactly the meta-workflows the framework prescribes — filing FUs, writing runbooks, postmortems)**
+
+**Problem.** `hooks/git-guardrails.cjs` greps its §68 rule patterns over the entire `tool_input.command` string. A command that APPENDS DOCUMENTATION via heredoc — where the blocked phrase exists only as quoted prose inside the document body, not as an executable git invocation — trips the guard. Discovered minutes after FOLLOW-UP 67's fix brought the guard to life in belong: the very `cat >> FOLLOW-UPS-HANDOFF.md << 'EOF'` append that filed FU-67 was blocked because the FU's Acceptance section names the force-push operation as an example probe. Blast radius: every documentation-writing Bash command in any consumer — postmortems (§95), runbooks, FU filings, ADRs quoting §68 — that mentions a blocked operation by name. The workaround (write body to a temp file with the Write tool, `cat tmp >> target`) works but is exactly the kind of undocumented operator ritual FUs exist to eliminate.
+
+**Live evidence:** belong-marketplace session 2026-06-09, immediately after the FU-67 consumer-fix: first-ever live §68 block in this repo = a false positive on heredoc prose. The blocked command was `cat >> "$FW/.planning/FOLLOW-UPS-HANDOFF.md" << 'FUEOF' …` — zero git operations executed.
+
+**Verify:**
+```bash
+export CLAUDE_PROJECT_DIR="$PWD"  # in a checkout with the hook
+printf '{"tool_input":{"command":"cat >> /tmp/x.md << EOF\\nnever run git push <DASH><DASH>force in trains\\nEOF"}}' | node hooks/git-guardrails.cjs; echo "exit=$?"
+# (replace <DASH><DASH> with the literal flag; expected today: exit 2 BLOCK; desired: exit 0)
+```
+
+**Fix.** Don't pattern-match inside heredoc bodies: before applying §68 rules, strip heredoc payloads from the command string (split on `<<\s*['"]?(\w+)` … delimiter, a ~10-line lexer) and optionally also single-quoted string literals. Alternative (simpler, blunter): only match rule patterns at command-position — start-of-string or after `;`, `&&`, `||`, `|`, `$(`, backtick — which also fixes mentions inside double-quoted echo/printf arguments. Recommended: command-position matching; it is one anchored-regex change per rule, keeps the lexer out, and a blocked op smuggled into a heredoc that later gets EXECUTED (e.g. `bash <<EOF`) is still caught at execution time by the same hook on the inner invocation only if run via the harness — note this residual gap honestly in the rule doc. Mark `decision (maintainer)` if the residual-gap tradeoff is contested.
+
+**Acceptance.** Fixture test in `scripts/__tests__/` with the mock-bin convention: (1) heredoc-prose mention of each §68 pattern → exit 0; (2) the same pattern as the actual command → still exit 2; (3) pattern after `&&` → still exit 2. Consumer-visible: filing an FU that quotes a blocked command no longer requires the temp-file ritual.
