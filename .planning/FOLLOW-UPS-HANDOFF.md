@@ -1855,3 +1855,62 @@ Present (a) vs (b); the belong operator's data point: he wants the audit AFTER, 
 **Acceptance (if a/b).** The decision-log format speced in one reference doc; /to-scenarios +
 /clarify + grill-me SKILLs name the mode and its compensating control; INV/§58 gate text updated
 so the mode isn't a per-consumer deviation.
+
+---
+
+## FOLLOW-UP 81 — chained Night-Shift branches that also merge main mid-run create a DOUBLE merge-base: GitHub's test-merge reports phantom CONFLICTING (and `update-branch` 422s) while local merge-ort merges clean — the recovery move is undocumented  ·  **Severity: LOW-MEDIUM (every chained slice that needs post-fork main content — e.g. a sibling slice's merged dependency — reproduces the topology)**
+
+**Problem.** FU-46a chaining (`--base <sibling branch>`) plus the legitimate mid-run
+`git merge origin/main` (belong's Ralph did it to consume slice-07's audit chains) yields two common
+ancestors between the branch and main once the sibling merges (criss-cross). git merge-ort handles
+multi-base via recursive virtual ancestors; GitHub's PR test-merge does not — the PR shows
+`CONFLICTING/DIRTY`, close/reopen does not clear it, and `PUT /pulls/N/update-branch` returns 422
+"merge conflict between base and head" even though a local merge is conflict-free.
+
+**Live evidence:** belong PR #100 (2026-06-10): after retarget to main post-#99-merge →
+`CONFLICTING/DIRTY` stable across recomputes; local sim (worktree off origin/main, merge of the
+branch) clean both directions; resolved by merging main INTO the branch (merge commit, never
+rebase) and pushing — state flipped to `MERGEABLE` immediately. Branch history shows the mid-run
+`Merge remote-tracking branch 'origin/main'` (commit `4907ab4`) that created the second base.
+
+**Verify:**
+```bash
+# belong repo: git log --graph agent/feature-09-readiness-check-and-sandbox-readiness-95
+# two merge bases vs main pre-fix; GitHub PR timeline shows the CONFLICTING window.
+```
+
+**Fix.** Docs-only (core/13 merge-train runbook + the §123 chaining section): (1) note that a
+chained branch may merge main mid-run when it needs a merged dependency — blessed, merge commits
+only; (2) the corollary rule: **before retargeting a stacked PR to main, merge main into the head
+branch** if the branch ever merged main — GitHub's test-merge cannot resolve multi-base; phantom
+CONFLICTING + update-branch 422 are the signature. Optionally ralph-local's PR-create path could
+detect `git merge-base --all | wc -l > 1` and pre-merge main, but the doc line is the cheap fix.
+
+**Acceptance.** The runbook names the signature (CONFLICTING/DIRTY + 422 + clean local merge) and
+the move; a consumer hitting it finds the recovery by grep instead of re-deriving it.
+
+## FOLLOW-UP 82 — ad-hoc `/code-review` invocations don't inject the engine-run INVARIANT GATE RESULT the reviewer's contract (FU-52) demands — every ad-hoc review blocks procedurally and the operator runs/attaches the gate by hand  ·  **Severity: MEDIUM (every human-triggered pre-merge review; the reviewer is contractually forbidden from substituting its own spot-checks)**
+
+**Problem.** FU-52 (merged) made the RALPH loop inject `INVARIANT GATE RESULT: <output>` into the
+reviewer prompt because the reviewer's sandbox can't run node. The ad-hoc path — `/code-review`
+skill Step 2 → Task(reviewer) — has no such injection: the reviewer correctly flags the absence and
+returns a procedural BLOCK (its contract forbids downgrading to a caveat). The operator then runs
+`check-invariants` on a merge-sim and attaches it manually. Happened twice in one day.
+
+**Live evidence:** belong PR #99 review (2026-06-10): finding 1 = "Invariant gate result absent —
+engine/skill contract broken (FOLLOW-UP 52)", verdict BLOCK-procedural with zero code findings;
+operator ran the gate on a merge-sim worktree and posted it to the PR. PR #100 review: invoker
+pre-empted by stating the result would be attached at the merge gate — reviewer still had to flag
+conditionally.
+
+**Fix.** `skills/code-review/SKILL.md` Step 2 gains a mandatory pre-step: run
+`node scripts/check-invariants.mjs` (against the review target's merged state when the target is a
+PR — a temp worktree off the base with the head merged, mirroring the ralph-local sim) and inject
+the verbatim output into the Task prompt as `INVARIANT GATE RESULT (engine-run; do NOT re-run): …`
+— byte-for-byte the FU-52 contract the reviewer already parses. Artifacts to keep in sync (FU-17
+rule): the skill, `agents/reviewer.md`'s contract note (it may now say "injected by ralph-local OR
+/code-review"), and core/12's reviewer section.
+
+**Acceptance.** An ad-hoc `/code-review` of a PR yields a reviewer report whose invariant-gate
+section quotes the engine-run result; no procedural BLOCK for absence; fixture optional (docs+skill
+change is the substance — the reviewer-side parsing already exists).
