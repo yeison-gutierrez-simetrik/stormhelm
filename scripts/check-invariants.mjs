@@ -202,14 +202,31 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 // backstop for the module-classification part. Override (audited degrade):
 // `skip-invariant: INV-6 — <reason>`.
 {
+  // FOLLOW-UP 78: a `skip-invariant: INV-6` override is scoped to the ISSUE
+  // FILE that DECLARES it — not the invariant globally. The global-override
+  // mechanism (applied at report time) suppressed INV-6 for EVERY issue once
+  // any one file carried the override: live, issue 06's blessed schema-only
+  // override masked issue 09's genuine declared-vs-detected mismatch and the
+  // gate passed for the wrong reason. INV-6 self-manages its override here
+  // (and is excluded from the generic suppression below).
+  const inv6OverrideFiles = new Set(
+    issueFiles.filter((f) => /skip-invariant:\s*INV-6\b/.test(read(f))).map((f) => f.split('/').pop()),
+  );
   const declaredSingle = issues.filter((i) => i.hasLabel('feature:single-module'));
   const escalated = declaredSingle
     .map((i) => ({ i, d: detectCeremony([parseFile(i.f)]) }))
     .filter(({ d }) => d.labels.includes('feature:multi-module'))
-    .map(({ i, d }) => `${i.f.split('/').pop()} (plan detects ${d.module_count} modules / ${d.context_count} contexts)`);
+    .map(({ i, d }) => ({ file: i.f.split('/').pop(), d }));
+  const detail = (e) => `${e.file} (plan detects ${e.d.module_count} modules / ${e.d.context_count} contexts)`;
+  const uncovered = escalated.filter((e) => !inv6OverrideFiles.has(e.file));
+  const covered = escalated.filter((e) => inv6OverrideFiles.has(e.file));
   if (!declaredSingle.length) add('INV-6', '—', 'na', 'no feature:single-module issue');
   else if (!escalated.length) add('INV-6', '—', 'pass', `${declaredSingle.length} single-module issue(s) match detected classification`);
-  else add('INV-6', '—', 'fail', `classification escalated (declared single-module, plan detects multi-module): ${escalated.join('; ')} — add the multi-module artifacts (SAD + spec sections) or flip the label`);
+  else if (uncovered.length) add('INV-6', '—', 'fail',
+    `classification escalated (declared single-module, plan detects multi-module): ${uncovered.map(detail).join('; ')} — add the multi-module artifacts (SAD + spec sections) or flip the label`
+    + (covered.length ? ` [${covered.length} other escalation(s) covered by a per-file skip-invariant: INV-6]` : ''));
+  else add('INV-6', '—', 'skip',
+    `OVERRIDDEN (per-file) — ${covered.length} escalation(s) covered by a skip-invariant: INV-6 in the declaring file(s): ${covered.map((e) => e.file).join(', ')}`);
 }
 
 // INV-8 (PR-MatrixStable): every feature in `# status: implemented` must be
@@ -248,7 +265,10 @@ const failedLines = [];
 console.log('Invariant checks:');
 for (const r of results) {
   let { status } = r;
-  if (status === 'fail' && overrides[r.id]) { status = 'skip'; r.detail = `OVERRIDDEN — ${overrides[r.id]} (orig: ${r.detail})`; }
+  // INV-6 self-manages its override PER-FILE (FOLLOW-UP 78) — never apply the
+  // global suppression to it, or an override in one issue would mask another's
+  // genuine failure again.
+  if (status === 'fail' && overrides[r.id] && r.id !== 'INV-6') { status = 'skip'; r.detail = `OVERRIDDEN — ${overrides[r.id]} (orig: ${r.detail})`; }
   if (status === 'fail') { blocking++; failedLines.push(`  ❌ ${r.id} ${r.rule}: ${r.detail}`); }
   console.log(`  ${icon[status]} ${r.id} ${r.rule}: ${r.detail}`);
 }
