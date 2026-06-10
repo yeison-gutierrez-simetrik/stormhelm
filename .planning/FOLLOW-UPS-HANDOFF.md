@@ -1623,3 +1623,35 @@ printf '{"tool_input":{"command":"cat >> /tmp/x.md << EOF\\nnever run git push <
 **Fix.** Don't pattern-match inside heredoc bodies: before applying §68 rules, strip heredoc payloads from the command string (split on `<<\s*['"]?(\w+)` … delimiter, a ~10-line lexer) and optionally also single-quoted string literals. Alternative (simpler, blunter): only match rule patterns at command-position — start-of-string or after `;`, `&&`, `||`, `|`, `$(`, backtick — which also fixes mentions inside double-quoted echo/printf arguments. Recommended: command-position matching; it is one anchored-regex change per rule, keeps the lexer out, and a blocked op smuggled into a heredoc that later gets EXECUTED (e.g. `bash <<EOF`) is still caught at execution time by the same hook on the inner invocation only if run via the harness — note this residual gap honestly in the rule doc. Mark `decision (maintainer)` if the residual-gap tradeoff is contested.
 
 **Acceptance.** Fixture test in `scripts/__tests__/` with the mock-bin convention: (1) heredoc-prose mention of each §68 pattern → exit 0; (2) the same pattern as the actual command → still exit 2; (3) pattern after `&&` → still exit 2. Consumer-visible: filing an FU that quotes a blocked command no longer requires the temp-file ritual.
+
+
+## FOLLOW-UP 72 — FU-71 is incomplete: ralph-local's §63 launch gate + the FU-49 body-coverage cross-check ALSO consume the `scenarios:` GH label (via `head -1`), so a foundation slice that OMITS the overflowing label per FU-71 is un-launchable by Ralph  ·  **Severity: HIGH (every >9-scenario ralph-ready slice fails to launch; one failure mode is SILENT)**
+
+**Problem.** FU-71 sanctioned omitting the GitHub `scenarios:` label when the compact form exceeds 50 chars, and fixed `check-invariants.mjs` INV-5 to read the scns from the issue file. But the scenarios label has **two other consumers in `templates/ralph-local.sh`** that FU-71 did not touch, both reading ONLY the GH label:
+
+1. **§63 existence gate** (`if ! echo "$LABELS" | grep -qE "^scenarios:"; then … exit 1`) — aborts: `❌ Issue #N is missing label 'scenarios:scn-*' (§63 mandatory)`.
+2. **FU-49 body-coverage cross-check** — `SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:")` then requires `$SCENARIOS` (expanded) to cover every scn named in the body, else abort "would ship UNGATED". `ralph_read_label_value` is `grep … | head -1` — only the FIRST `scenarios:` label, so MULTIPLE labels don't compose either.
+
+A single GH label holds ≤9 scns (`scenarios:scn-` = 14 chars + 3 + 4·(N−1) ≤ 50 → N ≤ 9). So a foundation/tier-N slice with >9 scenarios — exactly FU-71's omit case — **cannot be launched by Ralph at all**.
+
+**Live evidence:** belong issue #83 (slice-07 audit log, **19 scenarios** scn-137..155, ralph-ready, the GH `scenarios:` label omitted per FU-71). `./ralph-isolated.sh 83 --base origin/main` → worktree + node_modules provisioned (FU-69 ✓), then `❌ Issue #83 is missing label 'scenarios:scn-*' (§63 mandatory)`, exit 1. After a first consumer-fix that removed the existence gate, the run aborted **SILENTLY** (exit 1, no message): `SCENARIOS=$(ralph_read_label_value …)` — that helper's pipeline `grep` returns 1 on no-match, and under `set -euo pipefail` the assignment killed the whole run before any fallback. (belong session 2026-06-10; both failure shapes reproduced.)
+
+**Verify:**
+```bash
+# any ralph-ready issue with >9 scns and no GH scenarios: label:
+gh issue view <N> --json labels -q '[.labels[].name]'   # no scenarios:* entry (overflow → omitted per FU-71)
+./ralph-isolated.sh <N> --base origin/main              # ❌ missing label 'scenarios:scn-*' (§63)
+# set -e shape, after removing the existence gate:
+bash -c 'set -euo pipefail; x=$(echo "a:1" | grep -E "^scenarios:" | head -1 | sed s/^scenarios://); echo "reached:$x"'  # never prints "reached" — grep 1 aborts
+```
+
+**Fix (prose → structured contract).** Make ralph-local source the gated scenarios from the **issue body's `**Labels:**` line** — the same FU-71 source of truth INV-5 uses — when no GH `scenarios:` label is present, and guard the read against `set -e`:
+
+1. Replace the §63 existence gate with a body-aware one: the scenarios are present iff a `scenarios:` GH label exists OR the body's `**Labels:**` line carries a `scenarios:scn-*` token. Fail only when BOTH are absent.
+2. `SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:" || true)`; if empty, `SCENARIOS=$(printf '%s' "$ISSUE_BODY" | grep -oE 'scenarios:scn-[0-9+]+' | head -1 | sed 's/^scenarios://' || true)`. The `|| true` is mandatory — `ralph_read_label_value`'s pipeline returns 1 on no-match (pipefail), which under `set -e` aborts the run silently (the second live failure above). A present GH label still wins (unchanged for normal slices).
+3. The FU-49 body-coverage check then trivially passes (the gated set IS sourced from the body). Keep the "unparseable label" guard (FU-35).
+   Alternative considered + rejected: multiple `scenarios:` labels — `ralph_read_label_value` is `head -1` so they don't compose, and adding GH labels contradicts FU-71's "omit". File-sourcing is the consistent fix.
+
+belong's validated consumer patch (liftable verbatim into `templates/ralph-local.sh`): belong PRs **#88** (body-fallback) + **#89** (the `set -e` guard fixup). After it, `./ralph-isolated.sh 83` sources all 19 scns from the body and launches green into iteration 1.
+
+**Acceptance.** Fixture in `scripts/__tests__/` (mock-bin convention): (1) an issue with NO GH `scenarios:` label but a `**Labels:** … scenarios:scn-137+…+155 …` body line → ralph-local sources all scns, gate passes, `$SCENARIOS` expands to the full set; (2) the same with neither label nor body entry → the explicit §63 error (not a silent set -e abort); (3) a normal slice with a GH label → unchanged. Consumer-visible: a >9-scenario foundation slice that follows FU-71 (omit the label) is launchable by Ralph.
