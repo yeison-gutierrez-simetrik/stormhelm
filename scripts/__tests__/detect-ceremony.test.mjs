@@ -171,3 +171,37 @@ test('FU-70: three distinct non-layer module roots still count as three (no fals
   assert.equal(r.module_count, 3, 'non-layer roots are not collapsed');
   assert.ok(r.labels.includes('feature:multi-module'));
 });
+
+// ── FU-70 round-2 (consumer review): layer-first-FUNCTIONAL layouts ───────────
+
+// The reporting consumer is layer-first with FUNCTIONAL sub-dirs
+// (src/application/ports, src/infrastructure/config) + non-app roots
+// (features/, schema/). The first FU-70 collapse read ports/config as bounded
+// contexts → a single-context slice still classified multi-module. Functional
+// buckets and non-app roots no longer count.
+test('FU-70: a single-context slice in a layer-first-FUNCTIONAL layout is single-module', () => {
+  const r = detectCeremony([rec([
+    'src/application/ports', 'src/application/types', 'src/application/use-cases',
+    'src/domain/audit',                                  // the ONE real bounded context
+    'src/infrastructure/config', 'src/infrastructure/adapters',
+    'features/audit', 'schema',                          // non-app roots
+  ])]);
+  assert.equal(r.context_count, 1, 'only "audit" is a bounded context; ports/types/config/adapters are functional buckets');
+  assert.equal(r.module_count, 1, 'one context across functional sub-dirs = one module');
+  assert.deepEqual(r.labels, ['feature:single-module']);
+});
+
+test('FU-70: functional buckets do not mask a genuine second context', () => {
+  const r = detectCeremony([rec([
+    'src/application/ports', 'src/domain/audit', 'src/domain/billing',
+  ])]);
+  assert.deepEqual(r.contexts, ['audit', 'billing']);
+  assert.ok(r.labels.includes('feature:multi-module'));
+  assert.ok(r.labels.includes('feature:cross-context'));
+});
+
+test('FU-70: non-application roots alone never escalate ceremony', () => {
+  const r = detectCeremony([rec(['features/audit', 'features/support', 'schema', 'docs'])]);
+  assert.equal(r.module_count, 0);
+  assert.deepEqual(r.labels, ['feature:single-module']);
+});
