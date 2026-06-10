@@ -236,6 +236,12 @@ the compact label would exceed 50 chars:
   omission is **safe** — the traceability gate still maps every `@release`
   scenario to its issue. The GitHub label is a convenience for humans/`gh`
   filters, not the source of truth.
+- **Ralph's launch path reads the body too (FOLLOW-UP 72).** `ralph-local`'s
+  §63 existence gate and its scenario extraction accept the body's
+  `scenarios:scn-*` token when the GitHub label is absent — so an
+  overflow-omitted slice is still launchable by the Night Shift, not just
+  green to the offline checker. (The earlier FU-71 fix touched only INV-5;
+  the launch gate is the other consumer of the label.)
 
 A `range` form (`scenarios:scn-137..155`) is **not** used — the canonical
 `scn-NNN` set form (`SCN_VALUE` in `check-invariants`) rejects `..`, and a
