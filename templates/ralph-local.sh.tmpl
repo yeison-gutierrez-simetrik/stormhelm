@@ -425,6 +425,32 @@ if ! PREFLIGHT_MSG=$(ralph_env_preflight); then
   exit 1
 fi
 
+# FOLLOW-UP 73: --base is valid for `git checkout -b` (a remote-tracking ref
+# like `origin/main` is a fine start point) but `gh pr create --base` needs a
+# BRANCH NAME (`main`, not `origin/main`). Without this, a run with
+# `--base origin/main` does ALL the work, pushes the branch, then fails at the
+# final PR-creation step — the FU-35 arg-expansion class, at the MOST expensive
+# point (after the full spend). Validate the PR base up front so it fails
+# BEFORE iteration 1. The git start-point keeps the full ref (line below);
+# only the gh --base argument is normalized (at PR-create time).
+PR_BASE_PROBE="${PR_BASE_REF:-${BASE_REF:-}}"
+if [ -n "$PR_BASE_PROBE" ]; then
+  PR_BASE_PROBE="${PR_BASE_PROBE#origin/}"
+  if git ls-remote --exit-code --heads origin "$PR_BASE_PROBE" >/dev/null 2>&1; then
+    :   # the PR base is a real branch on origin
+  else
+    LSR_RC=$?
+    if [ "$LSR_RC" = "2" ]; then
+      echo "❌ Issue #$ISSUE_NUM: --base resolves to '$PR_BASE_PROBE', which is not a branch on origin. 'gh pr create --base' needs a BRANCH NAME (e.g. 'main'), never a remote-tracking ref like 'origin/main'. Relaunch with '--base main' (or omit --base for a standalone slice)." >&2
+      ralph_end_session "blocked" "pr-base-not-a-branch"
+      exit 1
+    fi
+    # network / other (rc 128, …) → do not block on a transient failure; the
+    # gh pr create step is the backstop.
+    echo "⚠️  could not verify the PR base '$PR_BASE_PROBE' on origin (ls-remote rc=$LSR_RC) — proceeding; gh pr create is the backstop." >&2
+  fi
+fi
+
 # ──────────────────────────────────────────────────────────────────────
 # Helper: after each successful claude call, check if we've exceeded
 # the issue's budget. If yes, block the issue and exit cleanly.
@@ -758,6 +784,7 @@ EOF
       fi
     fi
     PR_TARGET="${PR_BASE_REF:-$BASE_REF}"
+    PR_TARGET="${PR_TARGET#origin/}"   # FOLLOW-UP 73: gh --base wants a branch name, not origin/<branch>
     # FOLLOW-UP 64: a SINGLE-issue run (no --base) with declared deps used
     # to open against main — the diff and Sonar's new-code period spanned
     # every unmerged dep (live: a PR showed 4 issues' work and its QG

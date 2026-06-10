@@ -12,6 +12,19 @@ if [ "${1:-}" = "push" ]; then
   touch .mock-pushed
   exit 0
 fi
+# FOLLOW-UP 73: intercept `git ls-remote --heads origin <branch>` (the PR-base
+# pre-flight). Default: the branch EXISTS (exit 0) so existing tests that pass
+# a --base are unaffected. MOCK_LSREMOTE_HEADS (space-separated) restricts the
+# set of branches that "exist"; a queried branch not in it → exit 2 (no match),
+# exactly what the real git returns and what the pre-flight aborts on.
+if [ "${1:-}" = "ls-remote" ]; then
+  if [ -z "${MOCK_LSREMOTE_HEADS:-}" ]; then exit 0; fi
+  q="${@: -1}"   # last arg = the queried branch name
+  for b in $MOCK_LSREMOTE_HEADS; do
+    if [ "$b" = "$q" ]; then printf '%s\trefs/heads/%s\n' "deadbeef" "$q"; exit 0; fi
+  done
+  exit 2
+fi
 # Resolve the REAL git by scanning PATH while excluding this mock's own
 # directory — `command -v -p` proved unreliable (it can return this very
 # script → infinite exec recursion → the whole suite hangs).
