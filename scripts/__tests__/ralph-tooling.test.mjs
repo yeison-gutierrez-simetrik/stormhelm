@@ -511,3 +511,60 @@ test('FU-69: ralph-isolated symlinks node_modules so the worktree can run the lo
     assert.match(probe.stdout, /ok/);
   });
 });
+
+// ── FOLLOW-UP 76 + 77: --resume refreshes the engine + bypasses ralph-ready ───
+
+function setupIsolatedConsumer(dir) {
+  for (const [src, dst] of [['ralph-lib.sh', 'ralph-lib.sh'], ['ralph-blocked-comment.md.tmpl', 'ralph-blocked-comment.md.tmpl'], ['ralph-local.sh.tmpl', 'ralph-local.sh']]) {
+    copyFileSync(join(TEMPLATES, src), join(dir, dst));
+  }
+  copyFileSync(ISOLATED, join(dir, 'ralph-isolated.sh'));
+  chmodSync(join(dir, 'ralph-local.sh'), 0o755);
+  chmodSync(join(dir, 'ralph-isolated.sh'), 0o755);
+  writeFileSync(join(dir, '.gitignore'), 'node_modules/\n.worktrees/\n.planning/\n');
+  const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+  git('init', '-q'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  git('add', '-A'); git('commit', '-qm', 'init');
+  return git;
+}
+const isoRun = (dir, args, env = {}) => spawnSync('bash', [join(dir, 'ralph-isolated.sh'), ...args], {
+  cwd: dir, encoding: 'utf8',
+  env: { ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`, RALPH_WORKER_ID: 'w0', ...env },
+});
+
+test('FU-76: --resume refreshes a STALE engine script from the primary checkout', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    assert.equal(isoRun(dir, ['1', '--max-iterations', '1']).status, 0, 'initial run');
+    const wt = join(dir, '.worktrees', readdirSync(join(dir, '.worktrees'))[0]);
+    // Doctor the worktree's engine to a STALE version, then resume.
+    writeFileSync(join(wt, 'ralph-lib.sh'), '#!/bin/bash\n# STALE pre-resync engine\n');
+    const r = isoRun(dir, ['1', '--resume', '--max-iterations', '1']);
+    assert.match(`${r.stdout}${r.stderr}`, /Refreshed stale engine scripts.*ralph-lib\.sh/, 'the stale lib is refreshed');
+    assert.equal(spawnSync('cmp', ['-s', join(dir, 'ralph-lib.sh'), join(wt, 'ralph-lib.sh')]).status, 0,
+      'the worktree now runs the primary version');
+  });
+});
+
+test('FU-77: --resume bypasses the ralph-ready check Ralph itself removed', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    // Initial run claims issue 1 (ralph-ready present) → creates its worktree.
+    assert.equal(isoRun(dir, ['1', '--max-iterations', '1']).status, 0);
+    // The issue no longer carries ralph-ready (Ralph removed it at claim).
+    const noReady = { MOCK_LABELS: 'scenarios:scn-001\nbudget:50k\nshift:afk' };
+    // Resume that SAME worktree: launches anyway, announcing the bypass.
+    const res = isoRun(dir, ['1', '--resume', '--max-iterations', '1'], noReady);
+    assert.equal(res.status, 0, `${res.stdout}${res.stderr}`);
+    assert.match(`${res.stdout}${res.stderr}`, /--resumed: bypassing the ralph-ready check/);
+  });
+});
+
+test('FU-77: §63 preserved — a NEVER-started issue without ralph-ready still refuses', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    const fresh = isoRun(dir, ['2', '--max-iterations', '1'], { MOCK_LABELS: 'scenarios:scn-001\nbudget:50k\nshift:afk' });
+    assert.notEqual(fresh.status, 0);
+    assert.match(`${fresh.stdout}${fresh.stderr}`, /missing label 'ralph-ready'/);
+  });
+});
