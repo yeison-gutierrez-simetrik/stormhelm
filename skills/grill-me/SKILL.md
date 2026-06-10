@@ -92,6 +92,14 @@ Each branch with uncertainty becomes a question.
 
 ### Step 3 — Ask, one node at a time
 
+> **Autonomous (auto-pilot) mode — opt-in (FOLLOW-UP 80).** A consumer may run
+> the grilling self-answered (the agent picks each interpretation) instead of
+> interactively. This does NOT relax §58 — human approval stays the default;
+> auto-pilot is a documented per-consumer deviation whose only safety is the
+> compensating **decision log** (`docs/decisions/auto-clarify/<slice>-decisions.md`:
+> question · options · chosen + rationale · industry reference · confidence ·
+> reversibility · audit checkbox). See `core/13` Appendix "Autonomous planning".
+
 **Round orientation (FOLLOW-UP 59).** When this round is not in the same
 sitting that produced the input (a returning session, or the design doc came
 from another session): before the first question, orient in ≤12 lines —
