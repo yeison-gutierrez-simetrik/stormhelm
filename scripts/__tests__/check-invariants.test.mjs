@@ -292,3 +292,43 @@ test('FU-71: a 19-scenario compact label (>50 chars) in the issue file maps via 
   assert.match(out, /INV-5.*mapped/, 'INV-5 ran and passed');
   assert.doesNotMatch(out, /scn-1[3-5][0-9].*no issue/, 'none of scn-137..155 is a false orphan');
 });
+
+// ── FOLLOW-UP 78: skip-invariant overrides are scoped to the declaring file ───
+
+// A `skip-invariant: INV-6` in issue A used to suppress INV-6 for EVERY issue
+// (the override was keyed by invariant, not file) — live, a blessed schema-only
+// override on one issue masked another issue's GENUINE classification mismatch.
+// The override now covers only the file that declares it.
+//
+// Construct two single-module issues that both ESCALATE (their Layers detect
+// multi-module): one carries the INV-6 override, the other does not → the gate
+// must FAIL naming only the uncovered one.
+const escalatingLayers = [
+  '',
+  '### Layers',
+  '- **Module:** Alpha',
+  '- **Module:** Beta',
+  '- **Module:** Gamma',          // 3 distinct → detect-ceremony escalates to multi-module
+  '',
+].join('\n');
+
+test('FU-78: an override in one issue does NOT mask another issue\'s real INV-6 failure', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'issues', '010-covered.md'),
+      `# Issue 010\n\n**Labels:** \`ralph-ready\` \`scenarios:scn-001\` \`budget:50k\` \`feature:single-module\`\n\nskip-invariant: INV-6 — deliberately single-module substrate\n${escalatingLayers}`);
+    writeFileSync(join(dir, 'issues', '011-uncovered.md'),
+      `# Issue 011\n\n**Labels:** \`ralph-ready\` \`scenarios:scn-001\` \`budget:50k\` \`feature:single-module\`\n\n${escalatingLayers}`);
+  });
+  assert.equal(status, 1, 'the uncovered escalation must FAIL the gate');
+  assert.match(out, /INV-6.*011-uncovered/s, 'fails naming the issue with no override');
+  assert.doesNotMatch(out, /❌ INV-6[^\n]*010-covered/, 'the covered issue is not listed as a failure');
+});
+
+test('FU-78: a single-file override (only escalating issue carries it) still passes', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'issues', '010-covered.md'),
+      `# Issue 010\n\n**Labels:** \`ralph-ready\` \`scenarios:scn-001\` \`budget:50k\` \`feature:single-module\`\n\nskip-invariant: INV-6 — deliberately single-module substrate\n${escalatingLayers}`);
+  });
+  assert.equal(status, 0, 'the lone covered escalation passes');
+  assert.match(out, /INV-6.*OVERRIDDEN \(per-file\)/s);
+});

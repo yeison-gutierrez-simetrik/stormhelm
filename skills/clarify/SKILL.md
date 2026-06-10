@@ -115,6 +115,14 @@ Each unchecked box produces a targeted question for Step 2 unless the spec alrea
 
 ### Step 2 — Ask targeted questions
 
+> **Autonomous (auto-pilot) mode — opt-in (FOLLOW-UP 80).** A consumer may run
+> this round self-answered (the agent picks each interpretation) instead of
+> interactively. This does NOT relax §58 — human approval stays the default;
+> auto-pilot is a documented per-consumer deviation whose only safety is the
+> compensating **decision log** (`docs/decisions/auto-clarify/<slice>-decisions.md`:
+> question · options · chosen + rationale · industry reference · confidence ·
+> reversibility · audit checkbox). See `core/13` Appendix "Autonomous planning".
+
 **Orientation preamble — MANDATORY before question 1 (FOLLOW-UP 59).** The
 asymmetry is structural: you just read the whole spec; the human may be
 returning after days, or another session wrote the spec entirely. The answers

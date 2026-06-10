@@ -108,6 +108,17 @@ documented sub-pattern.
 
 ### Step 5 — Save as draft and flag for review
 
+> **Auto-pilot exception (FOLLOW-UP 80, opt-in).** §58's default is: write
+> scenarios `# status: draft` and flag for HUMAN approval. A consumer running
+> auto-pilot may instead write `# status: approved` and satisfy §58 **post-hoc**
+> via the decision log (`core/13` Appendix "Autonomous planning") — never
+> silently: the self-answered scope decisions must each appear in
+> `docs/decisions/auto-clarify/<slice>-decisions.md` with an industry reference
+> and an audit checkbox. Sensitive (`require-human-review`) slices are still
+> ratified by a human at the implementation-PR review (§64); auto-pilot never
+> auto-merges them.
+
+
 Save `features/<context>/<feature-slug>.feature`. Mark the PR/branch as `feature-review` so the human reviewer knows this file requires explicit approval.
 
 The agent's output to the workflow:

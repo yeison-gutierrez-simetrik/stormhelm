@@ -650,7 +650,7 @@ Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_call_claude_with
 
 ### Budget enforcement companion (§63 budget label)
 
-The `budget:NNk` label on each issue declares a token ceiling for the Ralph session. Enforcement lives in `ralph-lib.sh` via three helpers:
+The `budget:NNk` label on each issue declares a token ceiling for the Ralph session. **Calibration is `budget ≈ expected_iterations × 80k` (floor 150k), with a HEAVY-SLICE MULTIPLIER (FOLLOW-UP 75): a new bounded context, a `require-human-review` slice (crypto/auth/payments), or >15 scenarios runs 120–220k per iteration → use `× 150k`, 400k–500k buckets.** Two live sessions died `budget_exceeded` with the work already green (307k/300k, 267k/250k), losing only the cheap recording + PR steps. The full table lives in `/to-issues` Step 4 (one source; keep both in sync). Enforcement lives in `ralph-lib.sh` via three helpers:
 
 - `ralph_parse_budget_label` converts `50k` / `120k` / `2m` / `50000` to an integer token count.
 - `ralph_extract_tokens_from_output` is a best-effort extractor that recognizes JSON `usage.input_tokens + usage.output_tokens` (modern `claude --output-format json`), text patterns like `Total tokens: N` and `N input tokens, M output tokens`, plus a user-supplied extractor via the `RALPH_TOKEN_EXTRACTOR_CMD` env var.
@@ -809,3 +809,57 @@ If the lead writes code during delegate mode, two failure modes appear:
 - Teammates lose trust in the dependency graph and start guessing what the lead is doing.
 
 The lead's job is coordination only. If the lead has spare capacity, it goes to providing extra context to stuck teammates — never to writing code.
+
+---
+
+## Appendix: Autonomous planning (auto-pilot) mode — opt-in, §58-preserving (FOLLOW-UP 80)
+
+A consumer may run the Day-Shift planning pipeline (`/specify → /clarify →
+/grill-me → /to-scenarios → /plan → /to-issues`) **autonomously** — the agent
+self-answers the clarify/grilling rounds and writes scenarios — for slices
+where interactive 20-question rounds are not worth the latency. This is a
+**recognized, opt-in deviation**, not a relaxation of the framework's gates.
+
+**§58 is NOT relaxed.** Human approval of `.feature` files remains the
+framework **default** (§58, §87 threat-model ratification). Auto-pilot does
+not make agent-approved features a first-class capability; it is a deliberate
+per-consumer choice whose safety rests entirely on the **compensating
+control** below. A consumer adopting it owns that trade-off.
+
+**The compensating control: a per-slice decision log.** Auto-pilot is only
+sound when every self-answered decision is auditable AFTER the fact. The
+consumer writes `docs/decisions/auto-clarify/<slice>-decisions.md` with one
+entry per self-answered question:
+
+| Field | Content |
+|---|---|
+| Question | the clarify/grilling question the agent answered for itself |
+| Options | the alternatives considered (as a human round would surface) |
+| Chosen + rationale | the decision and why |
+| **Industry reference** | the external standard the choice leans on (app-store guidelines / AWS-GCP docs / a leading spec) — the operator's rule: no self-answer without a citable precedent |
+| Confidence | how sure the agent is (low/med/high) |
+| Reversibility | how cheaply the decision can be undone if wrong |
+| ☐ Audit | a checkbox the human ticks when reviewing post-hoc |
+
+Doc supersessions and any deviation from the standard flow are flagged at the
+top of the log first.
+
+**Why this is safe enough to document (but not to default).** In the belong
+pilot, two slices reached draft PRs with zero pre-PR human checkpoints, and
+the **non-human gates held**: the §114 reviewer caught a constitution
+violation (`zod` in the domain layer) that originated in the auto-pilot's own
+generated plan. The autonomous planner DOES err — which is exactly why §58's
+human checkpoint stays the default and the reviewer + invariants remain
+mandatory. The decision log + the reviewer + the invariants are the layered
+control that makes the post-hoc audit trustworthy; remove any one and
+auto-pilot is not sound.
+
+**Metric.** The operator tracks the **override rate** — how often the post-hoc
+audit overturns a self-answered decision. A rising override rate is the signal
+to drop back to interactive rounds for that slice class.
+
+**Compliance posture.** Under a compliance regime (SOC2/ISO/EU-AI-Act, §62),
+auto-pilot's post-hoc audit checkboxes are the record, but the human ratifies
+sensitive (`require-human-review`) slices at the **implementation-PR** review
+at the latest — never auto-merged. The mode never bypasses §64's draft-PR /
+human-merge requirement for sensitive domains.

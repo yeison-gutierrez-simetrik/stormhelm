@@ -122,6 +122,21 @@ function extractModules(layersSection) {
   return [...set].sort();
 }
 
+// Split on top-level commas only — commas inside parentheses are part of a
+// single module's parenthetical clarification, not separators (FOLLOW-UP 79).
+function splitTopLevel(s) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of s) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
 // Slice-doc module declarations (FOLLOW-UP 54): `- **Module:** <Context> →
 // <A>, <B>, <C>` — a de-facto structured contract in the slice template.
 // RHS entries are the modules; the LHS (before the arrow) names the bounded
@@ -137,9 +152,13 @@ function extractDeclaredModules(layersSection) {
     const txt = m[1].trim();
     const parts = txt.split(/→|->/);
     const lhs = parts.length > 1 ? parts[0].trim() : null;
-    const rhs = (parts.length > 1 ? parts.slice(1).join(' ') : txt)
-      .split(',').map((x) => x.trim()).filter(Boolean);
-    if (lhs) contexts.add(lhs);
+    const rhs = splitTopLevel(parts.length > 1 ? parts.slice(1).join(' ') : txt)
+      // FOLLOW-UP 79: strip a parenthetical clarification from each module name
+      // (`Onboarding (readiness orchestration)` → `Onboarding`). The natural
+      // way to annotate a module's responsibilities must not inflate the count.
+      .map((x) => x.replace(/\s*\([^)]*\)\s*/g, ' ').trim())
+      .filter(Boolean);
+    if (lhs) contexts.add(lhs.replace(/\s*\([^)]*\)\s*/g, ' ').trim());
     for (const r of rhs) modules.add(lhs ? `${lhs} → ${r}` : r);
   }
   return { modules: [...modules].sort(), contexts: [...contexts].sort() };

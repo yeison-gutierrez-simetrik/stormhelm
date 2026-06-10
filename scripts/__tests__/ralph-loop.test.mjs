@@ -1332,3 +1332,38 @@ test('FU-73: no --base (standalone default) skips the probe entirely', () => {
     assert.equal(status, 0);
   });
 });
+
+// ── FOLLOW-UP 74: a zero-token engine call is an outage, not an iteration ─────
+
+// A claude call that exits 0 with 0 tokens (CLI crash / auth window /
+// transport) is an ENGINE failure, not acceptance-failing. Before this it was
+// retried at 1–2s/call, burning the whole iteration allowance in ~90s with the
+// root cause unknowable (stderr dropped). Now: distinct engine_failure status
+// after K no-ops, stderr captured, allowance not burned.
+test('FU-74: K consecutive zero-token calls end the session engine_failure, not blocked', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '5'], {
+      MOCK_IN_TOKENS: '0', MOCK_OUT_TOKENS: '0',   // every claude call = engine no-op
+      RALPH_ENGINE_BACKOFF: '0', RALPH_ENGINE_MAX: '3',
+    });
+    assert.notEqual(status, 0);
+    const events = readEvents(dir, 1);
+    const ended = events.find((e) => e.event === 'ralph.session.ended');
+    assert.equal(ended?.details?.status, 'engine_failure', 'distinct from blocked/budget — the work is fine, the engine hiccupped');
+    const engineErrs = events.filter((e) => e.event === 'ralph.error.engine');
+    assert.ok(engineErrs.length >= 1, 'ralph.error.engine logged');
+    assert.ok('stderr_tail' in (engineErrs[0].details || {}), 'stderr_tail captured for post-hoc diagnosis');
+    assert.equal(events.filter((e) => e.event === 'ralph.iteration.completed').length, 0,
+      'the 5-iteration allowance is NOT burned — aborted after 3 no-op attempts');
+  });
+});
+
+test('FU-74: a normal token-producing run still iterates (no false engine_failure)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {});   // default mock tokens > 0
+    assert.equal(status, 0);
+    const events = readEvents(dir, 1);
+    assert.doesNotMatch(JSON.stringify(events), /engine_failure/);
+    assert.ok(events.some((e) => e.event === 'ralph.iteration.completed'), 'real work iterates normally');
+  });
+});

@@ -205,3 +205,20 @@ test('FU-70: non-application roots alone never escalate ceremony', () => {
   assert.equal(r.module_count, 0);
   assert.deepEqual(r.labels, ['feature:single-module']);
 });
+
+// ── FOLLOW-UP 79: commas inside parentheses are not module separators ─────────
+
+test('FU-79: a Module line with parenthetical clarifications counts the real modules', () => {
+  const dir = mdt(j(tmpd(), 'fu79-'));
+  try {
+    const doc = j(dir, '09-readiness.md');
+    wfs(doc, [
+      '### Layers',
+      '- **Module:** Onboarding (readiness orchestration, Agent Tester management), Provider Gateway (probe delivery)',
+      '',
+    ].join('\n'));
+    const out = detectCeremony([pf(doc)]);
+    assert.deepEqual(out.modules, ['Onboarding', 'Provider Gateway'], 'two real modules, parentheticals stripped');
+    assert.equal(out.module_count, 2, 'the inner commas did not inflate the count to 3');
+  } finally { rms(dir, { recursive: true, force: true }); }
+});

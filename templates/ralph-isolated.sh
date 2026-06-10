@@ -34,6 +34,7 @@ WORKER_ID="${RALPH_WORKER_ID:-w1}"
 RESUME=0
 BASE_REF=""
 PASS_ARGS=()
+RESUME_FLAG=()   # FOLLOW-UP 77: set to (--resumed) on the resume path
 expect_base=0
 for a in "$@"; do
   if [ "$expect_base" = "1" ]; then
@@ -72,6 +73,28 @@ if [ "$RESUME" = "1" ]; then
     fi
   done
   echo "🔁 Resuming in existing worktree: $WT"
+  # FOLLOW-UP 76: refresh the worktree's engine scripts from the primary
+  # checkout BEFORE resuming. The worktree was created with copies at launch;
+  # a mid-campaign engine re-sync (a fix landing in the primary) would
+  # otherwise NOT reach an in-flight issue — a FIXED bug re-bit a resume
+  # because the worktree still ran the OLD engine. Same posture as FU-69's
+  # node_modules link.
+  REFRESHED=""
+  for f in ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl; do
+    if [ -f "$ROOT/$f" ] && ! cmp -s "$ROOT/$f" "$WT/$f" 2>/dev/null; then
+      cp "$ROOT/$f" "$WT/$f"
+      REFRESHED="${REFRESHED}${REFRESHED:+ }$f"
+    fi
+  done
+  if [ -n "$REFRESHED" ]; then
+    echo "♻️  Refreshed stale engine scripts from the primary checkout: $REFRESHED"
+  fi
+  # FOLLOW-UP 77: Ralph removed `ralph-ready` when it claimed the issue
+  # (correct — prevents double-pickup), so the §63 pre-flight would block
+  # every resume without a manual re-label. Tell ralph-local this is a
+  # re-entry (the issue was validated on its first launch) so it bypasses the
+  # ralph-ready existence check only — scenarios/budget checks still run.
+  RESUME_FLAG=(--resumed)
   echo "   Re-bind any watcher: ./ralph-watch.sh ${ISSUE} '$WT' (a relaunch writes a NEW session log)"
 else
   STAMP=$(date -u +"%Y%m%d-%H%M%S")
@@ -115,7 +138,7 @@ fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
 
 rc=0
-( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
+( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
 
 echo ""
 echo "── Isolated run finished (exit ${rc}) ──"
