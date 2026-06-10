@@ -171,6 +171,7 @@ Spec **and** `.feature` ceremony scale with the feature's *detected* classificat
   | Background / Alternatives considered / Glossary | always optional |
 
 - **Classification is detected, recorded as labels, overridden loudly.** `scripts/detect-ceremony.mjs` emits the `feature:*-module`/`cross-context` labels at `/to-issues`; the sensitive-path scan emits `require-human-review`. A human may override only via an audited label flip (GitHub timeline) — never a silent spec frontmatter field.
+- **A normal vertical slice in ONE bounded context is single-module (FOLLOW-UP 70).** §3 defines a module AS a bounded context, not a hexagonal layer — so a slice touching `domain/`, `application/`, and `infrastructure/` of the SAME context is one module. `detect-ceremony` counts the §107 modules by bounded context, so the common slice shape no longer trips multi-module and needs **no** override. It is **layout-robust**: a context-sub-organized layer (`src/domain/audit`) and a layer-first-**functional** layer (`src/application/ports`, `src/infrastructure/config`) both collapse correctly — functional buckets (`ports`, `types`, `use-cases`, `adapters`, `config`, …, standard hexagonal vocabulary) are not read as bounded contexts, and non-application roots (`features/`, `schema/`, `docs/`) do not inflate the count. A bounded context literally named like a functional bucket would UNDER-classify; that is bounded by the `reviewer`'s live re-detect on the diff (`requires-escalation`), the same one-way backstop the over-direction relies on. (Distinct from the schema-only case above, which spans ≥2 *distinct* contexts' tables and still classifies multi-module by `context_count` — the FU-66 override remains the path for that.)
 - **Escalation is one-way and gated.** A feature auto-promotes light → full when a detector fires on the diff; it is **never** auto-degraded. `INV-6` (`scripts/check-invariants.mjs`) blocks merge if a `feature:single-module` issue's plan grows to multi-module without the backfill (SAD + the sections above) or an audited `skip-invariant: INV-6` flip. The `reviewer` re-detects on the live diff (incl. sensitive paths) and emits a `requires-escalation` finding.
 - **Schema-only substrate is a canonical, pre-blessed `skip-invariant: INV-6` case (FOLLOW-UP 66).** `detect-ceremony` counts a substrate slice as multi-module because its migration lands tables OWNED by ≥2 modules — but table-ownership is **persistence span, not runtime coupling**. A slice that ships **no API surface, no use case, no §103 module contract** is deliberately single-module for §107 purposes even when its tables span contexts. The classification is left conservative on purpose (over-classification is safe; the override is a *deliberate human affirmation* that this multi-module-table migration is intentionally single-ceremony — exactly the call worth signing off, not auto-suppressing). The canonical reason string to copy:
 
@@ -218,8 +219,28 @@ Scenarios covered: scn-001, scn-002 (see `features/quotes/quote-acceptance.featu
 ### GitHub label format
 
 ```
-scenarios:scn-001,scn-002
+scenarios:scn-042+043        # canonical compact form (the `+` joins tokens)
 ```
+
+**Overflow fallback for many-scenario (foundation / tier-N) slices
+(FOLLOW-UP 71).** GitHub's label limit is **50 chars**, and even the compact
+`+` form overflows a large foundation slice (e.g. 19 contiguous scenarios →
+`scenarios:scn-137+138+…+155` ≈ 90 chars; `gh label create` rejects it). When
+the compact label would exceed 50 chars:
+
+- **Omit the GitHub `scenarios:` label entirely.** Keep the slice's `tier:N`
+  label.
+- **The issue FILE's `**Labels:**` line carries the full spelled scenario
+  list** — and that is what `INV-5` reads (`check-invariants.mjs` is offline:
+  it parses `scn-NNN` from the issue file, NOT from GitHub labels). So the
+  omission is **safe** — the traceability gate still maps every `@release`
+  scenario to its issue. The GitHub label is a convenience for humans/`gh`
+  filters, not the source of truth.
+
+A `range` form (`scenarios:scn-137..155`) is **not** used — the canonical
+`scn-NNN` set form (`SCN_VALUE` in `check-invariants`) rejects `..`, and a
+range hides which scenarios are actually present. Omit-and-rely-on-file is the
+sanctioned pattern.
 
 ### Rules
 

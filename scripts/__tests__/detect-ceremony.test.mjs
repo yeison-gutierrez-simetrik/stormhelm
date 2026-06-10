@@ -139,3 +139,69 @@ test('FU-66: a schema-only slice owning ≥2 modules tables is still multi-modul
       'conservative default INTACT — detector does not silently relax; INV-6 is resolved by the canonical skip-invariant reason, not by changing the count');
   } finally { rms(dir, { recursive: true, force: true }); }
 });
+
+// ── FOLLOW-UP 70: one bounded context across hexagonal layers is single-module ─
+
+// §3: a module IS a bounded context, not a hexagonal layer. A normal vertical
+// slice in ONE context touching domain+application+infrastructure is ONE
+// module — the old `module_count >= 3` arm read it as multi-module and forced
+// a bespoke INV-6 override on the most common slice shape. The §107 count now
+// collapses `src/<layer>/<ctx>` to `<ctx>`.
+test('FU-70: one context across domain/application/infrastructure → single-module', () => {
+  const r = detectCeremony([rec([
+    'src/domain/audit', 'src/application/audit', 'src/infrastructure/audit',
+  ])]);
+  assert.equal(r.module_count, 1, 'three layers of ONE context collapse to one module');
+  assert.equal(r.context_count, 1);
+  assert.deepEqual(r.labels, ['feature:single-module'], 'no bespoke INV-6 override needed for a normal slice');
+});
+
+test('FU-70: a genuine multi-context slice still escalates (collapse is per-context)', () => {
+  const r = detectCeremony([rec([
+    'src/domain/audit', 'src/application/audit',
+    'src/domain/billing', 'src/infrastructure/billing',
+  ])]);
+  assert.equal(r.module_count, 2, 'audit + billing = two distinct contexts');
+  assert.ok(r.labels.includes('feature:multi-module'));
+  assert.ok(r.labels.includes('feature:cross-context'));
+});
+
+test('FU-70: three distinct non-layer module roots still count as three (no false collapse)', () => {
+  const r = detectCeremony([rec(['src/core', 'src/lib', 'src/api'])]);
+  assert.equal(r.module_count, 3, 'non-layer roots are not collapsed');
+  assert.ok(r.labels.includes('feature:multi-module'));
+});
+
+// ── FU-70 round-2 (consumer review): layer-first-FUNCTIONAL layouts ───────────
+
+// The reporting consumer is layer-first with FUNCTIONAL sub-dirs
+// (src/application/ports, src/infrastructure/config) + non-app roots
+// (features/, schema/). The first FU-70 collapse read ports/config as bounded
+// contexts → a single-context slice still classified multi-module. Functional
+// buckets and non-app roots no longer count.
+test('FU-70: a single-context slice in a layer-first-FUNCTIONAL layout is single-module', () => {
+  const r = detectCeremony([rec([
+    'src/application/ports', 'src/application/types', 'src/application/use-cases',
+    'src/domain/audit',                                  // the ONE real bounded context
+    'src/infrastructure/config', 'src/infrastructure/adapters',
+    'features/audit', 'schema',                          // non-app roots
+  ])]);
+  assert.equal(r.context_count, 1, 'only "audit" is a bounded context; ports/types/config/adapters are functional buckets');
+  assert.equal(r.module_count, 1, 'one context across functional sub-dirs = one module');
+  assert.deepEqual(r.labels, ['feature:single-module']);
+});
+
+test('FU-70: functional buckets do not mask a genuine second context', () => {
+  const r = detectCeremony([rec([
+    'src/application/ports', 'src/domain/audit', 'src/domain/billing',
+  ])]);
+  assert.deepEqual(r.contexts, ['audit', 'billing']);
+  assert.ok(r.labels.includes('feature:multi-module'));
+  assert.ok(r.labels.includes('feature:cross-context'));
+});
+
+test('FU-70: non-application roots alone never escalate ceremony', () => {
+  const r = detectCeremony([rec(['features/audit', 'features/support', 'schema', 'docs'])]);
+  assert.equal(r.module_count, 0);
+  assert.deepEqual(r.labels, ['feature:single-module']);
+});

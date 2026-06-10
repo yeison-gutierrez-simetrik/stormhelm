@@ -15,18 +15,21 @@
 //   multi-module  ⇔  >= 3 distinct modules  OR  >= 2 bounded contexts
 //   cross-context ⇔  >= 2 bounded contexts
 //
-// "Module" = an `affected_modules` entry (parse-layers groups by src/<layer>/<ctx>).
-// "Bounded context" = the context segment under a known layer dir (domain/, modules/,
-// contexts/, application/, infrastructure/, entrypoints/). The heuristic is
-// deliberately simple; over-classification is safe (it only adds ceremony, which a
-// human can downgrade via an audited label flip — never auto-degraded, ADR safeguard 3).
-//
-// LAYOUT ASSUMPTION: context detection assumes the §3 layer-first hexagonal layout
-// (`src/<layer>/<ctx>/…`, layers = KNOWN_LAYERS below). The MODULE count — the primary
-// §107 trigger — is layout-independent and always works. Only cross-context detection is
-// layout-sensitive: a project that nests differently (e.g. `src/features/<ctx>`, or no
-// `src/` prefix) UNDER-detects cross-context — safe by design (conservative + one-way
-// escalation), but set `feature:cross-context` by hand if your layout diverges.
+// "Module" = a BOUNDED CONTEXT, not a hexagonal layer-dir (§3; FOLLOW-UP 70).
+// The §107 count derives from distinct bounded contexts: layer entries under a
+// known layer collapse to their `<ctx>` segment, and a layer entry that carries
+// no context — a FUNCTIONAL bucket (`ports`, `config`, …), a file, or a bare
+// layer — adds no module (it is just a layer of the slice's context). Non-layer
+// roots (`src/core`, declared `- **Module:**` entries) stay distinct;
+// non-application roots (`features/`, `schema/`, …) are excluded. This is
+// layout-robust: both context-sub-organized (`src/domain/audit`) and
+// layer-first-FUNCTIONAL (`src/application/ports`) layouts classify a
+// single-context slice as single-module.
+// "Bounded context" = a non-bucket, non-file directory segment under a known
+// layer, OR an explicitly declared context (FOLLOW-UP 54). Over-classification
+// is safe (a human downgrades via an audited label flip — never auto-degraded,
+// ADR safeguard 3); the rare UNDER-classification (a context named like a
+// functional bucket) is bounded by the reviewer's live re-detect on the diff.
 //
 // Usage:  node scripts/detect-ceremony.mjs <issue1>.md <issue2>.md ...
 // Output: JSON { modules, module_count, contexts, context_count, labels }
@@ -39,26 +42,79 @@ const KNOWN_LAYERS = new Set([
   'domain', 'application', 'infrastructure', 'entrypoints', 'modules', 'contexts',
 ]);
 
+// FOLLOW-UP 70 (consumer-review round-2): a segment under a known layer is a
+// bounded CONTEXT only if it is not a FUNCTIONAL bucket. Layer-first-functional
+// layouts sub-organize a layer by FUNCTION (`src/application/ports`,
+// `src/infrastructure/config`), not by context — reading `ports`/`config` as
+// bounded contexts mis-classified single-context slices as multi-module on
+// every such consumer. These names are standard hexagonal / clean-arch
+// vocabulary (universal, not project-specific). A real context literally named
+// like one of these would UNDER-classify — bounded by the reviewer's live
+// re-detect on the diff (`requires-escalation`), the same one-way backstop the
+// over-direction relies on.
+const FUNCTIONAL_BUCKETS = new Set([
+  'ports', 'adapters', 'use-cases', 'usecases', 'services', 'repositories', 'repos',
+  'mappers', 'dto', 'dtos', 'types', 'entities', 'value-objects', 'config',
+  'handlers', 'controllers', 'middleware', 'schemas', 'validators', 'errors',
+  'utils', 'helpers', 'factories',
+]);
+
+// Non-application roots: a slice touching its BDD features / SQL schema / docs
+// for support is not multi-module BECAUSE of those — they are not application
+// modules and must not inflate the §107 count.
+const NON_APP_ROOTS = new Set([
+  'features', 'schema', 'docs', 'test', 'tests', 'e2e', 'migrations',
+  'scripts', 'dist', 'build', 'public', 'assets',
+]);
+
 // Derive ceremony labels from parsed /plan records (each from parseFile()).
 export function detectCeremony(records) {
   const modules = new Set();
   const contexts = new Set();
+  // FOLLOW-UP 70: the §107 module count must be by BOUNDED CONTEXT, not by
+  // hexagonal layer-dir. §3 defines a module AS a bounded context — so a
+  // normal vertical slice wholly inside one context (`src/domain/audit`,
+  // `src/application/audit`, `src/infrastructure/audit`) is ONE module, not
+  // three. The old `module_count >= 3` arm read every such slice as
+  // multi-module, forcing a bespoke INV-6 override on the MOST COMMON slice
+  // shape (FU-66's blessed reason only covers schema-only). The effective set
+  // collapses `src/<known-layer>/<ctx>` entries to the bounded context `<ctx>`;
+  // a layer entry that carries NO context (a functional bucket, a file, or a
+  // bare layer) contributes NO module — it is just a layer of the slice's
+  // context, not a module of its own. Non-layer roots (`src/core`, declared
+  // `- **Module:**` entries) stay distinct; non-application roots
+  // (`features/`, `schema/`) are excluded. This makes both the textbook
+  // (context-sub-organized) and layer-first-functional layouts classify a
+  // single-context slice as single-module.
+  const effectiveModules = new Set();
   for (const r of records) {
     for (const m of r.affected_modules ?? []) {
       modules.add(m);
       const segs = m.split('/'); // e.g. ["src","domain","org"]
-      if (segs[0] === 'src' && KNOWN_LAYERS.has(segs[1]) && segs[2]) {
-        // strip a trailing file (e.g. "company.ts") — a context is a directory
-        const ctx = /\.[a-z]+$/i.test(segs[2]) ? null : segs[2];
-        if (ctx) contexts.add(ctx);
+      if (NON_APP_ROOTS.has(segs[0])) continue;  // features/schema/… are not app modules
+      if (segs[0] === 'src' && KNOWN_LAYERS.has(segs[1])) {
+        const seg = segs[2];
+        // A real bounded context: a directory segment that is not a file and
+        // not a functional bucket. Files, buckets, and bare layers carry no
+        // context → they add no module (just a layer of the slice's context).
+        const ctx = seg && !/\.[a-z]+$/i.test(seg) && !FUNCTIONAL_BUCKETS.has(seg) ? seg : null;
+        if (ctx) {
+          contexts.add(ctx);
+          effectiveModules.add(ctx);            // collapse this layer to its context
+        }
+        continue;
       }
+      effectiveModules.add(m);                   // non-layer module stays distinct
     }
     // FOLLOW-UP 54: slice-doc `- **Module:** <Context> → …` lines declare
     // their bounded context explicitly — an in-document cross-context source
     // that works at /to-issues time and is layout-independent.
     for (const c of r.declared_contexts ?? []) contexts.add(c);
   }
-  const module_count = modules.size;
+  // module_count is the §107 trigger count: distinct bounded-context-level
+  // modules (FU-70). `modules` (the output list) stays the raw affected set
+  // for transparency.
+  const module_count = effectiveModules.size;
   const context_count = contexts.size;
   const multiModule = module_count >= 3 || context_count >= 2;
   const labels = [multiModule ? 'feature:multi-module' : 'feature:single-module'];

@@ -84,11 +84,33 @@ else
 fi
 
 # Untracked runtime surface: tracked files (engine, code) arrive with the
-# worktree; secrets do not. Copy .env if present so the env pre-flight and
-# the acceptance stack see the same environment as the main checkout.
-# On --resume this REFRESHES secrets (the fresh .env wins over a stale copy).
+# worktree; the untracked runtime surface does NOT — and the loop the
+# worktree exists to run needs ALL of it:
+#   .env          → secrets for the env pre-flight + the acceptance stack
+#   node_modules  → /tdd runs vitest, /run-acceptance runs cucumber-js, and
+#                   §60's pre-push smoke runs `pnpm test:smoke` — every one
+#                   resolves its binary from node_modules/.bin. A git
+#                   worktree gets a FRESH working dir with no node_modules,
+#                   so without this the first command fails 127
+#                   (`cucumber-js: command not found`) — FOLLOW-UP 69.
+# On --resume .env is REFRESHED (fresh secrets win); node_modules is linked
+# only if absent (a prior run's link/install is reused).
 if [ -f .env ]; then
   cp .env "$WT/.env"
+fi
+# Provision deps (FOLLOW-UP 69): symlink the primary checkout's node_modules
+# (read-only during a run → safe to share; near-zero cost; works for
+# npm/pnpm/yarn since .bin resolves relatively). Fallback to an install only
+# if the source tree has none. Guarded so --resume / re-runs don't clobber.
+if [ ! -e "$WT/node_modules" ]; then
+  SRC_NM="${ROOT}/node_modules"
+  if [ -d "$SRC_NM" ]; then
+    ln -s "$SRC_NM" "$WT/node_modules"
+    echo "🔗 Linked node_modules from the primary checkout"
+  elif [ -f "$WT/package.json" ]; then
+    echo "📦 No primary node_modules to link; installing in the worktree…"
+    ( cd "$WT" && { pnpm install --frozen-lockfile --prefer-offline         || npm ci || npm install; } ) >/dev/null 2>&1       || echo "⚠️  dependency install failed in the worktree — /tdd and acceptance will fail with 127 until deps are present" >&2
+  fi
 fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
 

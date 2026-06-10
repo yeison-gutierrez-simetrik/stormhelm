@@ -256,6 +256,15 @@ gh issue create \
 > (`scn-042+scn-043`) and comma (`scn-042,scn-043`) forms, but emit the
 > canonical compact form here and in the file's `**Labels:**` line — same
 > string in both places.
+>
+> **Overflow (FOLLOW-UP 71):** if the compact `scenarios:` label would still
+> exceed 50 chars (a foundation / `tier:N` slice with ~15+ contiguous scns —
+> e.g. 19 scns ≈ 90 chars), **omit the GitHub `scenarios:` label** (keep
+> `tier:N`) and let the issue file's `**Labels:**` line carry the full spelled
+> list. INV-5 reads `scn-NNN` from the FILE, not the GitHub label, so the
+> omission is safe — the gate still maps every scenario. Do NOT use a
+> `scn-137..155` range (rejected by the label format checker). See `core/12`
+> "GitHub label format → Overflow fallback".
 
 If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms. Omit `slice-group:<slug>` for standalone issues (singletons).
 
