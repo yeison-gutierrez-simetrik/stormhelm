@@ -1655,3 +1655,24 @@ bash -c 'set -euo pipefail; x=$(echo "a:1" | grep -E "^scenarios:" | head -1 | s
 belong's validated consumer patch (liftable verbatim into `templates/ralph-local.sh`): belong PRs **#88** (body-fallback) + **#89** (the `set -e` guard fixup). After it, `./ralph-isolated.sh 83` sources all 19 scns from the body and launches green into iteration 1.
 
 **Acceptance.** Fixture in `scripts/__tests__/` (mock-bin convention): (1) an issue with NO GH `scenarios:` label but a `**Labels:** … scenarios:scn-137+…+155 …` body line → ralph-local sources all scns, gate passes, `$SCENARIOS` expands to the full set; (2) the same with neither label nor body entry → the explicit §63 error (not a silent set -e abort); (3) a normal slice with a GH label → unchanged. Consumer-visible: a >9-scenario foundation slice that follows FU-71 (omit the label) is launchable by Ralph.
+## FOLLOW-UP 73 — ralph-local's `--base <ref>` is forwarded verbatim to BOTH `git checkout -b` AND `gh pr create --base`; a value valid for git (a remote-tracking ref like `origin/main`) is INVALID for gh, so the run does ALL the work then fails at the very last step (PR creation)  ·  **Severity: MEDIUM (expensive late failure — full budget/iterations spent, then no PR; the deliverable is stranded on a pushed branch)**
+
+**Problem.** `templates/ralph-local.sh` accepts `--base <ref>` and uses it for two different consumers: `git checkout -b "$BRANCH" "$BASE_REF"` (git: a remote-tracking ref like `origin/main` is a VALID start point) and, at the end, `gh pr create --base "$BASE_REF"` (gh: `--base` must be a BRANCH NAME — `main` — not `origin/main`). So launching `./ralph-isolated.sh <N> --base origin/main` (a natural choice — the isolated worktree is created `--detach origin/main`) runs the entire loop to GREEN, pushes the branch, and then `gh pr create` fails: `GraphQL: Base ref must be a branch … Base sha can't be blank … No commits between origin/main and <branch>`. The whole run's deliverable is stranded on a pushed branch with no PR; recovery is a manual `gh pr create --base main`. This is the FU-35 failure class (an arg that expands to something downstream chokes on) but at the MOST expensive point — after the spend, not before it.
+
+**Live evidence:** belong #83 (slice-07 audit log). `./ralph-isolated.sh 83 --resume --base origin/main` → run reached green (19/19, reviewer SHOULD-FIX), pushed `agent/feature-07-…-83`, then `pull request create failed: GraphQL: Head sha can't be blank, Base sha can't be blank, No commits between origin/main and agent/feature-…-83, Base ref must be a branch (createPullRequest)` / NDJSON `reason:"gh-pr-create-failed"` at 56415 tokens. PR had to be created by hand with `--base main`.
+
+**Verify:**
+```bash
+git worktree add --detach /tmp/wt origin/main && cd /tmp/wt
+git checkout -b agent/x origin/main && git commit --allow-empty -m x && git push -u origin agent/x
+gh pr create --base origin/main --head agent/x --title t --body b   # ❌ "Base ref must be a branch"
+gh pr create --base main        --head agent/x --title t --body b   # ✅
+```
+
+**Fix (prose → structured contract). Two parts:**
+1. **Normalize the PR base**: when forming the `gh pr create --base` argument, strip a leading `origin/` (and resolve a detached/SHA base to its tracking branch) — `PR_BASE="${PR_BASE_REF:-${BASE_REF:-main}}"; PR_BASE="${PR_BASE#origin/}"`. The git start-point keeps the full ref. (A `--pr-base` flag already exists for the multi-dep case — this just makes the common single-arg case correct.)
+2. **Fail fast (FU-35 sibling)**: validate the resolved PR base is a real remote branch BEFORE iteration 1 — `git ls-remote --exit-code --heads origin "$PR_BASE"` — and abort with an actionable message ("`--base origin/main` is a remote-tracking ref; pass a branch name like `main`") instead of burning the whole budget then failing on PR creation. Mirror the FU-35 pre-flight that already guards the scenarios-label grammar.
+
+belong consumer note: the run's work was recovered (branch was pushed green) by a manual `gh pr create --base main` → PR #90 (draft). No consumer patch to lift (the failure is in the launch arg + the late validation), but the operator lesson is "for a standalone slice, `--base main` or omit `--base`."
+
+**Acceptance.** `scripts/__tests__/ralph-local.test.mjs` (mock gh/git bins): (1) `--base origin/main` → the `gh pr create` invocation receives `--base main` (normalized); (2) a `--base` that resolves to no remote branch → pre-flight abort BEFORE iteration 1 with the actionable message; (3) `--base main` and the no-`--base` default → unchanged. Consumer-visible: a green run always yields a PR (or fails loudly up front), never a stranded branch after full spend.
