@@ -174,7 +174,18 @@ was green; the label blocked it.
 - Brownfield no tests (characterization first): add one iteration (`+80k`).
 - Multi-file feature (>5 files): scale by expected iterations, not file count.
 
-Use coarse buckets (150k, 200k, 250k, 300k, 400k). Round up. Note budgets
+**Heavy-slice multiplier (FOLLOW-UP 75).** The 80k/iteration model holds for
+small slices, but a slice that is **a NEW bounded context**, OR
+`require-human-review` (crypto / auth / payments), OR **>15 scenarios** runs
+**120–220k per iteration** (measured: a new-context crypto slice's first
+`/tdd` alone = 194k; another's iteration-2 `/tdd` = 150k). For any of those:
+**`budget ≈ expected_iterations × 150k`, in 400k–500k buckets.** Two live
+sessions died `budget_exceeded` with the work already green (307k/300k,
+267k/250k) — they lost only the cheap recording + PR steps by seconds. Size
+heavy slices up front; the maximally-frustrating failure is green work on a
+dead ledger.
+
+Use coarse buckets (150k, 200k, 250k, 300k, 400k, 500k). Round up. Note budgets
 are **per session**: a blocked-then-relaunched issue spends a fresh budget
 (the ledger does not carry over).
 

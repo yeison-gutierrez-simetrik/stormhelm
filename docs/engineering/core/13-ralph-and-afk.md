@@ -650,7 +650,7 @@ Shipped implementation: `templates/ralph-lib.sh` exposes `ralph_call_claude_with
 
 ### Budget enforcement companion (§63 budget label)
 
-The `budget:NNk` label on each issue declares a token ceiling for the Ralph session. Enforcement lives in `ralph-lib.sh` via three helpers:
+The `budget:NNk` label on each issue declares a token ceiling for the Ralph session. **Calibration is `budget ≈ expected_iterations × 80k` (floor 150k), with a HEAVY-SLICE MULTIPLIER (FOLLOW-UP 75): a new bounded context, a `require-human-review` slice (crypto/auth/payments), or >15 scenarios runs 120–220k per iteration → use `× 150k`, 400k–500k buckets.** Two live sessions died `budget_exceeded` with the work already green (307k/300k, 267k/250k), losing only the cheap recording + PR steps. The full table lives in `/to-issues` Step 4 (one source; keep both in sync). Enforcement lives in `ralph-lib.sh` via three helpers:
 
 - `ralph_parse_budget_label` converts `50k` / `120k` / `2m` / `50000` to an integer token count.
 - `ralph_extract_tokens_from_output` is a best-effort extractor that recognizes JSON `usage.input_tokens + usage.output_tokens` (modern `claude --output-format json`), text patterns like `Total tokens: N` and `N input tokens, M output tokens`, plus a user-supplied extractor via the `RALPH_TOKEN_EXTRACTOR_CMD` env var.
