@@ -11,7 +11,7 @@ The cardinality facts in `docs/engineering/AGENTS.md` and across the docs — sk
 Not everything in this repo ships to a consumer. Keep the boundary explicit — when adding a skill or script, decide which side it sits on:
 
 - **`skills/`** — consumer-facing, invokable skills. Adoption copies this tree wholesale, so these are the "N invokable skills" the README/footer count.
-- **`skills-internal/`** — framework-self skills that maintain Stormhelm itself (e.g. `verify-framework-consistency`). **Not** copied to consumers (the README's `cp -R skills .claude/skills` never reaches them) and **excluded** from the skill count.
+- **`skills-internal/`** — framework-self skills that maintain Stormhelm itself (e.g. `verify-framework-consistency`; `process-followups` — the v2-strict consumer-feedback → framework-PR loop). **Not** copied to consumers (the README's `cp -R skills .claude/skills` never reaches them) and **excluded** from the skill count.
 - **`scripts/`** — consumer-runtime helpers, copied into the consumer by `/setup` — **except** `check-framework-metadata.mjs`, which is framework-self-maintenance and intentionally not copied.
 
 The `check-framework-metadata.mjs` gate counts only `skills/` for the cardinality figure, but resolves `/skill` links and validates `§N` refs against `skills/` ∪ `skills-internal/`.
