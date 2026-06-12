@@ -11,6 +11,13 @@
 #   ./ralph-isolated.sh <issue-number> --resume [ralph-local.sh args...]
 #   RALPH_WORKER_ID=w2 ./ralph-isolated.sh 15 --max-iterations 10
 #
+# Env knobs (engine knobs — RALPH_MODEL, RALPH_FALLBACK_MODEL, … — pass
+# through to ralph-local.sh; see its header):
+#   RALPH_WORKTREE_INSTALL_CMD  dependency-install command for a workspace
+#                               monorepo worktree (cwd = the worktree);
+#                               default: pnpm install → npm ci → npm install
+#                               (FU-85)
+#
 # Behavior:
 #   - creates .worktrees/ralph-<issue>-<worker>-<ts> detached at HEAD
 #     (ralph-local.sh creates its own agent/feature-* branch inside);
@@ -125,14 +132,36 @@ fi
 # (read-only during a run → safe to share; near-zero cost; works for
 # npm/pnpm/yarn since .bin resolves relatively). Fallback to an install only
 # if the source tree has none. Guarded so --resume / re-runs don't clobber.
+#
+# FOLLOW-UP 85 — EXCEPT in a workspace monorepo. There the symlink resolves
+# every workspace package through the PRIMARY checkout — i.e. to main's code,
+# not the branch under test: a slice that adds a CLI command sees the STALE
+# @scope/cli, its CLI acceptance scenario fails locally and passes only in CI
+# (live: 4-for-4 slices). An overlay re-link can't fix it (writing through the
+# root symlink mutates the PRIMARY's node_modules; a per-entry farm breaks
+# pnpm's layout), so a workspace gets a REAL per-worktree install — the same
+# semantics as CI's clean checkout, and what pnpm's own git-worktrees guidance
+# prescribes. Override the command via RALPH_WORKTREE_INSTALL_CMD (runs with
+# cwd = the worktree).
+wt_install() {
+  if [ -n "${RALPH_WORKTREE_INSTALL_CMD:-}" ]; then
+    ( cd "$WT" && bash -c "$RALPH_WORKTREE_INSTALL_CMD" ) >/dev/null 2>&1 \
+      || echo "⚠️  RALPH_WORKTREE_INSTALL_CMD failed in the worktree — /tdd and acceptance will fail with 127 until deps are present" >&2
+  else
+    ( cd "$WT" && { pnpm install --frozen-lockfile --prefer-offline         || npm ci || npm install; } ) >/dev/null 2>&1       || echo "⚠️  dependency install failed in the worktree — /tdd and acceptance will fail with 127 until deps are present" >&2
+  fi
+}
 if [ ! -e "$WT/node_modules" ]; then
   SRC_NM="${ROOT}/node_modules"
-  if [ -d "$SRC_NM" ]; then
+  if [ -f "$WT/pnpm-workspace.yaml" ] || grep -q '"workspaces"' "$WT/package.json" 2>/dev/null; then
+    echo "📦 Workspace monorepo detected — installing in the worktree (a node_modules symlink would resolve workspace packages to the primary checkout's code, not this branch's)…"
+    wt_install
+  elif [ -d "$SRC_NM" ]; then
     ln -s "$SRC_NM" "$WT/node_modules"
     echo "🔗 Linked node_modules from the primary checkout"
   elif [ -f "$WT/package.json" ]; then
     echo "📦 No primary node_modules to link; installing in the worktree…"
-    ( cd "$WT" && { pnpm install --frozen-lockfile --prefer-offline         || npm ci || npm install; } ) >/dev/null 2>&1       || echo "⚠️  dependency install failed in the worktree — /tdd and acceptance will fail with 127 until deps are present" >&2
+    wt_install
   fi
 fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
