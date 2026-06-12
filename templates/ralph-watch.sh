@@ -151,9 +151,14 @@ process_line() {
   event=$(printf '%s' "$line" | jq -r '.event // empty' 2>/dev/null) || return 0
   case "$event" in
     ralph.session.started)
-      notify "session started ($(printf '%s' "$line" | jq -r '.sessionId'))"
+      # FU-83: surface WHICH model the engine runs on (cli-default = unset).
+      notify "session started ($(printf '%s' "$line" | jq -r '.sessionId'), model: $(printf '%s' "$line" | jq -r '.details.engine_model // "cli-default"'))"
       CONSEC_FAILS=0; LAST_REASON=""; ENV_WARNED=0
       ITER_STARTED_EPOCH=""; LONGEST_ITER_S=0
+      ;;
+    ralph.engine.model_fallback)
+      # FU-83/84: an unattended run switching models is a headline event.
+      notify "⚠️ engine model fallback → $(printf '%s' "$line" | jq -r '.details.model') (primary model's rate bucket suspected down)"
       ;;
     ralph.iteration.started)
       ITER_STARTED_EPOCH=$(evt_epoch "$line")
