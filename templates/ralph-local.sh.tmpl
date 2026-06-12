@@ -5,9 +5,16 @@
 #   ./templates/ralph-local.sh <issue-number> [max-iterations]
 #
 # Engine env knobs:
-#   RALPH_MODEL    engine model, forwarded as `claude --model` on every call —
-#                  run the engine on a cheaper/different tier than the
-#                  interactive session; unset = CLI default (FU-83)
+#   RALPH_MODEL           engine model, forwarded as `claude --model` on every
+#                         call — run the engine on a cheaper/different tier than
+#                         the interactive session; unset = CLI default (FU-83)
+#   RALPH_FALLBACK_MODEL  one-shot fallback model when an engine outage is
+#                         detected — a different model is a different rate
+#                         bucket, so a rate-window collapse recovers in-process
+#                         instead of ending the session (FU-83/84)
+#   RALPH_ENGINE_MAX      consecutive engine no-ops / zero-progress iterations
+#                         tolerated before engine_failure (default 3, FU-74/84)
+#   RALPH_ENGINE_BACKOFF  seconds between engine no-op retries (default 60)
 #
 # Reads the GitHub issue, runs /tdd + /run-acceptance until every
 # @release scenario passes or the budget is exhausted. Before opening
@@ -490,6 +497,61 @@ check_budget_or_block() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# FOLLOW-UP 83/84: one-shot model fallback on a suspected engine outage.
+# A model-specific rate window is dodged by a DIFFERENT model's bucket
+# (the LiteLLM-router fallback pattern) — far faster than serialize-and-
+# wait. Opt-in via RALPH_FALLBACK_MODEL; at most once per session.
+# Returns 0 if the switch happened (caller retries), 1 otherwise.
+# ──────────────────────────────────────────────────────────────────────
+FALLBACK_USED=""
+ralph_try_model_fallback() {
+  [ -n "${RALPH_FALLBACK_MODEL:-}" ] || return 1
+  [ -z "$FALLBACK_USED" ] || return 1
+  [ "$RALPH_FALLBACK_MODEL" != "${RALPH_MODEL:-}" ] || return 1
+  FALLBACK_USED=1
+  export RALPH_MODEL="$RALPH_FALLBACK_MODEL"
+  ralph_log_event "warn" "ralph.engine.model_fallback" \
+    "{\"model\":$(ralph_json_string "$RALPH_MODEL")}"
+  echo "🔁 Engine outage suspected — switching the engine to RALPH_FALLBACK_MODEL=${RALPH_MODEL} and retrying (a different model = a different rate bucket)" >&2
+  return 0
+}
+
+# ──────────────────────────────────────────────────────────────────────
+# FOLLOW-UP 84: iteration-level no-progress detector. The FU-74 guard is
+# per-call (exit 0 + 0 tokens); a CLI that exits NON-zero without
+# matching the 429 regex (the subscription usage-window message) slips
+# past it — /tdd burns the iteration as tdd-failed, /run-acceptance as
+# result-file-missing — and the loop spins to max_iterations with FROZEN
+# tokens (live: 2× 30-iteration allowances burned in one session, work
+# already complete). A real work iteration ALWAYS advances the token
+# counter, so: RALPH_ENGINE_MAX consecutive non-green iterations with
+# zero token delta = engine outage → try the model fallback once, else
+# end engine_failure (NOT ralph-blocked: the work is untainted — same
+# distinction OpenHands draws with its stuck detector vs iteration cap).
+# ──────────────────────────────────────────────────────────────────────
+NOPROGRESS_ITERS=0
+check_engine_progress_or_fail() {
+  local phase="${1:-unknown}"
+  if [ "$RALPH_TOKENS_CUMULATIVE" -gt "$ITER_TOKENS_BEFORE" ]; then
+    NOPROGRESS_ITERS=0
+    return 0
+  fi
+  NOPROGRESS_ITERS=$((NOPROGRESS_ITERS + 1))
+  echo "⚠️  zero token advance this iteration (${phase}) — ${NOPROGRESS_ITERS}/${RALPH_ENGINE_MAX:-3} before declaring an engine outage" >&2
+  if [ "$NOPROGRESS_ITERS" -lt "${RALPH_ENGINE_MAX:-3}" ]; then
+    return 0
+  fi
+  if ralph_try_model_fallback; then
+    NOPROGRESS_ITERS=0
+    return 0
+  fi
+  echo "🛑 Engine made no progress for ${NOPROGRESS_ITERS} consecutive iterations (${phase}) — ending engine_failure instead of burning the allowance." >&2
+  echo "   The implementation may already be COMPLETE: inspect 'git log ${BRANCH}' before --resume (resume when the limit window resets)." >&2
+  ralph_end_session "engine_failure" "no token advance for ${NOPROGRESS_ITERS} consecutive iterations (last: ${phase}) — engine outage, not a work problem; the branch may already carry complete work: check 'git log ${BRANCH}' before --resume"
+  exit 1
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # Branch setup
 # ──────────────────────────────────────────────────────────────────────
 # Sanitize the issue title into a [a-z0-9-]-only slug: non-ASCII (em-dash,
@@ -552,6 +614,7 @@ for i in $(seq 1 "$MAX_ITER"); do
 
   ralph_iteration_start "tdd"
   ITER_EPOCH=$(date +%s)   # staleness floor for this iteration's result file
+  ITER_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE   # FU-84: no-progress baseline
 
   # NOTE the `|| RC=$?` idiom: under `set -e`, a bare VAR=$(cmd) with a
   # non-zero cmd kills the whole script BEFORE the rc check — the 124
@@ -585,6 +648,12 @@ for i in $(seq 1 "$MAX_ITER"); do
       ENGINE_FAILS=$((ENGINE_FAILS + 1))
       echo "⚠️  engine no-op (exit 0, 0 tokens) on /tdd — attempt ${ENGINE_FAILS}/${RALPH_ENGINE_MAX:-3} (CLI crash / auth window / transport)" >&2
       if [ "$ENGINE_FAILS" -ge "${RALPH_ENGINE_MAX:-3}" ]; then
+        # FU-83/84: a different model = a different rate bucket — try the
+        # one-shot fallback before declaring the outage terminal.
+        if ralph_try_model_fallback; then
+          ENGINE_FAILS=0
+          continue
+        fi
         ralph_end_session "engine_failure" "claude produced zero tokens on ${ENGINE_FAILS} consecutive calls — engine outage, not a work problem (resume when the limit window resets)"
         exit 1
       fi
@@ -611,6 +680,10 @@ for i in $(seq 1 "$MAX_ITER"); do
     fi
     ralph_error_tool "claude" "/tdd returned non-zero (code $TDD_RC) in iteration $i"
     ralph_iteration_end "tdd-failed"
+    # FU-84: a non-zero exit that dodged the 429 regex (usage-window
+    # message) lands here with zero tokens — without this check the loop
+    # burns ALL iterations as tdd-failed during an engine outage.
+    check_engine_progress_or_fail "tdd-failed"
     continue
   fi
 
@@ -641,6 +714,12 @@ for i in $(seq 1 "$MAX_ITER"); do
     # FOLLOW-UP 74: a zero-token engine no-op on /run-acceptance is an outage,
     # not a failing gate — end the session engine_failure rather than logging
     # a false acceptance failure and burning the next iteration.
+    # FU-83/84: try the one-shot model fallback first; the iteration is
+    # retried from /tdd (committed work survives, the prompt re-converges).
+    if ralph_try_model_fallback; then
+      ralph_iteration_end "engine-noop" "model-fallback"
+      continue
+    fi
     ralph_end_session "engine_failure" "claude produced zero tokens on /run-acceptance — engine outage (resume when the limit window resets)"
     exit 1
   fi
@@ -929,6 +1008,11 @@ $STACKED_DIFF_NOTE}"; then
   ralph_iteration_end "acceptance-failing" "$ACCEPT_STATUS"
   echo "⚠️  Iteration $i did not reach green (${ACCEPT_STATUS}). Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuing…"
   ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
+  # FU-84: result-file-missing with FROZEN tokens is the rate-window loop
+  # (live: 30× "did not reach green (result-file-missing)" at a frozen
+  # counter, twice in one session). A genuinely failing-but-working
+  # iteration always advances tokens and resets the counter.
+  check_engine_progress_or_fail "$ACCEPT_STATUS"
 done
 
 echo "❌ Ralph exhausted $MAX_ITER iterations without green. Marking issue as ralph-blocked."

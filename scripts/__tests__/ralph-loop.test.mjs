@@ -1398,3 +1398,60 @@ test('FU-83: RALPH_MODEL unset → no --model (CLI default preserved), logged as
     assert.equal(started?.details?.engine_model, 'cli-default');
   });
 });
+
+// ── FOLLOW-UP 84: the FU-74 guard is per-call (exit 0 + 0 tokens); a CLI that ─
+// exits NON-zero without matching the 429 regex — the subscription usage-window
+// message — slips past it and the loop spins to max_iterations with frozen
+// tokens (live: 2× 30-iteration allowances burned in one session, the work
+// already complete). The iteration-level detector ends the session
+// engine_failure within RALPH_ENGINE_MAX iterations and does NOT ralph-block
+// the issue (the work is untainted). Reference: OpenHands' stuck detector —
+// a pathological no-progress state is a DISTINCT terminal, not "out of turns".
+test('FU-84: non-429 engine outage (frozen tokens) → engine_failure within RALPH_ENGINE_MAX, not 30× blocked', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '30'], {
+      MOCK_ENGINE_DOWN_FOR: 'cli-default',   // every call: exit 1, usage-limit stderr, 0 tokens
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+    });
+    assert.notEqual(status, 0);
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'engine_failure', 'distinct terminal — not blocked, not max-iterations');
+    const iters = events.filter((e) => e.event === 'ralph.iteration.completed').length;
+    assert.ok(iters <= 2, `allowance not burned: ${iters} iterations, expected ≤ RALPH_ENGINE_MAX`);
+    assert.match(out, /may already be COMPLETE|may already carry complete work/i,
+      'operator is told to check the branch head before --resume');
+    const labels = existsSync(join(dir, '.mock-gh-labels')) ? readFileSync(join(dir, '.mock-gh-labels'), 'utf8') : '';
+    assert.doesNotMatch(labels, /ralph-blocked/, 'an engine outage must not ralph-block the issue');
+  });
+});
+
+test('FU-84: a failing-but-working run (tokens advance) still iterates to blocked, never engine_failure', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '4'], {
+      MOCK_FAIL_ISSUE: '1',                  // acceptance fails, but every call consumes tokens
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+    });
+    assert.notEqual(status, 0);
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'blocked', 'real non-green work exhausts iterations as before');
+    assert.doesNotMatch(JSON.stringify(events), /engine_failure/, 'token-advancing iterations reset the detector');
+  });
+});
+
+test('FU-83/84: RALPH_FALLBACK_MODEL recovers an outage in-process — session completes on the fallback', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '30'], {
+      RALPH_MODEL: 'tier-down',
+      MOCK_ENGINE_DOWN_FOR: 'tier-down',     // primary model's bucket is collapsed
+      RALPH_FALLBACK_MODEL: 'tier-up',       // fallback bucket is healthy
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+    });
+    assert.equal(status, 0, 'the run completes instead of dying engine_failure');
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'completed');
+    assert.ok(events.some((e) => e.event === 'ralph.engine.model_fallback' && e.details?.model === 'tier-up'),
+      'the switch is logged, not implicit');
+    const args = readFileSync(join(dir, '.mock-claude-args'), 'utf8');
+    assert.match(args, /--model tier-up/, 'post-fallback calls carry the fallback model');
+  });
+});
