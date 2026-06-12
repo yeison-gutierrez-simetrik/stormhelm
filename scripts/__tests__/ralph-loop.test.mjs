@@ -1367,3 +1367,34 @@ test('FU-74: a normal token-producing run still iterates (no false engine_failur
     assert.ok(events.some((e) => e.event === 'ralph.iteration.completed'), 'real work iterates normally');
   });
 });
+
+// ── FOLLOW-UP 83: the engine model is a config point (RALPH_MODEL), not a ─────
+// hardcode. Before: `claude -p` with no --model → every consumer pays its CLI
+// default tier, and the only escape from a model-specific rate window was
+// hand-editing the vendored engine. Reference: LiteLLM router fallbacks treat
+// a different model as a different rate bucket — but the framework does not
+// pin a default model name (it would rot); unset = CLI default, unchanged.
+test('FU-83: RALPH_MODEL flows to every claude call as --model and into session.started', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], { RALPH_MODEL: 'test-tier-1' });
+    assert.equal(status, 0);
+    const argLines = readFileSync(join(dir, '.mock-claude-args'), 'utf8').trim().split('\n');
+    assert.ok(argLines.length >= 2, 'tdd + acceptance calls recorded');
+    for (const line of argLines) {
+      assert.match(line, /--model test-tier-1/, `every engine call carries --model: ${line}`);
+    }
+    const started = readEvents(dir, 1).find((e) => e.event === 'ralph.session.started');
+    assert.equal(started?.details?.engine_model, 'test-tier-1', 'session records WHICH model produced it');
+  });
+});
+
+test('FU-83: RALPH_MODEL unset → no --model (CLI default preserved), logged as cli-default', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '3'], {});
+    assert.equal(status, 0);
+    const args = readFileSync(join(dir, '.mock-claude-args'), 'utf8');
+    assert.doesNotMatch(args, /--model/, 'unset RALPH_MODEL must not invent a model');
+    const started = readEvents(dir, 1).find((e) => e.event === 'ralph.session.started');
+    assert.equal(started?.details?.engine_model, 'cli-default');
+  });
+});

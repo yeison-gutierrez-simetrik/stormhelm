@@ -4,11 +4,16 @@
 # Usage:
 #   ./templates/ralph-local.sh <issue-number> [max-iterations]
 #
+# Engine env knobs:
+#   RALPH_MODEL    engine model, forwarded as `claude --model` on every call —
+#                  run the engine on a cheaper/different tier than the
+#                  interactive session; unset = CLI default (FU-83)
+#
 # Reads the GitHub issue, runs /tdd + /run-acceptance until every
 # @release scenario passes or the budget is exhausted. Before opening
 # the draft PR it invokes the reviewer agent and embeds its report.
 #
-# Implementa: §63 (label gate), §65 (max-iterations), §66 (reviewer
+# Implements: §63 (label gate), §65 (max-iterations), §66 (reviewer
 #             pre-PR + retry on blocking), §67 (draft PR),
 #             §66 (ralph-blocked label + structured comment via
 #                  block_issue + comment template),

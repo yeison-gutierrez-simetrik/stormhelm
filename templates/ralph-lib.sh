@@ -67,15 +67,18 @@ ralph_init_session() {
   : > "$RALPH_SESSION_LOG"
   : > "$RALPH_TOKENS_FILE"
 
+  # FOLLOW-UP 83: record WHICH model the engine runs on — "cli-default"
+  # when RALPH_MODEL is unset — so a session's results are attributable.
   ralph_log_event "info" "ralph.session.started" \
-    "{\"script_version\":\"1.0\",\"worker_id\":$(ralph_json_string "${RALPH_WORKER_ID:-w0}"),\"working_dir\":\"$(pwd)\"}"
+    "{\"script_version\":\"1.0\",\"worker_id\":$(ralph_json_string "${RALPH_WORKER_ID:-w0}"),\"working_dir\":\"$(pwd)\",\"engine_model\":$(ralph_json_string "${RALPH_MODEL:-cli-default}")}"
 }
 
 # ──────────────────────────────────────────────────────────────────────
 # end_session <status> [reason]
 #
 # Emits ralph.session.ended with terminal status. Valid statuses:
-#   completed | blocked | budget_exceeded | rate_limit_exhausted
+#   completed | blocked | budget_exceeded | rate_limit_exhausted |
+#   engine_failure (FU-74/84: the ENGINE died, the work is untainted)
 # ──────────────────────────────────────────────────────────────────────
 ralph_end_session() {
   local status="${1:?ralph_end_session requires <status>}"
@@ -777,6 +780,10 @@ ralph_call_completed() {
 # After exhausting all retries, returns exit code 124 so the caller can
 # distinguish rate-limit exhaustion from a regular tool failure.
 #
+# RALPH_MODEL (FOLLOW-UP 83): when set, forwarded as `--model` on every
+# call — run the engine on a cheaper/different tier than the operator's
+# interactive session without editing this script. Unset = CLI default.
+#
 # Detection heuristics for 429 — any of these in stderr signals a rate
 # limit:
 #   - "429"
@@ -811,11 +818,19 @@ ralph_call_claude_with_retry() {
   # shellcheck disable=SC2064
   trap "rm -f '$stderr_file'" RETURN
 
+  # FOLLOW-UP 83: the engine model is a config point, not a hardcode.
+  # RALPH_MODEL set → passed as --model; unset → the CLI's own default
+  # (the framework does not pin a model name that would rot). Read per
+  # call so a mid-run fallback switch (FU-84) applies to the next call.
+  # The empty-array guard is the bash-3.2 set -u pattern (see RESUME_FLAG).
+  local model_args=()
+  [ -n "${RALPH_MODEL:-}" ] && model_args=(--model "$RALPH_MODEL")
+
   while [ "$attempt" -le "$max_attempts" ]; do
     local output
     # Run claude with JSON output: the result envelope carries usage data
     # (plain-text output has none — token accounting reported 0 forever).
-    if output=$(claude -p "$prompt" --output-format json 2> "$stderr_file"); then
+    if output=$(claude -p "$prompt" ${model_args[@]+"${model_args[@]}"} --output-format json 2> "$stderr_file"); then
       # Extract usage and append to the per-call ledger. This function
       # runs inside $(…) subshells, so updating the parent's cumulative
       # directly is impossible — the file is the channel (see sync_tokens).
