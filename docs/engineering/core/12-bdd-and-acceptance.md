@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -719,3 +719,58 @@ pnpm run build || { echo "::error::Build failed — TypeScript errors must be fi
 ### Allowed exceptions
 
 - A file marked `// @stub` with a linked issue documenting the intentional scaffold and the deadline by which it must be implemented. The CI grep excludes files containing that marker. This is for legitimate "vertical slice without UI yet" cases — and is rare.
+
+## §124. Pin a growing surface in a registry fixture, never in an exact-set scenario assertion
+
+When an approved scenario needs to pin a **surface that grows by design** — an
+MCP tool set, a CLI command group, an exported API, an event catalog — an
+"is exactly {…}" assertion conflates two different events:
+
+- an **unexpected** entry appearing → a real regression the pin exists to catch;
+- a **planned** entry being added → normal growth.
+
+Under §58 the second still requires editing an approved scenario — a human
+checkpoint on **every** additive slice. (Live evidence, FOLLOW-UP 86: four
+consecutive consumer slices each blocked the autonomous loop on extending one
+pinned tool-set list, each needing a manual draft PR + an amendment note.)
+
+### The split
+
+The scenario asserts **containment of the founding baseline** plus **agreement
+with the registry fixture** — approved once, never edited by growth:
+
+```gherkin
+Then the tool set contains "get_listing", "get_provider_agent", "search_listings"
+And the advertised tool set matches features/fixtures/tool-registry.json exactly
+```
+
+A **checked-in registry fixture** owns the authoritative full set; the unit
+gate diffs the live surface against it:
+
+```json
+["get_listing", "get_provider_agent", "search_listings", "create_service_scoping"]
+```
+
+- Adding an entry = updating the data fixture — mechanical, reviewed in the
+  slice's normal PR, **not** a §58 edit.
+- An unexpected entry still fails the unit diff — drift detection is
+  structural, not scenario-borne.
+- Name the contract identically in the scenario and the fixture path (the
+  same-string-both-places rule) so they cannot drift apart.
+
+### Why not the alternatives
+
+- **A sanctioned "additive amendment" lane** (reviewer waves through provably
+  additive edits to approved scenarios) relaxes §58 for a defined case — and
+  every relaxation of the approval contract is a precedent the next exception
+  cites. Rejected by maintainer decision (FOLLOW-UP 86).
+- **Treating each extension as a normal §58 re-approval** prices every
+  planned addition like a contract change. The pin's value is catching the
+  *unplanned*; the fixture preserves exactly that.
+
+### Precedent
+
+api-extractor's committed `.api.md` report: the API surface lives in a tracked
+report file, CI fails when the built surface differs, and intentional changes
+update the report in the same PR under normal review. The registry fixture is
+the same pattern at scenario altitude.

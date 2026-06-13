@@ -616,7 +616,7 @@ After generation, the skill runs a self-check:
 ✅ Stormhelm configured for <ProjectName>
 
 Active capabilities:
-  - core (every §N living in `docs/engineering/core/*.md` — currently 98 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§123; the rest is stack-specific)
+  - core (every §N living in `docs/engineering/core/*.md` — currently 99 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§124; the rest is stack-specific)
   - typescript (§5–§10, §33, §50–§55, §117–§121)        ← if TS selected
   - typescript-hono (§38–§44)                            ← if Hono selected
   - python (§5-py–§10-py, §33-py, §50-py–§55-py,

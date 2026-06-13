@@ -11,7 +11,7 @@ The name combines two ideas: the **helm** — the wheel that keeps a ship on cou
 ## TL;DR — what you get
 
 - **31 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, …) that drive a disciplined workflow inside Claude Code. *(Plus one framework-self skill, `/verify-framework-consistency`, in `skills-internal/` — used to maintain Stormhelm itself, not shipped to adopting projects.)*
-- **123 numbered rules** (`§1 – §123`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
+- **124 numbered rules** (`§1 – §124`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
 - **A sub-agent** (`reviewer`) that audits diffs in a fresh context and cites rule numbers in its findings.
 - **Five Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, block destructive shell commands via `git-guardrails.cjs` (§68), and warn on closed-set/doc drift via `closed-set-check.cjs` (§36).
 - **A capability system** with `capabilities/typescript` + `capabilities/typescript-hono` and `capabilities/python` + `capabilities/python-fastapi` shipped. Each capability activates only when your project uses that stack.
@@ -436,7 +436,7 @@ For the full operational guide with worked example, HITLs, and responsibilities,
 
 | Capability | Status | Rules |
 |---|---|---|
-| `core` (stack-agnostic) | ✅ Shipped | every §N living in `docs/engineering/core/*.md` — 98 rules; remaining 25 are stack-specific |
+| `core` (stack-agnostic) | ✅ Shipped | every §N living in `docs/engineering/core/*.md` — 99 rules; remaining 25 are stack-specific |
 | `capabilities/typescript` | ✅ Shipped | §5–§10, §33, §50–§55, §117–§121 |
 | `capabilities/typescript-hono` | ✅ Shipped | §38–§44 (Hono / Drizzle / Zod) |
 | `capabilities/python` | ✅ Shipped | §5-py–§10-py, §33-py (style); §50-py–§55-py (async); §117-py–§121-py (uv + supply chain) |
