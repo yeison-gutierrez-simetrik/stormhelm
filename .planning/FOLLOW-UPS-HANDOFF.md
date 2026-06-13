@@ -1914,3 +1914,73 @@ rule): the skill, `agents/reviewer.md`'s contract note (it may now say "injected
 **Acceptance.** An ad-hoc `/code-review` of a PR yields a reviewer report whose invariant-gate
 section quotes the engine-run result; no procedural BLOCK for absence; fixture optional (docs+skill
 change is the substance — the reviewer-side parsing already exists).
+# Batch — belong Night-Shift auto-pilot campaign (slices 12-15, 2026-06-12)
+
+Context: ran `/auto-pilot` end-to-end on four consecutive slices (12 service-scoping relay, 13 quote create/accept/reject, 14 MSA+SOW, 15 SOW state-machine + progress events) under the FU-80 mode. Twelve impl PRs / re-reviews driven to green. These four crossed the vendored engine surface (templates/ralph-*.sh) or the §58 scenario contract. Suggested order: 83 (model config — unblocks cost + the rate-window recovery the other items lean on), 84 (the FU-74 loop gap that wasted two full Ralph allowances), 85, 86.
+
+## FOLLOW-UP 83 — the Ralph engine hardcodes the model: `ralph_call_claude_with_retry` calls `claude -p` with NO `--model`, so every consumer pays the CLI's default tier and a per-model rate-window cannot be dodged  ·  **Severity: MEDIUM-HIGH (cost on every call + the only recovery from a model-specific rate-window collapse is hand-editing the engine)**
+
+**Problem.** `templates/ralph-lib.sh` `ralph_call_claude_with_retry` (the SINGLE wrapper all engine calls go through — /tdd, /run-acceptance, the §114 reviewer) invokes:
+```bash
+if output=$(claude -p "$prompt" --output-format json 2> "$stderr_file"); then
+```
+No `--model`, no `RALPH_MODEL` env, no config. The engine therefore runs on whatever the consumer's `~/.claude/settings.json` `"model"` is. belong's default is `claude-fable-5[1m]` (Mythos-class — the most expensive tier). Two distinct costs:
+1. **Spend.** Every TDD + acceptance + reviewer call on slices 12-15 ran on Fable 5. Wide slices burn 336k-400k+ tokens (FU-75) — on the priciest model, with no knob to drop the engine to a cheaper tier (Opus/Sonnet) while keeping the interactive session on Fable.
+2. **Rate-window lock-in (the operational one).** Anthropic rate limits are per-model-tier buckets. When Fable 5's bucket collapsed mid-run (the FU-74 outage class), the engine had NO way to fall back to a different model — and a consumer cannot switch the engine's model WITHOUT EDITING THE VENDORED SCRIPT. Live recovery this session was exactly that hand-edit (consumer-fix below), and switching to Opus 4.8 **both** cut cost **and** dodged the Fable rate window instantly (fresh bucket) — far faster than serialize-and-wait.
+
+**Live evidence:** belong slices 14 (#140) + 15 (#141), 2026-06-12. Fable-5 rate-window collapse on Ralph 14 then Ralph 15 (see FU-84); resumed Ralph 15 on Opus 4.8 → the `claude -p` call ran for minutes and committed work (a296493) where Fable returned instant 0-token no-ops. Consumer-fix applied to belong's `ralph-lib.sh:818` (file it lifts verbatim):
+```bash
+if output=$(claude -p "$prompt" --model "${RALPH_MODEL:-claude-opus-4-8[1m]}" --output-format json 2> "$stderr_file"); then
+```
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:templates/ralph-lib.sh | grep -n 'claude -p "\$prompt"'   # no --model today
+```
+
+**Fix.** Add a first-class engine-model config to `ralph_call_claude_with_retry`: `--model "${RALPH_MODEL:-<sensible-default>}"`. The default should be a mid-tier model (Opus, not the costliest), overridable per-run by `RALPH_MODEL` (and surfaced in `ralph-isolated.sh`/`ralph-local.sh` usage + the session log's `contract.validated` event so the run records WHICH model produced it). **Bonus (recommended, ties to FU-84):** on the zero-token engine-outage path, attempt ONE fallback to a SECOND model (`RALPH_FALLBACK_MODEL`) before ending the session — a different rate bucket recovers a rate-window collapse in-process. Structured contract: the chosen model is logged, not implicit.
+
+**Acceptance.** A fixture (`scripts/__tests__/*.test.mjs`, mock `claude` bin in `fixtures/ralph-mock-bin/`) asserts `claude -p` is invoked with the `RALPH_MODEL` value when set and the default otherwise; the session log records the model. Consumer-visible: a consumer can run the engine on a cheaper/different model via one env var, no vendored edit.
+
+## FOLLOW-UP 84 — the FU-74 engine-outage guard does NOT catch the `result-file-missing` rate-window loop: a model-rate-window collapse makes the engine spin all 30 iterations on "did not reach green (result-file-missing)" with FROZEN cumulative tokens, then exhausts — instead of ending `engine_failure`  ·  **Severity: HIGH (silently burns an entire Ralph allowance + marks the issue ralph-blocked when the WORK is often already done; reproduced twice in one session)**
+
+**Problem.** FU-74 added two zero-token guards in `templates/ralph-local.sh.tmpl`: the `ENGINE_FAILS` counter on `/tdd` (line ~573-583, ends `engine_failure` after `RALPH_ENGINE_MAX` consecutive zero-token calls) and the `/run-acceptance` zero-token check (line ~636-639). But the loop's "did not reach green" path (line ~925: `echo "⚠️ Iteration $i did not reach green (${ACCEPT_STATUS}). Tokens: ${RALPH_TOKENS_CUMULATIVE}/${BUDGET_TOKENS}. Continuing…"`) handles `ACCEPT_STATUS=result-file-missing` as a NORMAL non-green iteration and **continues**. During a rate-window collapse the acceptance engine call returns without writing the result file (result-file-missing) and the cumulative token counter does NOT advance — yet neither zero-token guard fires for this path, so the loop runs to `max_iterations` (30) and exhausts → `ralph-blocked`. The blast radius: any rate-window collapse during the acceptance phase wastes the full iteration allowance, and (worse) the slice WORK is frequently already complete — the loop just can't register green.
+
+**Live evidence:** belong issue #135 (slice 14) — 30 iterations, every one `did not reach green (result-file-missing). Tokens: 210857/400000` (FROZEN at 210857), then "exhausted 30 iterations without green → ralph-blocked" — yet the branch head `e87d20f` was COMPLETE (unit 955/955, acceptance 242/242); the PR was opened by hand from the verified head. Reproduced identically on issue #137 (slice 15): 30× `result-file-missing. Tokens: 0/400000` (frozen at 0 from iteration 1 — the window was already active), exhausted, work partially done.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:templates/ralph-local.sh.tmpl | grep -nE 'result-file-missing|did not reach green|Continuing|ENGINE_FAILS'
+# the "Continuing…" branch has no frozen-token / consecutive-result-file-missing abort
+```
+
+**Fix.** Extend the FU-74 outage detection to the loop level, not just the per-call zero-token check: track cumulative-token delta PER ITERATION; if N consecutive iterations (RALPH_ENGINE_MAX) produce `result-file-missing` (or any non-green) AND zero cumulative-token advance, end the session `engine_failure` ("resume when the limit window resets") instead of continuing — the same structured outcome FU-74 already emits, hoisted to the iteration loop. (Pairs with FU-83's model-fallback: try the fallback model before declaring the outage.) Also: on `engine_failure` with a non-empty branch, the operator-facing message should hint "the impl may be complete — check the branch head before --resume" (this session, both collapses left mergeable/partial work the loop never surfaced).
+
+**Acceptance.** Fixture: a mock `claude` bin that returns 0 tokens + writes no result file for K consecutive iterations → the engine ends `engine_failure` within `RALPH_ENGINE_MAX` iterations, NOT at `max_iterations`. The session log's terminal event is `engine_failure`, not `blocked`.
+
+## FOLLOW-UP 85 — FU-69's worktree node_modules symlink resolves WORKSPACE packages to the PRIMARY checkout's stale tree: an isolated run's `@scope/cli` resolves to MAIN's CLI, so every slice that adds a CLI command has a CLI acceptance scenario that fails LOCALLY (passes only in CI's clean checkout)  ·  **Severity: MEDIUM (RECURRING — every CLI-touching slice; a permanent local red that trains operators to ignore acceptance reds)**
+
+**Problem.** `templates/ralph-isolated.sh` (FU-69, line ~124-128) symlinks the primary checkout's `node_modules` into the worktree so `.bin` binaries resolve. For a **workspace monorepo** that also makes every WORKSPACE package resolve through the primary's `node_modules` → to the PRIMARY checkout's package source — which is on `main`, NOT the worktree's feature branch. So `import { runCli } from "@belong/cli"` inside an acceptance step loads main's CLI, which lacks the command group the slice under test just added. The CLI acceptance scenario fails locally with "unknown command" / stale output, while passing in CI (fresh checkout, the branch's own workspace). belong absorbed this as a per-slice "scn-269/283/295 is CI-gated" note, but it is structurally a worktree-provisioning gap, and a recurring local red erodes the signal that acceptance is the green gate.
+
+**Live evidence:** belong slices 12 (scn-250), 13 (scn-269), 14 (scn-283), 15 (scn-295) — every CLI smoke scenario failed in the isolated worktree (`@belong/cli` → main's stale `packages/cli`) and passed in CI. Confirmed: `.worktrees/<run>/node_modules -> <primary>/node_modules`; `require.resolve('@belong/cli')` → `<primary>/packages/cli/src/program.ts` (main's), not the worktree's.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:templates/ralph-isolated.sh | grep -nE 'node_modules|symlink|FOLLOW-UP 69'
+```
+
+**Fix (one of, maintainer's call — present both):** (a) After linking node_modules, **re-link the in-repo workspace packages** to the WORKTREE's copies (overlay symlinks for `node_modules/@scope/*` → `$WT/packages/*`), so workspace imports resolve to the branch under test; or (b) detect a workspace (pnpm-workspace.yaml / workspaces field) and run a scoped `install`/`build` of changed packages in the worktree instead of the blanket symlink. If neither is adopted, at minimum the engine should KNOW a CLI-via-workspace scenario is structurally local-red-CI-green and not count it against "did not reach green" (a documented, tagged allowance) — so it doesn't burn the loop. Recommend (a): cheapest, preserves the FU-69 .bin win.
+
+**Acceptance.** In a workspace fixture, an isolated worktree on a branch that adds a CLI command resolves `@scope/cli` to the WORKTREE's package (not the primary's), and the CLI acceptance scenario passes LOCALLY. Consumer-visible: a fresh consumer's CLI smoke scn is green in the isolated run, not only in CI.
+
+## FOLLOW-UP 86 — an "exact set" assertion in an approved scenario (slice-10's `the tool set is exactly {get_listing, …}`) turns every later slice that adds a capability into a §58-blocking edit Ralph cannot self-approve — recurring manual DRAFT-PR + OD-2 intervention  ·  **Severity: decision (maintainer) — the pin is correct for drift-detection, but its exact-set shape makes additive growth a human-checkpoint every slice**
+
+**Problem.** slice 10 pinned the MCP surface with `Then the tool set is exactly "get_listing", "get_provider_agent", "search_listings"` (a closed-set assertion, `# status: implemented`/approved). Every subsequent slice that legitimately ADDS a tool (12 `create_service_scoping`, 13 `request_quote/accept_quote/reject_quote`, 14 `get_sow/get_msa`, 15 `list_progress_events`) makes that approved scenario FAIL, and extending its pinned list is a §58 edit-to-an-approved-scenario. The §114 reviewer correctly BLOCKS it; Ralph CANNOT self-approve a §58 edit, so the autonomous loop cannot finish — each slice required a manual DRAFT-PR + an AUTO-PILOT OD-2 note in the feature header (precedent slices 12-15). The pin's drift-detection value is real (it catches an UNINTENDED tool appearing); but its **exact-set** shape conflates "an unexpected tool appeared" (a real regression) with "an expected, planned tool was added" (normal growth), and routes the latter through a human checkpoint every slice.
+
+**Live evidence:** belong slices 12/13/14/15 — each extended slice-10's pinned tool set + carried an OD-2 header note; each blocked the autonomous loop until a human (operator-delegate) created the DRAFT PR. Recurring 4-for-4.
+
+**Verify:** belong `features/mcp-server/mcp-and-cli.feature` scn-211 header — four stacked OD-2 amendment notes, one per slice.
+
+**Fix (maintainer decision — present options):** (1) **Additive-pin convention:** re-shape the assertion from "exactly {set}" to "contains {baseline} and every tool advertises a schema" + a SEPARATE registry-fixture (a checked-in `tool-registry.json` the unit gate diffs) that owns the authoritative full set — so adding a tool updates a data fixture (mechanical, non-§58) and an UNEXPECTED tool still fails the unit diff (drift caught structurally, not via an approved scenario). (2) **Sanctioned additive-amendment lane:** a recognized OD-2-class marker for "approved scenario whose closed enum was extended additively" that the §114 reviewer accepts WITHOUT a human checkpoint when the diff is provably additive (no removals) — formalizing what slices 12-15 did by hand. Recommend (1): moves the pin from an approved-scenario (§58-frozen) to a data fixture (freely updatable, still drift-proof). Either way: name the contract in the scenario AND the registry so they cannot drift (FU-17).
+
+**Acceptance.** Adding an MCP tool updates a data fixture / additive list and passes the gates with NO §58 human checkpoint; an UNEXPECTED tool (not in the fixture) still fails. Consumer-visible: an auto-pilot slice that adds a tool reaches its DRAFT PR without a manual intervention.
