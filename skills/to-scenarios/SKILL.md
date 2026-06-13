@@ -67,6 +67,12 @@ Rules per scenario:
 - Multiple `Then` allowed when one action has multiple observable consequences.
 - Multiple `Given` allowed to set up state.
 - Negative scenarios (failure cases) are mandatory when the FR mentions error states.
+- Never pin a **surface that grows by design** (tool sets, CLI command groups,
+  API/event catalogs) with an "is exactly {…}" assertion — once approved, every
+  planned addition becomes a §58 edit to an approved scenario. Assert
+  containment of the founding baseline + agreement with a checked-in registry
+  fixture the unit gate diffs; additions update the fixture, an unexpected
+  entry still fails (§124).
 
 Example translation:
 
