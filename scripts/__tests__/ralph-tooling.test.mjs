@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -566,5 +566,42 @@ test('FU-77: §63 preserved — a NEVER-started issue without ralph-ready still 
     const fresh = isoRun(dir, ['2', '--max-iterations', '1'], { MOCK_LABELS: 'scenarios:scn-001\nbudget:50k\nshift:afk' });
     assert.notEqual(fresh.status, 0);
     assert.match(`${fresh.stdout}${fresh.stderr}`, /missing label 'ralph-ready'/);
+  });
+});
+
+// ── FOLLOW-UP 85: in a WORKSPACE monorepo, FU-69's node_modules symlink makes ─
+// every workspace package resolve through the PRIMARY checkout — main's code,
+// not the branch under test (live: 4-for-4 CLI-touching slices red locally,
+// green in CI). A workspace gets a REAL per-worktree install instead — the
+// same semantics as CI, per pnpm's own git-worktrees guidance. Non-workspace
+// consumers keep the FU-69 symlink (covered by the FU-69 test above).
+test('FU-85: workspace monorepo → real install in the worktree, never the primary symlink', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    // A workspace consumer: root manifest declares workspaces + a member pkg.
+    writeFileSync(join(dir, 'package.json'), '{ "name": "c", "workspaces": ["packages/*"] }');
+    mkdirSync(join(dir, 'packages', 'cli'), { recursive: true });
+    writeFileSync(join(dir, 'packages', 'cli', 'package.json'), '{ "name": "@scope/cli" }');
+    writeFileSync(join(dir, '.gitignore'), 'node_modules/\n.worktrees/\n.planning/\n');
+    git('add', '-A'); git('commit', '-qm', 'workspace consumer');
+    // A primary node_modules EXISTS — the FU-69 path would have symlinked it
+    // (that is exactly the staleness vector under test).
+    mkdirSync(join(dir, 'node_modules', '.bin'), { recursive: true });
+
+    const r = isoRun(dir, ['1', '--max-iterations', '1'], {
+      // The override knob doubles as the test seam: a hermetic install that
+      // stamps WHERE it ran (a real pnpm/npm here would hit the network).
+      RALPH_WORKTREE_INSTALL_CMD: 'mkdir -p node_modules && echo branch-install > node_modules/.installed-here',
+    });
+    const out = `${r.stdout}${r.stderr}`;
+    assert.equal(r.status, 0, out);
+    assert.match(out, /Workspace monorepo detected/);
+    assert.doesNotMatch(out, /Linked node_modules/, 'the symlink path must not run for a workspace');
+    const wt = join(dir, '.worktrees', readdirSync(join(dir, '.worktrees'))[0]);
+    assert.ok(!lstatSync(join(wt, 'node_modules')).isSymbolicLink(),
+      'worktree node_modules is REAL — workspace packages resolve to this branch, not the primary');
+    assert.ok(existsSync(join(wt, 'node_modules', '.installed-here')), 'RALPH_WORKTREE_INSTALL_CMD ran with cwd = the worktree');
+    assert.ok(!existsSync(join(dir, 'node_modules', '.installed-here')), 'the primary checkout is untouched');
   });
 });

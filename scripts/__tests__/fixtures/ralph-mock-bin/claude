@@ -10,21 +10,38 @@
 #   MOCK_FAIL_ISSUE       if set, /run-acceptance for that issue # writes a FAILING result file
 #   MOCK_NO_RESULT_FILE   if set, /run-acceptance does NOT write the result file
 #   MOCK_IN_TOKENS / MOCK_OUT_TOKENS  usage reported per call in JSON mode (default 1200/340)
+#   MOCK_ENGINE_DOWN_FOR  comma-separated model names for which the CLI is DOWN
+#                         ("cli-default" = calls with no --model): exit 1, stderr
+#                         "Claude AI usage limit reached", no tokens, no result
+#                         file — the non-429 rate-window collapse the real CLI
+#                         produces (FU-84). The message must NOT match the 429
+#                         retry regex, or the mock masks the exact leak.
 #
 # Every prompt is appended to .mock-claude-prompts so tests can assert WHAT the
 # loop asked for (FU-33: zero /code-review on green; FU-34: failure feedback).
+# Every argv is appended to .mock-claude-args so tests can assert HOW the loop
+# called the CLI (FU-83: --model pass-through).
 #
 # Since FOLLOW-UP 14 the loop's green signal is the structured result file; since
 # FOLLOW-UP 33 the reviewer verdict/report arrive via gates.reviewer + the
 # issue-<N>-reviewer.md file (the acceptance session's embedded Step-8 reviewer).
 json_mode=""
-prompt=""; prev=""
+prompt=""; prev=""; model="cli-default"
 for a in "$@"; do
   [ "$prev" = "--output-format" ] && [ "$a" = "json" ] && json_mode=1
   [ "$prev" = "-p" ] && prompt="$a"
+  [ "$prev" = "--model" ] && model="$a"
   prev="$a"
 done
 printf '%s\n―――\n' "$prompt" >> .mock-claude-prompts
+printf '%s\n' "$*" >> .mock-claude-args
+if [ -n "${MOCK_ENGINE_DOWN_FOR:-}" ]; then
+  case ",${MOCK_ENGINE_DOWN_FOR}," in
+    *",${model},"*)
+      echo "Claude AI usage limit reached|resets at 03:00" >&2
+      exit 1 ;;
+  esac
+fi
 # emit <text> — honors --output-format json with a result envelope + usage,
 # mirroring the real CLI (text mode carries no usage data at all).
 emit() {
