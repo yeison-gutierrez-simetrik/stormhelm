@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -774,3 +774,42 @@ api-extractor's committed `.api.md` report: the API surface lives in a tracked
 report file, CI fails when the built surface differs, and intentional changes
 update the report in the same PR under normal review. The registry fixture is
 the same pattern at scenario altitude.
+
+## §125. A spec-declared skill-doc deliverable is gate-enforced against the slice diff
+
+When a spec/issue pins a **skill doc** as an FR-deliverable — "Skill doc
+`<name>` extended/created" — that obligation must be checked **structurally**,
+not left to the merge-gate reviewer. Acceptance scenarios cannot see a missing
+Markdown file (no scenario exercises a doc), so a slice can satisfy every
+`@release` scenario and all unit tests and still ship green having skipped the
+doc — and the omission falls entirely to the §114 reviewer, which can only
+BLOCK and hand it back (an extra round-trip). (Live: belong PR #146 — the lone
+REQUIRED merge-gate item was a skipped skill doc; PR #147 — one of six.)
+
+### The contract (name it in all three places — FU-17 anti-drift)
+
+1. **Spec FR** declares the deliverable: `Skill doc \`<name>.md\` extended` (or
+   an FR line naming a `**/skills/**/*.md` path).
+2. **The gate** `scripts/check-skill-doc-delivery.mjs <base-ref> <issue/spec>`
+   detects that declaration and PASSES only if the slice diff
+   (`<base-ref>...HEAD`) adds/modifies a `**/skills/**/*.md` (the named one when
+   a name is parseable). It is `na` — a silent no-op — when nothing is declared,
+   so it never touches the majority of slices.
+3. **The engine** runs it at acceptance, in the green branch *before* the
+   reviewer: a green acceptance that skipped a declared doc is held back as
+   `skill-doc-undelivered`, feeding the next `/tdd` so Ralph writes the doc
+   itself instead of bouncing off a human merge-gate.
+
+### Why a gate, not the reviewer
+
+Diff-aware "you changed X, you must also change Y" enforcement is a standard
+PR-bot pattern (Danger.js rules, CODEOWNERS-style required paths). Making it a
+deterministic gate moves the catch from a human round-trip to Ralph's own loop.
+The reviewer remains the backstop for everything a static path-check can't see.
+
+### Scope
+
+Fires **only** on an explicit skill-doc deliverable declaration — not on a spec
+that merely mentions a skill in prose. A consumer that never declares skill
+docs gets `na` on every slice (no behavior change). `/setup` copies the gate as
+a consumer-runtime script; the engine skips it gracefully when absent.

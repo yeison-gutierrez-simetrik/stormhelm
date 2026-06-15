@@ -20,7 +20,7 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 │   ├── WORKFLOWS-GUIDE.md              — canonical user-facing guide (English)
 │   ├── engineering/
 │   │   ├── AGENTS.md                   — rule index (all §N rules)
-│   │   ├── core/                       — 17 rule files (§1 – §124 to date)
+│   │   ├── core/                       — 17 rule files (§1 – §125 to date)
 │   │   └── capabilities/               — language/stack-specific rules
 │   │       ├── typescript/, typescript-hono/    — TS + Hono
 │   │       ├── python/, python-fastapi/         — Python + FastAPI
@@ -52,6 +52,7 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 │   ├── group-slice-issues.mjs          — [consumer-runtime] slice-group resolver (PR-Group / FW-2)
 │   ├── parse-layers-affected.mjs       — [consumer-runtime] shared AST parser, imported by group-slice (future PR-M)
 │   ├── preflight.mjs                   — [consumer-runtime] per-skill precondition checks (PR-B)
+│   ├── check-skill-doc-delivery.mjs    — [consumer-runtime] §125 spec-FR ⇒ skill-doc diff gate (FU-88)
 │   ├── sync-closed-sets.mjs            — [consumer-runtime] §36 generator, called by closed-set-check hook (PR-E)
 │   └── __tests__/                      — [self-maint]       test fixtures + .test.mjs files (node --test)
 ├── .github/workflows/
@@ -81,11 +82,11 @@ All three must be ✅ before merge. CI runs `check-framework-metadata.mjs` (`ver
 Two kinds of script live in `scripts/`, and the distinction matters for adoption:
 
 - **`[self-maint]`** — run only against *this* repo while maintaining the framework: `check-framework-metadata.mjs` and the `__tests__/` suite. Consumers do **not** need these.
-- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), and `sonar-sweep` (post-PR QG read-out). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
+- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), `sonar-sweep` (post-PR QG read-out), and `check-skill-doc-delivery` (§125 spec-FR ⇒ skill-doc diff gate). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
 
 ## Key conventions
 
-**§N rule numbering.** Rules are numbered §1 through §124 (current max). Each lives in exactly one file under `docs/engineering/core/` or `capabilities/`. The header of each file lists `**Rules in this file.** §X, §Y, §Z` — the linter enforces this header is correct. Never reuse a §N. New rules append at the next available number.
+**§N rule numbering.** Rules are numbered §1 through §125 (current max). Each lives in exactly one file under `docs/engineering/core/` or `capabilities/`. The header of each file lists `**Rules in this file.** §X, §Y, §Z` — the linter enforces this header is correct. Never reuse a §N. New rules append at the next available number.
 
 **INV-N invariants.** Executable invariants live in `scripts/check-invariants.mjs`. Reserved numbering:
 - INV-1 §107 — multi-module feature ⇒ SAD exists

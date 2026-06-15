@@ -95,6 +95,39 @@ Scenario: Customer cannot view a non-published Listing
   Then the response is 404 with code "LISTING_NOT_FOUND"
 ```
 
+### Step 3b — Lifecycle-edge completeness pass (closed-set state machines)
+
+A completeness **prompt**, not a generator. When an entity in the spec has a
+**closed-set status** (a lifecycle: `draft → under_review → accepted/rejected`,
+an option enum, a state machine), happy-path + one-step-negative scenarios
+routinely miss the edge/abuse paths where real lifecycle bugs live — and they
+ship green, caught only by the §114 merge-gate reviewer (an extra round-trip).
+Live: belong slice 17 went green (12/12 `@release` + 1137 unit tests) carrying
+four such bugs (option-set never enforced; a double-action CAS result ignored;
+an FR with no covering scenario; an empty-text sealed response).
+
+For each closed-set entity the slice touches, **ask whether each class below
+applies, and add the scenario where it does** (skip with a one-line note where
+it genuinely doesn't — judgment, not a mechanical cross-product):
+
+- **Option-set integrity** — an action that takes a value from a closed set
+  rejects a value outside it (a transition can't strand the entity via an
+  unlisted choice).
+- **Per-transition precondition** — each state transition refuses from a state
+  that should not allow it (not only the one happy transition).
+- **Double-action idempotency** — a money/settlement-adjacent or
+  signal-emitting action invoked twice does not double-emit / diverge (the CAS
+  result is honored).
+- **Empty / oversized input** — a free-text or collection field rejects empty
+  and over-limit values.
+
+This is intentionally a **nudge**: auto-pilot scenario generation stays
+happy-path-biased by design, and the §114 reviewer remains the designated
+backstop for lifecycle-edge correctness (maintainer decision, batch-21 / FU-89)
+— the goal is to convert the *common, cheap* misses into RED `/tdd` scenarios,
+not to mandate an exhaustive edge cross-product that bloats the suite with
+brittle scenarios.
+
 ### Step 4 — Apply runtime tags
 
 Every scenario must have at least one runtime tag (§60):

@@ -65,6 +65,12 @@ const FUNCTIONAL_BUCKETS = new Set([
 const NON_APP_ROOTS = new Set([
   'features', 'schema', 'docs', 'test', 'tests', 'e2e', 'migrations',
   'scripts', 'dist', 'build', 'public', 'assets',
+  // FOLLOW-UP 87: a workspace package (`packages/cli`, `packages/sdk`) is an
+  // entry/SDK adapter OF the slice's context, not a bounded context of its
+  // own; `test-support` is test scaffolding, like `test`/`tests`. Without
+  // these, a single-context slice that adds a CLI command + a test-support
+  // seeder false-escalates to multi-module on every workspace-layout consumer.
+  'packages', 'test-support',
 ]);
 
 // Derive ceremony labels from parsed /plan records (each from parseFile()).
@@ -91,7 +97,13 @@ export function detectCeremony(records) {
     for (const m of r.affected_modules ?? []) {
       modules.add(m);
       const segs = m.split('/'); // e.g. ["src","domain","org"]
-      if (NON_APP_ROOTS.has(segs[0])) continue;  // features/schema/… are not app modules
+      // FOLLOW-UP 87: peek one level under `src/` for the non-app check — a
+      // non-app subroot like `src/test-support` carries segs[0]==='src', so a
+      // bare segs[0] test would never exclude it. The effective root is segs[1]
+      // when the path is under `src/`, segs[0] otherwise. A real layer
+      // (`src/domain/…`) is never in NON_APP_ROOTS, so this is transparent to it.
+      const appRoot = segs[0] === 'src' && segs.length >= 2 ? segs[1] : segs[0];
+      if (NON_APP_ROOTS.has(appRoot)) continue;  // features/schema/packages/test-support/… are not app modules
       if (segs[0] === 'src' && KNOWN_LAYERS.has(segs[1])) {
         const seg = segs[2];
         // A real bounded context: a directory segment that is not a file and
