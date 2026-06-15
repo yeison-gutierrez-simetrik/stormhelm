@@ -125,6 +125,7 @@ This document is a **template index**. When you run `/setup`, a personalized `AG
 - §105 API contract fuzz testing (Schemathesis) for public endpoints
 - §106 No stub UI past the acceptance gate — mechanical detection in CI
 - §124 Pin a growing surface (tool sets, CLI commands, API catalogs) in a registry fixture, never in an exact-set scenario assertion
+- §125 A spec-declared skill-doc deliverable is gate-enforced against the slice diff (check-skill-doc-delivery.mjs), not left to the reviewer
 
 #### `core/13-ralph-and-afk.md` — Ralph & AFK operations
 
@@ -355,7 +356,7 @@ The rule files include illustrative code examples. **These examples use a sample
 
 ## Provenance
 
-The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §124) with patterns required for AI-agent operation: BDD outside-in (§56–§62), Ralph/AFK discipline (§63–§70), brownfield protocols (§71–§76), observability (§77–§83), supply-chain security (§84–§90), bug handling (§91–§96), improvements (§97–§102), module contracts + Agent Teams (§103–§107), hooks & runtime guards (§108–§113), formal sub-agents (§114–§116), package management & supply-chain hygiene (§117–§121), external-API verification via Context7 (§122), the cumulative-vs-stacked PR convention (§123), and registry-fixture pins for growing surfaces (§124).
+The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §125) with patterns required for AI-agent operation: BDD outside-in (§56–§62), Ralph/AFK discipline (§63–§70), brownfield protocols (§71–§76), observability (§77–§83), supply-chain security (§84–§90), bug handling (§91–§96), improvements (§97–§102), module contracts + Agent Teams (§103–§107), hooks & runtime guards (§108–§113), formal sub-agents (§114–§116), package management & supply-chain hygiene (§117–§121), external-API verification via Context7 (§122), the cumulative-vs-stacked PR convention (§123), and registry-fixture pins for growing surfaces (§124), and gate-enforced skill-doc deliverables (§125).
 
 The structural pattern (hierarchical `AGENTS.md` + topical files loaded on demand) comes from **`mattpocock/skills`** (AI Hero).
 
@@ -363,4 +364,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §124** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.
+**§1 – §125** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.

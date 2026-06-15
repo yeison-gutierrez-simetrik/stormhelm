@@ -59,6 +59,13 @@ if echo "$prompt" | grep -q "/tdd"; then
     issue=$(echo "$prompt" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
     mkdir -p src
     echo "work" >> "src/work-issue-${issue}.ts"
+    # MOCK_TDD_SKILL_DOC=<file.md>: also DELIVER a skill doc under skills/ — the
+    # real artifact the FU-88 gate looks for (a **/skills/**/*.md in the diff).
+    # Unset → the slice ships production only, exactly the live miss.
+    if [ -n "${MOCK_TDD_SKILL_DOC:-}" ]; then
+      mkdir -p packages/cli/skills
+      echo "extended for issue ${issue}" >> "packages/cli/skills/${MOCK_TDD_SKILL_DOC}"
+    fi
     git add -A >/dev/null 2>&1
     git -c user.email=ralph@mock -c user.name=ralph-mock commit -qm "tdd work for issue ${issue}" >/dev/null 2>&1 || true
   fi

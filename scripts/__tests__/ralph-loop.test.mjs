@@ -1455,3 +1455,68 @@ test('FU-83/84: RALPH_FALLBACK_MODEL recovers an outage in-process — session c
     assert.match(args, /--model tier-up/, 'post-fallback calls carry the fallback model');
   });
 });
+
+// ── FOLLOW-UP 88: skill-doc delivery gate — a spec/issue that declares a skill ─
+// doc deliverable but a slice diff that never touches a **/skills/**/*.md is NOT
+// done, even with every scenario green. The engine fails it in the green branch
+// (before the §114 reviewer) so Ralph self-corrects in the next /tdd, instead of
+// a human merge-gate BLOCK + round-trip (belong PR #146/#147). Reference: the
+// Danger.js "changed X ⇒ must change Y" rule class, made deterministic.
+const SKILL_DOC_GATE = join(here, '..', 'check-skill-doc-delivery.mjs');
+
+// Stand up a consumer carrying the FU-88 gate (as /setup copies it) + an
+// origin/main ref the diff resolves against (no network remote in the test).
+function withSkillDocConsumer(fn) {
+  const dir = setupConsumer();
+  try {
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    copyFileSync(SKILL_DOC_GATE, join(dir, 'scripts', 'check-skill-doc-delivery.mjs'));
+    const git = (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8' });
+    git('add', '-A'); git('commit', '-qm', 'add FU-88 gate');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');   // the gate diffs origin/main...HEAD
+    return fn(dir);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('FU-88: spec-declared skill doc undelivered → iteration not green, no PR, blocked', () => {
+  withSkillDocConsumer((dir) => {
+    const { out } = runRalph(dir, ['1', '2'], {
+      MOCK_BODY: 'FR-10: Skill doc `contract-management.md` extended with the external-URL flow.',
+      MOCK_TDD_COMMIT: '1',                 // commits src/ only — no skill doc delivered
+    });
+    const events = readEvents(dir, 1);
+    const gate = events.filter((e) => e.event === 'ralph.gate.skill_doc');
+    assert.ok(gate.some((e) => e.details?.result === 'fail'), 'the skill-doc gate fails');
+    assert.ok(events.some((e) => e.event === 'ralph.iteration.completed' && e.details?.outcome === 'skill-doc-undelivered'),
+      'the green acceptance is held back as skill-doc-undelivered');
+    assert.doesNotMatch(out, /pull\/9/, 'no PR is opened while the doc is undelivered');
+    assert.equal(endStatus(events), 'blocked', 'exhausts iterations → blocked, not completed');
+  });
+});
+
+test('FU-88: skill doc DELIVERED in the diff → gate passes, PR opens, completed', () => {
+  withSkillDocConsumer((dir) => {
+    const { out } = runRalph(dir, ['1', '2'], {
+      MOCK_BODY: 'FR-10: Skill doc `contract-management.md` extended.',
+      MOCK_TDD_COMMIT: '1',
+      MOCK_TDD_SKILL_DOC: 'contract-management.md',   // the slice delivers the doc
+    });
+    const events = readEvents(dir, 1);
+    assert.ok(events.some((e) => e.event === 'ralph.gate.skill_doc' && e.details?.result === 'pass-or-na'),
+      'the gate passes');
+    assert.match(out, /pull\/9/, 'PR opens once the doc is delivered');
+    assert.equal(endStatus(events), 'completed');
+  });
+});
+
+test('FU-88: a slice with no skill-doc FR is unaffected (gate na, normal green)', () => {
+  withSkillDocConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '2'], {
+      MOCK_BODY: 'FR-1: the Customer views a published listing.',   // no skill-doc deliverable
+      MOCK_TDD_COMMIT: '1',
+    });
+    assert.equal(status, 0);
+    assert.match(out, /pull\/9/, 'a slice that declares no skill doc still opens its PR');
+    assert.equal(endStatus(readEvents(dir, 1)), 'completed');
+  });
+});

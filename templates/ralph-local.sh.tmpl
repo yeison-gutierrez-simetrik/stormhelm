@@ -744,6 +744,32 @@ for i in $(seq 1 "$MAX_ITER"); do
   # exists + valid JSON + fresh (this iteration) + right issue +
   # ran >= expected + exit_code == 0. Never the session's prose.
   if ACCEPT_STATUS=$(ralph_acceptance_result_check "$ACCEPT_RESULT_FILE" "$ISSUE_NUM" "$ITER_EPOCH"); then
+    # FOLLOW-UP 88: skill-doc delivery gate — runs FIRST in the green branch.
+    # A spec/issue that pins "Skill doc `<name>`" as an FR-deliverable but a
+    # slice diff that never touches a **/skills/**/*.md is NOT done, even with
+    # every scenario green (no scenario exercises a Markdown file). Failing it
+    # HERE (before the §114 reviewer) loops back to /tdd so Ralph writes the
+    # doc itself, instead of a human merge-gate BLOCK + round-trip. Fires only
+    # when a deliverable is declared (na otherwise — a no-op for most slices).
+    if [ -f scripts/check-skill-doc-delivery.mjs ]; then
+      SKILL_DOC_DECL=$(mktemp)
+      printf '%s' "$ISSUE_BODY" > "$SKILL_DOC_DECL"
+      if ! SKILL_DOC_OUT=$(node scripts/check-skill-doc-delivery.mjs "${BASE_REF:-origin/main}" "$SKILL_DOC_DECL" 2>&1); then
+        rm -f "$SKILL_DOC_DECL"
+        echo "🚧 ${SKILL_DOC_OUT}" >&2
+        ralph_log_event "warn" "ralph.gate.skill_doc" \
+          "{\"result\":\"fail\",\"detail\":$(ralph_json_string "$SKILL_DOC_OUT")}"
+        LAST_FAIL_REASON="skill-doc-undelivered — ${SKILL_DOC_OUT}"   # FU-34: feeds next /tdd
+        ralph_iteration_end "skill-doc-undelivered" "$SKILL_DOC_OUT"
+        echo "⚠️  Iteration $i: acceptance green but the spec-declared skill doc is undelivered — looping to /tdd." >&2
+        ralph_budget_checkpoint "$RALPH_TOKENS_CUMULATIVE" "$BUDGET_TOKENS"
+        check_engine_progress_or_fail "skill-doc-undelivered"
+        continue
+      fi
+      rm -f "$SKILL_DOC_DECL"
+      ralph_log_event "info" "ralph.gate.skill_doc" "{\"result\":\"pass-or-na\"}"
+    fi
+
     ralph_iteration_end "green"
     LAST_FAIL_REASON=""   # FU-34: the diagnosis was consumed; don't leak it forward
 
