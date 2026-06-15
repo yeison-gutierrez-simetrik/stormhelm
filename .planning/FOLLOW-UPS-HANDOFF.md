@@ -1984,3 +1984,102 @@ git -C <fw> show origin/main:templates/ralph-isolated.sh | grep -nE 'node_module
 **Fix (maintainer decision — present options):** (1) **Additive-pin convention:** re-shape the assertion from "exactly {set}" to "contains {baseline} and every tool advertises a schema" + a SEPARATE registry-fixture (a checked-in `tool-registry.json` the unit gate diffs) that owns the authoritative full set — so adding a tool updates a data fixture (mechanical, non-§58) and an UNEXPECTED tool still fails the unit diff (drift caught structurally, not via an approved scenario). (2) **Sanctioned additive-amendment lane:** a recognized OD-2-class marker for "approved scenario whose closed enum was extended additively" that the §114 reviewer accepts WITHOUT a human checkpoint when the diff is provably additive (no removals) — formalizing what slices 12-15 did by hand. Recommend (1): moves the pin from an approved-scenario (§58-frozen) to a data fixture (freely updatable, still drift-proof). Either way: name the contract in the scenario AND the registry so they cannot drift (FU-17).
 
 **Acceptance.** Adding an MCP tool updates a data fixture / additive list and passes the gates with NO §58 human checkpoint; an UNEXPECTED tool (not in the fixture) still fails. Consumer-visible: an auto-pilot slice that adds a tool reaches its DRAFT PR without a manual intervention.
+
+---
+
+# Batch — slices 16+17 auto-pilot campaign retrospective (belong, 2026-06-12 · re-filed 2026-06-13)
+
+Context: the EIGHTH+NINTH `/auto-pilot` campaign planned + shipped slices 16 (Deliverable submission)
+and 17 (Customer Request + acceptance + feedback), both merged (belong `main` `164828f`, `20d027d`;
+impl PRs #146, #147). (Re-filed: an earlier uncommitted EOF append of these was lost when the #120
+handoff merge reset the working tree before the watcher picked them up.) A fourth candidate
+(isolated-worktree `@scope/cli` symlink → CLI smoke fails locally) is **WITHDRAWN** — same root cause
+as the now-merged **FU-85** (workspace worktrees get a real install, PR #121). Suggested order: 87
+(1-line script fix), 88, 89.
+
+## FOLLOW-UP 87 — `detect-ceremony.mjs` counts `packages/` (CLI/SDK workspace) and `src/test-support` as modules → single-context slices false-escalate to multi-module, forcing a per-file `skip-invariant: INV-6`  ·  **Severity: HIGH (every vertical slice that adds a CLI command + a test-support seeder — i.e. most of them — in a workspace-layout consumer)**
+
+**Problem.** `scripts/detect-ceremony.mjs` `NON_APP_ROOTS` (the set excluding non-application roots from
+the §107 module count) lists `features, schema, docs, test, tests, e2e, migrations, scripts, dist,
+build, public, assets` — but NOT `packages` (the pnpm/npm workspace root holding the CLI + SDK adapters)
+nor `src/test-support` (test scaffolding). So a single-bounded-context slice touching
+`src/domain/<ctx>/...`, `packages/cli/src/program.ts`, and `src/test-support/contract-fixture.ts` yields
+`effectiveModules = {<ctx>, "packages/cli", "src/test-support"}` → `module_count >= 3` → multiModule
+true → INV-6 fails with declared single-module. `context_count` correctly = 1, so the escalation is a
+false positive — the operator must add a per-file `skip-invariant: INV-6` to ship. Same class FU-70
+fixed for layer-dirs and FU-78 scoped per-file, re-opened for the workspace + test-support roots.
+
+**Live evidence:** belong slice 16 issue → `detect-ceremony` reported `module_count 3 / context_count 1`
+(modules incl. `packages/cli`, `src/test-support`, `src/domain/contract-engine`); slice 17 →
+`module_count 7 / context_count 1`. BOTH needed a `skip-invariant: INV-6` in their issue files (rode
+planning PRs #142/#144). belong's `detect-ceremony.mjs` is the vendored copy.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:scripts/detect-ceremony.mjs | grep -nE "NON_APP_ROOTS|'packages'|test-support"
+node scripts/detect-ceremony.mjs <issue backticking src/domain/x/y.ts + packages/cli/src/program.ts + src/test-support/f.ts>.md  # → feature:multi-module (wrong)
+```
+
+**Fix.** Add `packages` to `NON_APP_ROOTS` (a workspace package is an entry/SDK adapter of the slice's
+context, not a bounded context) and `test-support` (test scaffolding, like `test`/`tests`). Structured
+root-segment exclusions exactly like the existing set; the reviewer's live re-detect stays the one-way
+backstop for the rare real context under `packages/`. Keep the script's "non-application roots" comment
+in sync.
+
+**Acceptance.** A fixture issue touching only `src/domain/<one-ctx>/*` + `packages/cli/*` +
+`src/test-support/*` classifies `feature:single-module`, no `skip-invariant` needed. Add to
+`scripts/__tests__/detect-ceremony.test.mjs`.
+
+## FOLLOW-UP 88 — a spec/issue-mandated skill doc is not enforced by any gate, so Ralph ships green while silently skipping it — the lone REQUIRED on one slice's review and one of six on the next  ·  **Severity: MEDIUM (every slice whose spec names a `**/skills/**/SKILL.md`; acceptance + unit tests stay green, so only the §114 reviewer catches it — by hand)**
+
+**Problem.** Specs routinely pin "Skill doc `<name>` extended" (an FR), but no invariant/gate checks the
+diff touches the skill-doc path. Ralph satisfied every `@release` scenario + all unit tests and opened a
+green PR while never writing the doc — twice. The acceptance gate cannot see the omission (no scenario
+exercises a Markdown file), so it falls entirely to the merge-gate reviewer, which can only BLOCK and
+hand it back to the author (an extra round-trip).
+
+**Live evidence:** belong PR #146 (slice 16) — the SINGLE REQUIRED merge-gate item was FR-10:
+`docs/specs/16-deliverable-external-url.md:80-83` pins "Skill doc `contract-management.md` extended" and
+the diff never touched `packages/cli/skills/`. belong PR #147 (slice 17) — R-1 of six REQUIRED was the
+same: `delivery.md` absent. Both author-fixed post-review.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:scripts/check-invariants.mjs | grep -niE "skill|SKILL.md"   # → none
+```
+
+**Fix (prose→structured).** Option A (recommended): a `check-invariants.mjs` invariant — a `ralph-ready`
+issue whose spec/issue body names a skill-doc path (or a "Skill doc" FR token) MUST have its slice's
+diff add/modify a `**/skills/**/SKILL.md`. Option B: a `/tdd` (or `/feature` Step) checklist line that
+fails the local pre-PR gate when a spec-named skill doc is untouched — closer to where the author fixes
+it cheaply. Name which artifact (spec FR ↔ gate ↔ /tdd) owns the contract (FU-17 anti-drift). Possibly
+`decision (maintainer)` on A-vs-B.
+
+**Acceptance.** A slice whose spec names a skill doc and whose diff omits it fails a gate BEFORE the
+human reviewer (named failure, not silent green). Fixture under `scripts/__tests__/`.
+
+## FOLLOW-UP 89 — auto-pilot `/to-scenarios` generates happy + simple-negative paths but not state-machine edge/abuse scenarios, so real lifecycle bugs ship green and only the §114 reviewer catches them  ·  **Severity: decision (maintainer) — may instead validate the reviewer-as-backstop design; raising for a ruling**
+
+**Problem.** Slice 17 went green (12/12 `@release` scenarios + 1137 unit tests) carrying FOUR real bugs
+the merge-gate reviewer then found: (a) the acceptance Choice option-set was never enforced → a
+Deliverable could strand `under_review` permanently via legal calls; (b) the request-answer CAS result
+was ignored in accept/reject → a double `deliverable.accepted` Settlement signal + audit divergence;
+(c) FR-4 "resubmit supersedes the open revision request" was silently unimplemented (no scenario
+asserted it — the closest only asserted "remains open"); (d) an `information` response sealed with empty
+text. Each is a state-machine edge/abuse path; the generated scenarios covered happy + one-step-negative
+cases. The reviewer did its job — the question is whether auto-pilot's scenario generation should
+structurally emit edge/abuse scenarios for any closed-set state machine (option-set integrity,
+double-action idempotency, per-transition preconditions, empty/oversized inputs) so these fail RED in
+`/tdd` rather than at merge-gate.
+
+**Live evidence:** belong PR #147 merge-gate review enumerated these as REQUIRED R-2/R-4/R-5/R-6 with
+reachability analysis; all four author-fixed with added unit coverage. The spec's own FR-4 had NO
+covering scenario.
+
+**Verify / Fix.** A generation-policy decision, not a one-line fix. If accepted: extend `/to-scenarios`
+(+ the auto-pilot answering contract) with a "lifecycle-edge completeness" pass for any entity with a
+closed-set status — per transition a precondition-violation scenario; per money/settlement-adjacent
+action a double-invocation scenario; per free-text field an empty/oversized scenario. Alternatively,
+formally accept the §114 merge-gate reviewer as the designated backstop for lifecycle-edge correctness
+and document that auto-pilot scenarios are intentionally happy-path-biased (operators expect a fix
+round-trip). Maintainer's call.
