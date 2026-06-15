@@ -206,6 +206,36 @@ test('FU-70: non-application roots alone never escalate ceremony', () => {
   assert.deepEqual(r.labels, ['feature:single-module']);
 });
 
+// ── FOLLOW-UP 87: workspace packages + test-support are not bounded contexts ──
+
+// The reporting consumer is a workspace monorepo: a single-context slice that
+// adds a CLI command (`packages/cli`) and a test-support seeder
+// (`src/test-support`) was read as 3 modules → false multi-module escalation,
+// forcing a per-file `skip-invariant: INV-6` on the MOST COMMON slice shape.
+test('FU-87: one context + a workspace package + a test-support seeder is single-module', () => {
+  const r = detectCeremony([rec([
+    'src/domain/contract-engine', 'src/application/contract-engine', 'src/infrastructure/contract-engine',
+    'packages/cli',                 // CLI entry/SDK adapter of the slice's context, NOT a context
+    'src/test-support',             // test scaffolding, like test/tests
+  ])]);
+  assert.equal(r.context_count, 1, 'only contract-engine is a bounded context');
+  assert.equal(r.module_count, 1, 'packages/cli + src/test-support do not inflate the §107 count');
+  assert.deepEqual(r.labels, ['feature:single-module'], 'no bespoke skip-invariant: INV-6 needed');
+});
+
+test('FU-87: src/test-support carries segs[0]==="src" — the bare-root check would miss it', () => {
+  // Regression guard for the peek-under-src fix: a 2-segment src non-app subroot.
+  const r = detectCeremony([rec(['src/domain/org', 'src/test-support'])]);
+  assert.equal(r.module_count, 1, 'src/test-support excluded; only org counts');
+});
+
+test('FU-87: a genuine multi-package slice still escalates (exclusion is not a blanket mute)', () => {
+  // packages/* collapses to "not a context", but ≥2 real contexts still escalate.
+  const r = detectCeremony([rec(['src/domain/audit', 'src/domain/billing', 'packages/cli'])]);
+  assert.equal(r.context_count, 2, 'audit + billing are real contexts');
+  assert.ok(r.labels.includes('feature:multi-module'));
+});
+
 // ── FOLLOW-UP 79: commas inside parentheses are not module separators ─────────
 
 test('FU-79: a Module line with parenthetical clarifications counts the real modules', () => {
