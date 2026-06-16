@@ -2158,3 +2158,30 @@ pgrep -f 'claude --dangerously' | <none owned by this run>
 **Fix.** Add an explicit **outbound-HTTP-adapter SSRF checklist item** to `skills/security-hardening` (and the §87 threat-model prompt): for any channel POSTing to an externally-supplied URL — (1) resolve DNS and validate EVERY resolved address; (2) **pin the connection to the validated IP** (no re-resolution window — e.g. undici `connect.lookup`); (3) **do not follow redirects** (`redirect: error`) or re-validate each hop; (4) block loopback / RFC-1918 / link-local / `169.254.169.254` metadata / IPv6 ULA+link-local+v4-mapped; (5) https-only; (6) validate at BOTH registration and send. Reference: OWASP SSRF Prevention Cheat Sheet.
 
 **Acceptance.** `/security-hardening` enumerates the outbound-adapter SSRF item; a slice introducing a webhook/agent-push channel is audited against all six points; a guard that omits IP-pinning or redirect-blocking is flagged.
+
+---
+
+## FOLLOW-UP 94 — rule-range upper-bound strings (`§1–§122` / `§1–§123` / "Total rules: §1–§N") silently rot on every new rule because `check-framework-metadata.mjs` validates only that each cited §N *exists*, not that the range upper-bound equals the current max §N  ·  **Severity: LOW (cosmetic/doc drift, no functional impact — but recurring rot + a self-contradiction an auditor/new-hire trips on; surfaced during the belong FU-90..93 validation)**
+
+**Problem.** Several artifacts assert the rule-set's upper bound as a literal `§1–§N` range or "Total rules: §1–§N". The current max defined rule is **§126** (124/125/126 added by recent batches), but three artifacts on `origin/main` still say §122/§123:
+- `agents/reviewer.md` — `§1-§122` (×3: lines ~6, ~18, ~210).
+- `skills/feature/SKILL.md` — `§1-§123` (×2: lines ~25, ~357).
+- `docs/engineering/core/16-security-supply-chain.md` — `**Total rules in the set**: §1 – §123` (line ~474).
+
+`check-framework-metadata.mjs` (the `verify` CI gate) only checks that each *cited* `§N` **exists** — it does NOT check that a `§1–§N` range upper-bound or a "Total rules" count equals the actual max §N. So every time a rule is appended (which the metadata checker DOES keep consistent in CLAUDE.md/README/AGENTS/WORKFLOWS), these *other* range strings are left behind and rot silently. They were already stale before batch-22 and batch-22 (#126) neither caused nor fixed them.
+
+**Live evidence:** surfaced by the belong consumer's §114-style validation of PR #126 (FU-90..93). Max §N on `origin/main` = §126; the three files above still read §122/§123.
+
+**Verify:**
+```bash
+# highest defined rule:
+git grep -hoE '§12[0-9]' origin/main -- docs/engineering | sort -u | tail -1     # → §126
+# stale upper-bounds:
+git grep -nE '§1 ?[–-] ?§12[0-9]|Total rules' origin/main -- agents/reviewer.md skills/feature/SKILL.md docs/engineering/core/16-security-supply-chain.md
+```
+
+**Fix.** Two parts (FU-17 anti-drift; the recurring "prose → structured contract" move):
+1. **Sync** the 6 occurrences to `§126` (and re-confirm the "Total rules" count).
+2. **Make it un-rottable — extend `check-framework-metadata.mjs`** to compute the current max §N (from the `## §N` definitions under `docs/engineering/`) and FAIL if any artifact's `§1–§<N>` range upper-bound or "Total rules … §1 – §<N>" string ≠ that max. This converts the silent rot into an enforced contract, the same way the per-file `**Rules in this file.** §X, §Y` header is already enforced. (Scope the check to the known range-bearing files, or to any line matching the `§1[–-]§<digits>` / "Total rules" patterns.)
+
+**Acceptance.** The 3 files read `§1–§126`; `check-framework-metadata.mjs` FAILS on a fixture whose `§1–§N` upper-bound (or "Total rules" count) lags the true max, and PASSES once synced. A future rule append that forgets one of these strings is caught by `verify` CI, not by a downstream consumer's manual read.
