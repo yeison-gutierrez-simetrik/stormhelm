@@ -2185,3 +2185,24 @@ git grep -nE '§1 ?[–-] ?§12[0-9]|Total rules' origin/main -- agents/reviewer
 2. **Make it un-rottable — extend `check-framework-metadata.mjs`** to compute the current max §N (from the `## §N` definitions under `docs/engineering/`) and FAIL if any artifact's `§1–§<N>` range upper-bound or "Total rules … §1 – §<N>" string ≠ that max. This converts the silent rot into an enforced contract, the same way the per-file `**Rules in this file.** §X, §Y` header is already enforced. (Scope the check to the known range-bearing files, or to any line matching the `§1[–-]§<digits>` / "Total rules" patterns.)
 
 **Acceptance.** The 3 files read `§1–§126`; `check-framework-metadata.mjs` FAILS on a fixture whose `§1–§N` upper-bound (or "Total rules" count) lags the true max, and PASSES once synced. A future rule append that forgets one of these strings is caught by `verify` CI, not by a downstream consumer's manual read.
+## FOLLOW-UP 95 — the /stormhelm-feedback Step-5 re-sync vendors framework-self scripts into a consumer (it copies the whole `scripts/` delta, not just the `[consumer-runtime]` subset), so `check-framework-metadata.mjs` lands in a consumer where it crashes  ·  **Severity: LOW (re-sync hygiene; bit a live belong re-sync — vendored a framework-self checker that ENOENT-crashed, removed in a follow-up commit)**
+
+**Problem.** Step 5 ("Re-sync to belong") computes the vendored delta as
+`git diff --name-only <last-sync>..origin/main -- templates/ skills/ scripts/ hooks/ docs/engineering/ agents/`
+and copies every changed file. For `scripts/`, that is wrong: the framework ships TWO classes of script, and AGENTS.md already names them — **`[consumer-runtime]`** (invoked in the consumer via `node scripts/<x>.mjs`, copied by `/setup`: preflight, check-invariants, check-merge-safety, group-slice-issues, parse-layers-affected, sync-closed-sets, compose-sonar-properties, train-merge, sonar-sweep, check-skill-doc-delivery, check-double-fidelity) and **framework-self** (run only in the framework's own CI — e.g. `check-framework-metadata.mjs`). A framework-self script hardcodes the framework repo-root layout (`skills/`, `agents/`, `hooks/`) and **crashes in a consumer** where those trees live under `.claude/`. The re-sync delta, scoped only by directory, can't tell them apart, so it pulls a framework-self script into the consumer.
+
+**Live evidence:** belong re-sync of FU-94 (belong PR #165). The delta included `scripts/check-framework-metadata.mjs`; run in belong it died `ENOENT: no such file or directory, open 'skills/feature/SKILL.md'` (belong vendors that under `.claude/skills/...`). It was a NEW file the consumer never carried, removed in a follow-up commit on the re-sync branch.
+
+**Verify:**
+```bash
+# the taxonomy exists in AGENTS.md but the re-sync delta ignores it:
+git grep -n 'consumer-runtime' origin/main -- docs/engineering/AGENTS.md
+# check-framework-metadata hardcodes framework-root paths (no .claude/ awareness):
+git grep -nE "skills/|agents/|hooks/" origin/main -- scripts/check-framework-metadata.mjs | head
+```
+
+**Fix.** Two parts (prose → structured contract):
+1. **Step-5 doc:** the re-sync MUST filter the `scripts/` delta to the `[consumer-runtime]` set and NEVER vendor framework-self scripts. State it in the skill (and mirror the same list `/setup` copies — they must stay in sync, FU-17).
+2. **Make the split machine-readable** so the filter isn't prose-to-grep: tag each script with a header (e.g. `// scope: consumer-runtime` | `// scope: framework-self`) OR keep a `scripts/.vendored-manifest.json`, and have BOTH `/setup` and the Step-5 re-sync read that single source. A framework-self script is then structurally un-vendorable.
+
+**Acceptance.** The Step-5 procedure filters `scripts/` to the declared consumer-runtime set; a re-sync run over a delta that touches `check-framework-metadata.mjs` (or any framework-self script) does NOT copy it into the consumer; `/setup` and the re-sync resolve the same set from one manifest/header.
