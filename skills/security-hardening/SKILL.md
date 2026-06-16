@@ -206,6 +206,40 @@ For each new external call (HTTP client, AWS SDK, Stripe, etc.):
 
 Findings cite §52.
 
+### Step 8b — Outbound-adapter SSRF audit (customer/agent-supplied URLs)
+
+**Trigger:** any channel that POSTs/GETs to an **externally-supplied URL** — a
+webhook target, an A2A push endpoint, an agent-provided callback, an
+operator-configured destination. (Skip — `na` — when every outbound URL is a
+compile-time constant or an internal service address.)
+
+A URL **string** check is not an SSRF guard: between validation and `fetch` the
+host re-resolves (DNS rebind) and a 3xx can redirect to an internal address.
+For each such channel, verify ALL of (OWASP SSRF Prevention Cheat Sheet):
+
+1. **Resolve + validate every address.** Resolve the host's DNS and validate
+   **every** returned A/AAAA record (a name can resolve to several), not the
+   string.
+2. **Pin the connection to the validated IP.** No re-resolution window between
+   check and connect — e.g. undici `connect.lookup` returning the
+   already-validated address (defeats DNS-rebind).
+3. **Do not follow redirects.** `redirect: "error"` (or re-run steps 1–2 +4 on
+   every hop). A public URL that `302`s to `http://169.254.169.254/…` must not
+   be followed.
+4. **Block the private/meta ranges** at validation: loopback (`127.0.0.0/8`,
+   `::1`), RFC-1918 (`10/8`, `172.16/12`, `192.168/16`), link-local
+   (`169.254/16` incl. the `169.254.169.254` cloud-metadata IP), IPv6 ULA
+   (`fc00::/7`), IPv6 link-local (`fe80::/10`), and IPv4-mapped IPv6
+   (`::ffff:0:0/96`) — the last three are the common bypasses.
+5. **https-only** for the scheme.
+6. **Validate at BOTH registration and send.** A URL stored at registration is
+   re-validated at send time (its DNS may have changed since).
+
+A guard that omits IP-pinning (2) or redirect-blocking (3) is the live bypass
+class — flag it BLOCKING. Findings cite §87 + OWASP-SSRF. When a new outbound
+channel crosses a trust boundary, this audit also feeds the Step 2 STRIDE model
+(Tampering / Information-disclosure via SSRF).
+
 ### Step 9 — §88 secret usage audit
 
 For each `process.env.*` access in the diff:
