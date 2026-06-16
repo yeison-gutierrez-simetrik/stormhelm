@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/check-merge-safety.mjs
 //
 // Merge safety asserts (PR-Sec / FW-5).

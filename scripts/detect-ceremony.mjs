@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/detect-ceremony.mjs
 //
 // ADR-0002 / PR-M. Derives a feature's CEREMONY classification labels from the

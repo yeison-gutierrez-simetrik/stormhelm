@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/compose-sonar-properties.mjs
 //
 // Composes a project's `sonar-project.properties` from the YAML frontmatter

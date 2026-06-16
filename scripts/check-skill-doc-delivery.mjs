@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/check-skill-doc-delivery.mjs
 //
 // FOLLOW-UP 88 — spec-FR ⇒ gate. A spec/issue routinely pins "Skill doc

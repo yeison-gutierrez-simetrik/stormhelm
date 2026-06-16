@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/group-slice-issues.mjs
 //
 // PR-Group / FW-2. Decides which issues of a slice form a cohesive group that

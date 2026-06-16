@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/check-invariants.mjs
 //
 // Makes "MANDATORY" rules EXECUTABLE instead of prose (PR-D). Several rules use

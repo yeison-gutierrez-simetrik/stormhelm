@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/train-merge.mjs — [consumer-runtime] safe merge for stacked
 // slice-group trains (FOLLOW-UP 60).
 //

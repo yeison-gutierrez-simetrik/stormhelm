@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/preflight.mjs
 //
 // Executable pre-flight gates for Stormhelm skills (PR-B).

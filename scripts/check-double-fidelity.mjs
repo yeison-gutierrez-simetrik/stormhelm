@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/check-double-fidelity.mjs
 //
 // FOLLOW-UP 90 — external-provider test-doubles can fabricate a wire shape the
