@@ -414,7 +414,7 @@ For the full operational guide with worked example, HITLs, and responsibilities,
 
 | Range | Topic |
 |---|---|
-| §1 – §10 | Philosophy + TypeScript style |
+| §1 – §10 | Philosophy + TypeScript style | <!-- metadata-ok: a non-max sub-range / frozen historical figure, not the rule-set upper bound (FU-94) -->
 | §11 – §22 | Domain modeling |
 | §23 – §37 | Architecture, input boundaries |
 | §38 – §49 | Stack conventions (Hono/Drizzle/Zod) + cross-cutting |
@@ -466,7 +466,7 @@ Adding a capability does not require modifying `core/` or existing capabilities.
 
 ## Provenance and credits
 
-The foundation (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Stormhelm preserves the rule numbering as a sign of respect.
+The foundation (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Stormhelm preserves the rule numbering as a sign of respect. <!-- metadata-ok: a non-max sub-range / frozen historical figure, not the rule-set upper bound (FU-94) -->
 
 The structural pattern (hierarchical `AGENTS.md` index + topical files loaded on demand + `references/` folders per skill) comes from **`mattpocock/skills`** (AI Hero). The BDD outside-in approach draws from **swingerman/atdd**. The Night Shift loop is the **Ralph technique** invented by **Geoffrey Huntley** and popularized by Matt Pocock.
 

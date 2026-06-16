@@ -79,7 +79,14 @@ const claims = [
   { re: new RegExp(`${W}\\s+numbered\\s+rules`, 'gi'), exp: () => A.totalRules, label: 'rules(total)' },
   { re: new RegExp(`(?:las|the)\\s+${W}\\s+(?:reglas|rules)\\b`, 'gi'), exp: () => A.totalRules, label: 'rules(total)' },
   { re: new RegExp(`(?:currently\\s+)?${W}\\s+rules?\\b`, 'gi'), exp: () => A.coreRules, label: 'rules(core)', only: (l) => /core/i.test(l) },
-  { re: /Active rule count:\s*§1\s*[–-]\s*§(\d+)/g, exp: () => A.totalRules, label: 'rules(total)' },
+  // FOLLOW-UP 94: a `§1–§N` range upper-bound asserts the WHOLE rule set, so N
+  // must equal the current max §N — these strings rotted silently on every new
+  // rule (the linter checked only that each §N *exists*). The negative lookahead
+  // `(?!\s*,\s*§)` skips a SUB-range that opens an enumeration (`§1–§4, §11–…`);
+  // a genuine non-max standalone range (a capability slice, the Belong §1–§55
+  // foundation, a frozen ADR figure) carries a trailing `<!-- metadata-ok -->`.
+  // Subsumes the old `Active rule count: §1 – §N` claim.
+  { re: /§1\s*[–-]\s*§(\d+)(?!\s*,\s*§)/g, exp: () => A.totalRules, label: 'rules(range)' },
   { re: new RegExp(`${W}\\s+(?:Claude Code\\s+)?hooks?\\s+(?:are\\s+shipped|that\\b)`, 'gi'), exp: () => A.hooks, label: 'hooks' },
   { re: new RegExp(`all\\s+${W}\\s+files\\b`, 'gi'), exp: () => A.coreFiles, label: 'core-files' },
   { re: new RegExp(`${W}\\s+archivos de reglas`, 'gi'), exp: () => A.coreFiles, label: 'core-files' },

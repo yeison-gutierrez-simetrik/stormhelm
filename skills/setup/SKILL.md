@@ -624,7 +624,7 @@ Active capabilities:
            §117-py–§121-py)                              ← if Python selected
   - python-fastapi (§38-py–§44-py)                       ← if FastAPI selected
 
-Active rules: §1–§123 (plus -py twins where Python is active)
+Active rules: §1–§126 (plus -py twins where Python is active)
 Hooks: git-guardrails (mandatory) + webfetch-cache, context-monitor, closed-set-check (opt-in, §113)
 Compliance mode: SOC2 + GDPR
 Ralph: enabled, 1 worker, 500k token budget/night
