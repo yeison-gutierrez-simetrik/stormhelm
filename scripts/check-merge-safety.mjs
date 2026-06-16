@@ -29,6 +29,7 @@
 // Requires `gh` and `git` in PATH.
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
 
 const [, , prArg, mode, expectedHeadArg] = process.argv;
 
@@ -109,11 +110,86 @@ if (mode === 'pre') {
     );
   }
 
+  // FOLLOW-UP 91: green must mean "every EXPECTED check present + concluded
+  // success", never "no failure seen". mergeStateStatus=CLEAN only reflects
+  // branch-protection REQUIRED checks — a check that is not branch-protected
+  // (or never registered for the branch) is invisible to it, so an auto-pilot
+  // reading absence-of-failure as green can merge a PR whose authoritative gate
+  // never ran (live: belong PR #156 — `acceptance` never registered across 3
+  // pushes while SonarCloud passed). Assert against a declared EXPECTED-checks
+  // manifest: every name PRESENT + COMPLETED + SUCCESS, and zero pending.
+  const expected = resolveExpectedChecks();
+  const rollup = readStatusChecks(pr);
+  // (a) zero-pending — a still-running check is not-green, never green.
+  const pending = rollup.filter((c) => !c.done);
+  if (pending.length) {
+    fail(
+      `PR #${pr} has ${pending.length} check(s) still pending: ${pending.map((c) => c.name).join(', ')}.`,
+      'A pending check is NOT green. Wait for every check to conclude, then re-run.',
+    );
+  }
+  if (expected.length) {
+    // (b) every expected check is present AND succeeded.
+    const byName = new Map(rollup.map((c) => [c.name, c]));
+    const missing = expected.filter((n) => !byName.has(n));
+    const failed = expected.filter((n) => byName.has(n) && byName.get(n).conclusion !== 'SUCCESS');
+    if (missing.length || failed.length) {
+      const parts = [];
+      if (missing.length) parts.push(`never registered: ${missing.join(', ')}`);
+      if (failed.length) parts.push(`did not succeed: ${failed.map((n) => `${n}=${byName.get(n).conclusion || 'NONE'}`).join(', ')}`);
+      fail(
+        `PR #${pr} expected-check gate FAILED — ${parts.join('; ')}.`,
+        'A missing-expected check is the silent false-green (its absence looks identical to pass). ' +
+        'Ensure the workflow registered and concluded success before merging.',
+      );
+    }
+  } else {
+    console.error(
+      '⚠️  No expected-checks manifest (RALPH_EXPECTED_CHECKS env or .planning/expected-checks.json) — ' +
+      'cannot verify a required check is PRESENT (a never-registered workflow reads as green). ' +
+      'Declare one for the auto-merge path (FU-91).',
+    );
+  }
+
   ok(
     `PR #${pr} is mergeable: state=CLEAN, base=${baseRefOid.slice(0, 7)}, head=${headRefOid.slice(0, 7)}.\n` +
+    (expected.length ? `   Expected checks present + passing: ${expected.join(', ')}.\n` : '') +
     `   Title: ${title}\n` +
     `   After 'gh pr merge', run:  node scripts/check-merge-safety.mjs ${pr} post ${headRefOid}`,
   );
+}
+
+// FU-91 helpers ------------------------------------------------------------
+// The expected-check manifest: env RALPH_EXPECTED_CHECKS (comma/space-sep) takes
+// precedence, else .planning/expected-checks.json (a JSON array of check names).
+function resolveExpectedChecks() {
+  const env = (process.env.RALPH_EXPECTED_CHECKS || '').split(/[,\s]+/).filter(Boolean);
+  if (env.length) return env;
+  const f = '.planning/expected-checks.json';
+  if (existsSync(f)) {
+    try {
+      const arr = JSON.parse(readFileSync(f, 'utf8'));
+      if (Array.isArray(arr)) return arr.map(String).filter(Boolean);
+    } catch { /* malformed → treated as no manifest (the advisory fires) */ }
+  }
+  return [];
+}
+// Normalize statusCheckRollup (CheckRun: name/status/conclusion; legacy
+// StatusContext: context/state) into { name, done, conclusion(SUCCESS|…) }.
+function readStatusChecks(prNum) {
+  let rollup = [];
+  try {
+    const v = JSON.parse(gh(['pr', 'view', prNum, '--json', 'statusCheckRollup']));
+    rollup = v.statusCheckRollup || [];
+  } catch { return []; }
+  return rollup.map((c) => {
+    if (c.__typename === 'StatusContext' || c.context) {
+      const state = (c.state || '').toUpperCase();   // SUCCESS | PENDING | FAILURE | ERROR
+      return { name: c.context, done: state !== 'PENDING' && state !== '', conclusion: state === 'SUCCESS' ? 'SUCCESS' : state };
+    }
+    const status = (c.status || '').toUpperCase();    // QUEUED | IN_PROGRESS | COMPLETED
+    return { name: c.name, done: status === 'COMPLETED', conclusion: (c.conclusion || '').toUpperCase() };
+  }).filter((c) => c.name);
 }
 
 // ---- post-merge -----------------------------------------------------------
