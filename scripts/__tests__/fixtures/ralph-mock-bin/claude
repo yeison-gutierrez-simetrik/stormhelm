@@ -35,6 +35,10 @@ for a in "$@"; do
 done
 printf '%s\n―――\n' "$prompt" >> .mock-claude-prompts
 printf '%s\n' "$*" >> .mock-claude-args
+# MOCK_HANG=<seconds>: simulate a hung engine call (host sleep / dead socket) so
+# the FU-92 per-call timeout wrapper kills it. The real CLI would block on a
+# half-open connection; sleeping is the faithful stand-in.
+if [ -n "${MOCK_HANG:-}" ]; then sleep "$MOCK_HANG"; fi
 if [ -n "${MOCK_ENGINE_DOWN_FOR:-}" ]; then
   case ",${MOCK_ENGINE_DOWN_FOR}," in
     *",${model},"*)

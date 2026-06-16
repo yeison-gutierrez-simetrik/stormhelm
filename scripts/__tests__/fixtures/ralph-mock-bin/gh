@@ -60,7 +60,12 @@ budget:50k}"
     # FOLLOW-UP 60 (train-merge): JSON views keyed by requested fields.
     # NOTE: no inline JSON defaults — a literal '}' inside ${VAR:-...}
     # terminates the expansion early and emits garbage.
-    if printf '%s\n' "$@" | grep -q "mergeCommit"; then
+    if printf '%s\n' "$@" | grep -q "statusCheckRollup"; then
+      # FOLLOW-UP 91: the expected-checks gate reads the rollup separately.
+      # Default `null` (not inline JSON — a literal '}' breaks ${VAR:-…}); the
+      # script treats null as "no checks reported".
+      printf '%s\n' "${MOCK_ROLLUP_JSON:-null}"
+    elif printf '%s\n' "$@" | grep -q "mergeCommit"; then
       printf '%s\n' "${MOCK_TRAIN_POST_JSON:-null}"
     elif printf '%s\n' "$@" | grep -q "mergeable"; then
       printf '%s\n' "${MOCK_TRAIN_PRE_JSON:-null}"
