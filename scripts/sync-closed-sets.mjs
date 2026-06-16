@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/sync-closed-sets.mjs
 //
 // Single source of truth for closed sets (§36). A closed set (e.g. AuditEvent)

@@ -80,7 +80,7 @@ All three must be ✅ before merge. CI runs `check-framework-metadata.mjs` (`ver
 
 ### scripts/ taxonomy — consumer-runtime vs self-maintenance
 
-Two kinds of script live in `scripts/`, and the distinction matters for adoption:
+Two kinds of script live in `scripts/`, and the distinction matters for adoption: The distinction is **machine-readable**: every `scripts/*.mjs` carries a `// scope: consumer-runtime | framework-self` header (FU-95), and `check-framework-metadata.mjs` enforces that `/setup`'s copy loop equals the `consumer-runtime`-tagged set — so a re-sync vendors only the consumer-runtime subset and a framework-self script can never leak into a consumer (where it would ENOENT-crash).
 
 - **`[self-maint]`** — run only against *this* repo while maintaining the framework: `check-framework-metadata.mjs` and the `__tests__/` suite. Consumers do **not** need these.
 - **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), `sonar-sweep` (post-PR QG read-out), `check-skill-doc-delivery` (§125 spec-FR ⇒ skill-doc diff gate), and `check-double-fidelity` (§126 external-double fidelity). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.

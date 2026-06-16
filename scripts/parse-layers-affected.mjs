@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/parse-layers-affected.mjs
 //
 // Shared parser for the "### Layers affected" section of a /plan artifact

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: consumer-runtime   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/sonar-sweep.mjs — [consumer-runtime] post-PR Sonar read-out
 // (FOLLOW-UP 65).
 //

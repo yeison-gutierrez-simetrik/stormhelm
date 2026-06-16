@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// scope: framework-self   (FU-95: re-sync/`/setup` vendor only consumer-runtime scripts)
 // scripts/check-framework-metadata.mjs
 //
 // Framework self-consistency linter (Stormhelm — framework metadata).
@@ -195,6 +196,40 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
       for (const m of readFileSync(f, 'utf8').matchAll(staleRe)) {
         block.push(`${relative(ROOT, f)}  [hook-ext] stale '.js' hook reference '${m[0]}' — shipped hooks are .cjs (FOLLOW-UP 45: .js dies under type:module consumers)`);
       }
+    }
+  }
+}
+
+// --- FOLLOW-UP 95: scripts/ scope tags are the single source for vendoring ---
+// Every scripts/*.mjs declares `// scope: consumer-runtime | framework-self`.
+// The re-sync and `/setup` MUST vendor only the consumer-runtime set — a
+// framework-self script (it hardcodes the framework repo-root layout) crashes
+// in a consumer. This enforces (a) every script is tagged, and (b) the set
+// `/setup` copies == the consumer-runtime-tagged set (FU-17: one source, no
+// prose-to-grep drift between the tag, /setup, and the re-sync).
+{
+  const scriptFiles = ls('scripts', /\.mjs$/);
+  const scopeOf = (f) => {
+    const head = readFileSync(join('scripts', f), 'utf8').split('\n').slice(0, 6).join('\n');
+    const m = head.match(/^\/\/\s*scope:\s*(consumer-runtime|framework-self)\b/m);
+    return m ? m[1] : null;
+  };
+  const runtimeTagged = new Set();
+  for (const f of scriptFiles) {
+    const s = scopeOf(f);
+    if (!s) block.push(`scripts/${f}  [script-scope] missing a '// scope: consumer-runtime|framework-self' header (FU-95) — the re-sync can't tell if it is vendorable`);
+    else if (s === 'consumer-runtime') runtimeTagged.add(f);
+  }
+  // The set /setup copies: the `for s in … ; do  cp …` loop in skills/setup.
+  if (existsSync('skills/setup/SKILL.md')) {
+    const setup = readFileSync('skills/setup/SKILL.md', 'utf8');
+    const loop = setup.match(/for\s+s\s+in\s+([\s\S]*?);\s*do/);
+    if (loop) {
+      const copied = new Set(loop[1].match(/[\w-]+\.mjs/g) || []);
+      const missing = [...runtimeTagged].filter((f) => !copied.has(f));
+      const extra = [...copied].filter((f) => !runtimeTagged.has(f));
+      if (missing.length) block.push(`skills/setup/SKILL.md  [script-scope] /setup does NOT copy consumer-runtime script(s): ${missing.join(', ')} — add them to the copy loop (FU-95)`);
+      if (extra.length) block.push(`skills/setup/SKILL.md  [script-scope] /setup copies ${extra.join(', ')} but it is not tagged 'consumer-runtime' — fix the tag or the loop (FU-95)`);
     }
   }
 }

@@ -316,6 +316,10 @@ cp "$STORMHELM_PATH/docs/audit/incidents.md"      docs/audit/incidents.md
 #
 # When adding a new scripts/*.mjs that a shipped skill or hook invokes by relative
 # path, add it here AND to the validation `ls` below — otherwise it ships broken.
+# This set MUST equal the `// scope: consumer-runtime` scripts (FU-95): a
+# framework-self script (e.g. check-framework-metadata.mjs) hardcodes the
+# framework repo layout and crashes in a consumer. check-framework-metadata.mjs
+# enforces this loop == the consumer-runtime-tagged set, so they cannot drift.
 mkdir -p scripts
 for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
          train-merge.mjs sonar-sweep.mjs \
