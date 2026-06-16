@@ -2083,3 +2083,78 @@ action a double-invocation scenario; per free-text field an empty/oversized scen
 formally accept the §114 merge-gate reviewer as the designated backstop for lifecycle-edge correctness
 and document that auto-pilot scenarios are intentionally happy-path-biased (operators expect a fix
 round-trip). Maintainer's call.
+
+---
+
+## Batch — belong auto-pilot slices 18→21 (money-blocking campaign) retrospective — FOLLOW-UPs 90-93
+
+> **Context.** Consumer-side `/auto-pilot` campaign, slices 18 (Stripe Checkout + escrow hold) → 19 (Settlement: release/refund/take-rate) → 20 (Admin API) → 21 (Multi-channel Notifications), all merged to belong `main` (PRs #150/#153/#156/#159; migrations 0025-0028). The §114 merge-gate reviewer caught **5 substantive defects the green bar missed** across the 4 slices (1 bug, 1 should-fix, 1 blocking spec-contradiction, 2 security) — strong signal the reviewer is load-bearing, and that several of those defect CLASSES are gateable. These 4 follow-ups are the harvest. Suggested order: 90 (highest leverage — closes a whole class the reviewer keeps catching), then 91, 93, 92. FU-87/88/89 (the 16-17 batch) are already merged + re-synced into belong (framework `b9685e0`); these do not overlap them.
+
+## FOLLOW-UP 90 — acceptance test-doubles can fabricate an external-provider wire shape the real provider never emits, so a money/IO slice ships green against an INVENTED contract — only the §114 reviewer catches it  ·  **Severity: HIGH (every slice with an external-IO seam — Stripe/webhook/A2A; the green bar certifies a contract the provider doesn't honor)**
+
+**Problem.** A `@release` scenario asserts behavior through a hand-written double whose payload shape diverges from the real provider's wire contract. The acceptance gate then certifies green against a shape that never occurs in production. belong slice 18: the Stripe-webhook double attached a `chargeId` to the `checkout.session.completed` event — but a real Stripe `checkout.session.completed` carries `payment_intent` as an **unexpanded string id** (no charge), and the charge id arrives only on the corroborating `payment_intent.succeeded`. scn-321 ("the SOW records its stripe_charge_id") passed against the fabricated shape; production recorded `stripe_charge_id=""`, defeating the slice-18→19 `source_transaction` handoff. The acceptance gate cannot see it (the double IS the contract); only the §114 reviewer flagged the fidelity gap, by hand.
+
+**Live evidence:** belong PR #150 — §114 reviewer BLOCKING finding; fixed in commit `292e126` (handle `payment_intent.succeeded`; doubles rebuilt to the real shape — unexpanded PI string on session-completed + a separate succeeded event).
+
+**Verify:**
+```bash
+# the double fabricated a field the real event lacks:
+grep -n "chargeId" features/support/stripe-double.ts   # (pre-292e126) charge id on checkout.session.completed
+# real Stripe: session.payment_intent is a string id on checkout.session.completed (docs.stripe.com/api/checkout/sessions/object)
+```
+
+**Fix.** Pin each external-provider double against a **recorded real-shape golden** (a `*.contract.json` captured from the provider's documented payload / a sandbox capture), asserted by a test: a double whose emitted shape diverges from the golden FAILS before acceptance runs. Name the contract in three places (FU-17 anti-drift): the **port's wire type ⇒ the golden fixture ⇒ the double**. Structured-over-prose: a `scripts/check-double-fidelity` (or a node:test per external port) that diffs the double's output keys/shape against the golden. Reference: consumer-contract testing (Pact) made local + deterministic. Scope to declared external-IO ports (`na` for slices with none — no-op for the majority).
+
+**Acceptance.** A fixture double that adds a field the golden lacks (or omits a required one) fails its fidelity test; a faithful double passes; belong slice-18's pre-fix webhook double would have failed at `/tdd` instead of at the merge-gate reviewer.
+
+## FOLLOW-UP 91 — auto-pilot merges a docs-only planning PR on a "CI green" signal that reads ABSENCE-of-failure as green; a never-registered or still-pending check is mistaken for pass  ·  **Severity: HIGH (auto-pilot's OD-1 auto-merge acts on this signal; a false-green merges an unverified PR)**
+
+**Problem.** The auto-pilot contract is "planning PR → CI green → merge (OD-1)". Two live failure modes show "green" is computed as absence-of-failure rather than all-expected-present-and-passing: (a) a checks summary that excluded `pending` reported GREEN while `acceptance` was still running (only `SonarCloud` had finished); (b) the `acceptance` GitHub-Actions workflow **never registered** for a branch across 3 pushes (belong `agent/feature-20`, PR #156) — its ABSENCE looked identical to pass. Either lets a merge fire (or a human read "green") on a PR whose authoritative gate never ran.
+
+**Live evidence:** belong PR #156 — `gh run list --workflow acceptance.yml --branch agent/feature-20-...` returned ZERO runs across the PR-open + two subsequent pushes, while SonarCloud (a separate app) ran; only `gh pr checks` showing a lone non-acceptance check revealed it.
+
+**Verify:**
+```bash
+# a PR can show no failing checks yet have its required check absent:
+gh pr checks <pr>                     # only SonarCloud listed
+gh run list --workflow acceptance.yml --branch <head> --json status   # [] — never ran
+```
+
+**Fix.** The auto-pilot "CI green ⇒ merge" step (and any shipped PR-watch monitor) must assert against an **EXPECTED-checks manifest** (at minimum `acceptance` + `SonarCloud`): green ⇔ every expected check is PRESENT and CONCLUDED success, with zero pending and zero missing-expected. Merge/▢report green ONLY then; a missing-expected or pending check is `not-green`, never `green`. Structured-over-prose: the expected set is a declared list the gate checks membership against, not "no ❌ seen". (The PR-watch monitor pattern belong used was corrected mid-campaign to require `pending==0`; ship that as the default and add the missing-expected check.)
+
+**Acceptance.** A PR whose `acceptance` check is absent or pending is classified `not-green` and is NOT auto-merged; only a PR with the full expected-check set present+passing merges. A fixture with `[SonarCloud:pass]` and no `acceptance` registered must read `not-green`.
+
+## FOLLOW-UP 92 — a stalled Ralph worker (machine sleep / dropped engine connection) hangs indefinitely with no liveness watchdog; the supervisor can't distinguish hung-from-dead and needs a manual kill + --resume  ·  **Severity: MEDIUM (any long/overnight AFK run; distinct from FU-84's live rate-window spin)**
+
+**Problem.** When the host sleeps (or the engine connection drops) mid-iteration, the inner `claude` worker dies on the stale connection while the parent loop shell stays alive and idle — the session log freezes, the iteration counter stops, no terminal status is emitted, and the run hangs until a human intervenes. A monitor watching the parent PID sees it ALIVE and cannot tell hung-from-working. This is NOT FU-84 (that is a LIVE engine spinning `result-file-missing` across the rate window with frozen tokens); here the worker is DEAD and the parent is stuck.
+
+**Live evidence:** belong Ralph #155 (slice 20) — a ~6.7h host sleep froze the session log at one timestamp while the parent `ralph-isolated.sh` PID stayed alive; no iteration progress for hours; resolved only by a manual `pkill` of the tree + `./ralph-isolated.sh 155 --resume` (the committed green work was preserved).
+
+**Verify:**
+```bash
+# parent alive, but no progress + no live worker:
+kill -0 <parent_pid>                          # alive
+stat -f %m .planning/ralph-sessions/<id>.log  # mtime frozen >> longest-iteration
+pgrep -f 'claude --dangerously' | <none owned by this run>
+```
+
+**Fix.** A liveness watchdog in the loop: emit a heartbeat (the session-log mtime + iteration counter already exist) and, if neither advances past a threshold (e.g. 2× the longest observed iteration wall-clock) AND no `claude` child of this worker is alive, treat it as `engine_failure` (FU-74/84 terminal status) — auto-`--resume` in place, or exit `engine_failure` so the supervisor resumes — instead of hanging. Structured-over-prose: a watchdog timer comparing `now - session_log_mtime` against the threshold, gated on "no live worker child".
+
+**Acceptance.** A simulated stall (freeze the session-log mtime + kill the worker child, parent left alive) trips the watchdog within the threshold → `engine_failure`/auto-resume, not an indefinite hang. A normal long iteration (worker alive, log advancing) does NOT trip it.
+
+## FOLLOW-UP 93 — /security-hardening has no outbound-HTTP-adapter SSRF checklist item, so a customer-controlled-URL channel ships a string-only guard bypassable by DNS-rebind + redirect-follow  ·  **Severity: MEDIUM (every channel that POSTs to a customer/agent-supplied URL — webhooks, A2A push)**
+
+**Problem.** A slice that delivers to a customer-supplied URL (webhook / agent push) needs an SSRF guard, but `/security-hardening` (§87) doesn't enumerate the specific, repeatable checks — so the first implementation validated the URL STRING then let `fetch` re-resolve DNS (rebind) and follow 3xx redirects to internal/metadata endpoints. A string-only check is insufficient; the bypass is a known class.
+
+**Live evidence:** belong PR #159 (slice 21) — Ralph's own iteration-2 reviewer caught it BLOCKING; iteration-3 fix pinned the resolved IP via undici `connect.lookup`, set `redirect: "error"`, and blocked loopback/RFC-1918/link-local/`169.254.169.254` at BOTH registration and send (verified by the §114 reviewer with DNS-rebind + `302→169.254.169.254` unit tests).
+
+**Verify:**
+```bash
+# a guard that only checks the URL string is bypassable:
+#  - DNS rebind: validated host re-resolves to an internal IP at fetch time
+#  - redirect: a public URL 302s to http://169.254.169.254/...
+```
+
+**Fix.** Add an explicit **outbound-HTTP-adapter SSRF checklist item** to `skills/security-hardening` (and the §87 threat-model prompt): for any channel POSTing to an externally-supplied URL — (1) resolve DNS and validate EVERY resolved address; (2) **pin the connection to the validated IP** (no re-resolution window — e.g. undici `connect.lookup`); (3) **do not follow redirects** (`redirect: error`) or re-validate each hop; (4) block loopback / RFC-1918 / link-local / `169.254.169.254` metadata / IPv6 ULA+link-local+v4-mapped; (5) https-only; (6) validate at BOTH registration and send. Reference: OWASP SSRF Prevention Cheat Sheet.
+
+**Acceptance.** `/security-hardening` enumerates the outbound-adapter SSRF item; a slice introducing a webhook/agent-push channel is audited against all six points; a guard that omits IP-pinning or redirect-blocking is flagged.
