@@ -15,6 +15,10 @@
 #   RALPH_ENGINE_MAX      consecutive engine no-ops / zero-progress iterations
 #                         tolerated before engine_failure (default 3, FU-74/84)
 #   RALPH_ENGINE_BACKOFF  seconds between engine no-op retries (default 60)
+#   RALPH_CALL_TIMEOUT    per-call wall-clock cap (s) — a hung engine call (host
+#                         sleep / dropped connection) is killed and treated as an
+#                         engine outage instead of hanging the run (default 1800,
+#                         needs GNU timeout/gtimeout; FU-92)
 #
 # Reads the GitHub issue, runs /tdd + /run-acceptance until every
 # @release scenario passes or the budget is exhausted. Before opening

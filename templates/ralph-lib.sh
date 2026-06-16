@@ -826,11 +826,31 @@ ralph_call_claude_with_retry() {
   local model_args=()
   [ -n "${RALPH_MODEL:-}" ] && model_args=(--model "$RALPH_MODEL")
 
+  # FOLLOW-UP 92: a per-call wall-clock timeout. When the host sleeps or the
+  # engine connection drops mid-call, `claude` can block forever on a half-open
+  # socket — the loop is stuck INSIDE this synchronous call, so an mtime/heartbeat
+  # watchdog (which would have to run concurrently) can never fire. A bounded
+  # `timeout` is the robust fix: a hung call is killed and mapped to the FU-74
+  # engine-outage code (125), which the loop already escalates to engine_failure
+  # after RALPH_ENGINE_MAX, prompting a clean --resume instead of an indefinite
+  # hang. Default 1800s (generous — a real long iteration must not be killed),
+  # override via RALPH_CALL_TIMEOUT. Needs GNU `timeout`/`gtimeout`; absent it,
+  # degrade to the un-bounded call (pre-FU behavior) with a one-time warning.
+  local timeout_bin
+  timeout_bin=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
+  local timeout_pfx=()
+  if [ -n "$timeout_bin" ]; then
+    timeout_pfx=("$timeout_bin" -k 10 "${RALPH_CALL_TIMEOUT:-1800}")
+  elif [ -z "${_RALPH_TIMEOUT_WARNED:-}" ]; then
+    export _RALPH_TIMEOUT_WARNED=1
+    echo "⚠️  no 'timeout'/'gtimeout' on PATH — the FU-92 per-call hang watchdog is OFF (a stalled engine call can hang the run). Install coreutils to enable it." >&2
+  fi
+
   while [ "$attempt" -le "$max_attempts" ]; do
-    local output
+    local output exit_code=0
     # Run claude with JSON output: the result envelope carries usage data
     # (plain-text output has none — token accounting reported 0 forever).
-    if output=$(claude -p "$prompt" ${model_args[@]+"${model_args[@]}"} --output-format json 2> "$stderr_file"); then
+    if output=$(${timeout_pfx[@]+"${timeout_pfx[@]}"} claude -p "$prompt" ${model_args[@]+"${model_args[@]}"} --output-format json 2> "$stderr_file"); then
       # Extract usage and append to the per-call ledger. This function
       # runs inside $(…) subshells, so updating the parent's cumulative
       # directly is impossible — the file is the channel (see sync_tokens).
@@ -864,11 +884,30 @@ ralph_call_claude_with_retry() {
         printf '%s' "$output"
       fi
       return 0
+    else
+      # FOLLOW-UP 92 (latent bug surfaced): capture the failed command's status
+      # HERE, inside the else — `$?` taken AFTER an unmatched `if` (no else) is
+      # the if-statement's own status (always 0 in bash), which silently dropped
+      # every non-429 claude failure (incl. a `timeout` kill) into a bogus
+      # "returned 0 / empty output" success. In the else, `$?` is the real exit
+      # of the command substitution (124/137 on timeout, etc.).
+      exit_code=$?
     fi
 
-    local exit_code=$?
     local stderr_content
     stderr_content=$(cat "$stderr_file")
+
+    # FOLLOW-UP 92: `timeout` kills a hung call with 124 (TERM) or 137 (128+9,
+    # the -k SIGKILL escalation). Map either to the engine-outage code 125 so the
+    # loop's FU-74/84 path counts it toward engine_failure and prompts --resume —
+    # NOT the rate-limit-exhausted block (which our OWN 124 means). A genuine long
+    # call that finished is unaffected; only a killed-by-timeout call lands here.
+    if [ -n "$timeout_bin" ] && { [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; }; then
+      ralph_log_event "error" "ralph.error.engine" \
+        "{\"call\":\"claude\",\"reason\":\"call-timeout\",\"timeout_s\":${RALPH_CALL_TIMEOUT:-1800},\"signal_exit\":${exit_code}}"
+      echo "⏱️  engine call exceeded RALPH_CALL_TIMEOUT=${RALPH_CALL_TIMEOUT:-1800}s and was killed (hung connection / host sleep) — treating as an engine outage." >&2
+      return 125
+    fi
 
     # Inspect stderr for 429 signals
     if echo "$stderr_content" | grep -qiE "429|rate.?limit|too.?many.?requests"; then

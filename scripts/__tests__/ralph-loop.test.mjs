@@ -1520,3 +1520,72 @@ test('FU-88: a slice with no skill-doc FR is unaffected (gate na, normal green)'
     assert.equal(endStatus(readEvents(dir, 1)), 'completed');
   });
 });
+
+// ── FOLLOW-UP 92: per-call hang watchdog. When the host sleeps or the engine ──
+// connection drops, `claude` can block forever on a half-open socket — the loop
+// is stuck INSIDE the synchronous call, so an mtime/heartbeat watchdog can never
+// fire. A bounded `timeout` kills the hung call and maps it to the FU-74 engine-
+// outage code (125), escalating to engine_failure after RALPH_ENGINE_MAX.
+//
+// A faithful `timeout` shim (PATH-scoped to these tests so it never affects the
+// others) makes the assertion deterministic on every platform — including macOS
+// dev hosts that ship no GNU timeout. The shim mirrors the real contract: run
+// the command, kill it past DURATION, exit 124 (the code GNU timeout returns).
+function withTimeoutShim(dir) {
+  const shimDir = join(dir, '.timeout-shim');
+  mkdirSync(shimDir, { recursive: true });
+  const shim = join(shimDir, 'timeout');
+  writeFileSync(shim, [
+    '#!/bin/bash',
+    '# minimal GNU-timeout shim: timeout [-k K] DURATION CMD...',
+    '# Routes the command stdout to a FILE (not the parent pipe) and silences the',
+    "# watcher's fds, so a killed orphan can't hold the captured fd open and block",
+    '# the wrapper\'s command substitution (real GNU timeout kills the group).',
+    'if [ "$1" = "-k" ]; then shift 2; fi',
+    'duration="$1"; shift',
+    'out=$(mktemp)',
+    '"$@" > "$out" & cmd_pid=$!',
+    '( sleep "$duration"; kill -TERM "$cmd_pid" 2>/dev/null ) >/dev/null 2>&1 & watcher=$!',
+    'wait "$cmd_pid" 2>/dev/null; rc=$?',
+    'kill "$watcher" 2>/dev/null',
+    'cat "$out"; rm -f "$out"',
+    '[ "$rc" -ge 128 ] && exit 124',
+    'exit "$rc"',
+  ].join('\n'));
+  chmodSync(shim, 0o755);
+  return shimDir;
+}
+const runRalphT = (dir, args, env = {}) => {
+  const shimDir = withTimeoutShim(dir);
+  return spawnSync('bash', [join(dir, 'ralph-local.sh'), ...args], {
+    cwd: dir, encoding: 'utf8',
+    env: { ...process.env, PATH: `${shimDir}:${MOCK_BIN}:${process.env.PATH}`, RALPH_WORKER_ID: 'w0', ...env },
+  });
+};
+
+test('FU-92: a hung engine call is killed by RALPH_CALL_TIMEOUT → engine_failure, not an indefinite hang', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalphT(dir, ['1', '5'], {
+      MOCK_HANG: '30',                 // every call would block 30s…
+      RALPH_CALL_TIMEOUT: '1',         // …but the watchdog kills it at 1s
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+    });
+    assert.notEqual(status, 0, `the run terminates instead of hanging: ${out}`);
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'engine_failure', 'a killed hung call escalates to engine_failure');
+    assert.ok(events.some((e) => e.event === 'ralph.error.engine' && e.details?.reason === 'call-timeout'),
+      'the timeout is logged as a call-timeout engine error');
+    assert.ok(events.filter((e) => e.event === 'ralph.iteration.completed').length <= 2,
+      'the iteration allowance is not burned — aborted within RALPH_ENGINE_MAX');
+  });
+});
+
+test('FU-92: a fast call under the timeout is unaffected (no false kill)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalphT(dir, ['1', '3'], { RALPH_CALL_TIMEOUT: '60' });   // calls finish in ms
+    assert.equal(status, 0);
+    const events = readEvents(dir, 1);
+    assert.doesNotMatch(JSON.stringify(events), /call-timeout/);
+    assert.ok(events.some((e) => e.event === 'ralph.pr.opened'), 'a normal run still completes');
+  });
+});
