@@ -320,7 +320,7 @@ mkdir -p scripts
 for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
          train-merge.mjs sonar-sweep.mjs \
          group-slice-issues.mjs parse-layers-affected.mjs detect-ceremony.mjs \
-         check-skill-doc-delivery.mjs \
+         check-skill-doc-delivery.mjs check-double-fidelity.mjs \
          sync-closed-sets.mjs compose-sonar-properties.mjs; do
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
@@ -597,7 +597,7 @@ After generation, the skill runs a self-check:
 1. Verify every `§N` referenced in the generated `AGENTS.md` exists in a file present in the project.
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
-4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/check-skill-doc-delivery.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
+4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/check-skill-doc-delivery.mjs scripts/check-double-fidelity.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied, wired, AND EXECUTABLE through the shell (FOLLOW-UP 67 — existence checking is what let the unquoted-path outage ship: the files were all there; none could run). `ls .claude/hooks/git-guardrails.cjs … webfetch-cache-post.cjs` all resolve, `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113), and the wired command string **runs green through `/bin/sh -c`** with the project path:
 
    ```bash
@@ -617,7 +617,7 @@ After generation, the skill runs a self-check:
 ✅ Stormhelm configured for <ProjectName>
 
 Active capabilities:
-  - core (every §N living in `docs/engineering/core/*.md` — currently 100 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§125; the rest is stack-specific)
+  - core (every §N living in `docs/engineering/core/*.md` — currently 101 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§126; the rest is stack-specific)
   - typescript (§5–§10, §33, §50–§55, §117–§121)        ← if TS selected
   - typescript-hono (§38–§44)                            ← if Hono selected
   - python (§5-py–§10-py, §33-py, §50-py–§55-py,

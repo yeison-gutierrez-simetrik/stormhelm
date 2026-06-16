@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -813,3 +813,41 @@ Fires **only** on an explicit skill-doc deliverable declaration — not on a spe
 that merely mentions a skill in prose. A consumer that never declares skill
 docs gets `na` on every slice (no behavior change). `/setup` copies the gate as
 a consumer-runtime script; the engine skips it gracefully when absent.
+
+## §126. An external-provider test-double is pinned to a recorded real-shape golden
+
+An acceptance `@release` scenario that asserts behavior through a hand-written
+**double** of an external provider (Stripe, a webhook source, an A2A peer, any
+third-party wire) certifies green against whatever shape the double emits — the
+double *is* the contract the gate sees. When that shape diverges from the real
+provider's wire payload, a money/IO slice ships green against an **invented
+contract** that production never honors, and only the §114 reviewer catches it
+by hand. (Live, FOLLOW-UP 90: a Stripe-webhook double attached `chargeId` to
+`checkout.session.completed`; the real event carries `payment_intent` as an
+unexpanded string id and no charge. The scenario passed; production recorded an
+empty `stripe_charge_id`.)
+
+### The contract (name it in all three places — FU-17 anti-drift)
+
+1. **The port's wire type** — the typed shape the adapter parses.
+2. **A `*.contract.json` golden** — the real provider payload, captured from its
+   documented event / a sandbox capture, checked into the repo next to the port.
+3. **The double** — must shape-match the golden.
+
+A port test runs `scripts/check-double-fidelity.mjs <golden.contract.json>
+<double-sample.json>`: a **structural** diff (keys + types, not values, so ids
+and timestamps vary freely) that fails on a **fabricated** key the golden lacks,
+a **missing** required key, or a **type mismatch** (e.g. an id that the real
+provider sends as a string but the double expanded to an object). A divergent
+double then fails at `/tdd` — before acceptance certifies it — instead of at the
+merge-gate reviewer. Genuinely-optional wire fields are whitelisted with
+`--optional <dotted.path,…>`; a golden value of `null` pins presence without
+pinning the type.
+
+### Scope
+
+Fires only for **declared external-IO ports** — a slice with no external seam
+has no golden and no check (`na`, the majority case). `/setup` copies the
+checker as a consumer-runtime script. This is consumer-contract testing (Pact)
+made local and deterministic: the golden is the recorded consumer expectation of
+the provider's wire, and the double may not drift from it.
