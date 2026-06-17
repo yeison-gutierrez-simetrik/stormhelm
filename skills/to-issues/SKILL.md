@@ -278,14 +278,25 @@ gh issue create \
 > canonical compact form here and in the file's `**Labels:**` line — same
 > string in both places.
 >
-> **Overflow (FOLLOW-UP 71):** if the compact `scenarios:` label would still
-> exceed 50 chars (a foundation / `tier:N` slice with ~15+ contiguous scns —
-> e.g. 19 scns ≈ 90 chars), **omit the GitHub `scenarios:` label** (keep
-> `tier:N`) and let the issue file's `**Labels:**` line carry the full spelled
-> list. INV-5 reads `scn-NNN` from the FILE, not the GitHub label, so the
-> omission is safe — the gate still maps every scenario. Do NOT use a
-> `scn-137..155` range (rejected by the label format checker). See `core/12`
-> "GitHub label format → Overflow fallback".
+> **Overflow — prefer the RANGE form (FOLLOW-UP 96).** If the compact `+`-joined
+> `scenarios:` label would exceed 50 chars (more than ~8 scns — e.g. 19 scns ≈ 90
+> chars) **and the scns are contiguous**, emit the **range** label
+> `scenarios:scn-A..scn-B` — it fits any count in ≤50 chars and now round-trips
+> through every consumer (`ralph_expand_scns`, `check-invariants.mjs` INV-5, the
+> §63 gate — all expand `scn-A..scn-B` inclusively as of FU-96). This is the
+> preferred single-label representation for a large contiguous slice; it
+> replaces the old "omit the label" fallback.
+>
+> **Sizing self-check (MUST hold for every emitted issue):** the `scenarios:`
+> label MUST (a) be ≤50 chars AND (b) round-trip through `ralph_expand_scns` to
+> exactly the issue's scn set. For contiguous scns use the range; for
+> non-contiguous scns that overflow, split into multiple issues of ≤8 scns each
+> (do not emit an un-launchable mega-issue — live: a 20-scn issue died at the
+> §63 gate every launch and had to be hand-decomposed). Only if neither fits
+> (non-contiguous AND must stay one issue) fall back to **omitting the GitHub
+> label** and carrying the spelled list in the file's `**Labels:**` line (FU-71;
+> INV-5 reads `scn-NNN` from the FILE, so the gate still maps every scenario).
+> State this contract here AND in `ralph_expand_scns`' doc-comment (FU-17).
 
 If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms. Omit `slice-group:<slug>` for standalone issues (singletons).
 

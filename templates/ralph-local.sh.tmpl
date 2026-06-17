@@ -385,17 +385,19 @@ fi
 # before any fallback with no message). Same grammar as INV-5's parser.
 SCENARIOS=$(ralph_read_label_value "$LABELS" "scenarios:" || true)
 if [ -z "$SCENARIOS" ]; then
-  SCENARIOS=$(printf '%s' "$ISSUE_BODY" | grep -oE 'scenarios:[a-z0-9+,-]+' | head -1 | sed 's/^scenarios://' || true)
+  SCENARIOS=$(printf '%s' "$ISSUE_BODY" | grep -oE 'scenarios:[a-z0-9+,.-]+' | head -1 | sed 's/^scenarios://' || true)
 fi
 BUDGET=$(ralph_read_label_value "$LABELS" "budget:" || true)
 BUDGET_TOKENS=$(ralph_parse_budget_label "$BUDGET")
 
-# FOLLOW-UP 35: an unsupported label grammar (live near-miss: a range form
-# scn-031..038) expands to ZERO scenarios with no error — downstream that is
-# catastrophic-but-quiet (empty Step-3 selection, blind summaries). Fail
-# loudly BEFORE iteration 1, same class as the env pre-flight.
+# FOLLOW-UP 35: an unsupported label grammar expands to ZERO scenarios with no
+# error — downstream that is catastrophic-but-quiet (empty Step-3 selection,
+# blind summaries). Fail loudly BEFORE iteration 1, same class as the env
+# pre-flight. FU-96: the range form scn-A..scn-B is now a SUPPORTED grammar
+# (ralph_expand_scns expands it) — so a >8-scn slice's range label passes here;
+# only a genuinely garbage label (expands to nothing) still fails.
 if [ -n "$SCENARIOS" ] && [ -z "$(ralph_expand_scns "$SCENARIOS")" ]; then
-  echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6). Fix the label and relaunch." >&2
+  echo "❌ Issue #$ISSUE_NUM has an unparseable scenarios label '${SCENARIOS}' — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6). Fix the label and relaunch." >&2
   exit 1
 fi
 
