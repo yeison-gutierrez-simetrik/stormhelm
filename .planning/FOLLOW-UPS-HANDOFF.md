@@ -2206,3 +2206,59 @@ git grep -nE "skills/|agents/|hooks/" origin/main -- scripts/check-framework-met
 2. **Make the split machine-readable** so the filter isn't prose-to-grep: tag each script with a header (e.g. `// scope: consumer-runtime` | `// scope: framework-self`) OR keep a `scripts/.vendored-manifest.json`, and have BOTH `/setup` and the Step-5 re-sync read that single source. A framework-self script is then structurally un-vendorable.
 
 **Acceptance.** The Step-5 procedure filters `scripts/` to the declared consumer-runtime set; a re-sync run over a delta that touches `check-framework-metadata.mjs` (or any framework-self script) does NOT copy it into the consumer; `/setup` and the re-sync resolve the same set from one manifest/header.
+
+---
+
+## Batch — belong auto-pilot campaign 22-24 retrospective (slices 22 Advanced Discovery, 23 Promoted Placement, 24 Counter-offers)
+
+Shared context: the 2026-06-17 belong auto-pilot campaign ran slices 22/23/24 end-to-end (planning → Ralph impl → draft PRs). Each slice's planning produced ~20 acceptance scenarios. Surfaced 5 frictions across the planning skills (auto-pilot/to-issues) and the Night-Shift engine (ralph-local/ralph-isolated). Suggested order: 96 (blocks launch) → 97 → 98 → 99 → 100. Live evidence throughout: belong issues #172–#182, PRs #184–#194.
+
+## FOLLOW-UP 96 — a slice with >~8 acceptance scenarios cannot be launched as one Ralph issue: the `scenarios:` GH label cannot hold all scns, and `ralph_expand_scns` rejects the only compact form that fits  ·  **Severity: HIGH (blocks the launch of ANY slice whose scn count exceeds the label cap — hit all 3 campaign slices; required manual decomposition before a single Ralph run could start)**
+
+**Problem.** The §63 gate + FU-49 backstop (`ralph-local.sh`) require ONE `scenarios:scn-*` label that enumerates EVERY scn the issue covers, and `ralph_expand_scns` (`ralph-lib.sh`) accepts ONLY the `+`-joined / comma form (`scn-021+022,scn-030`). GitHub caps a label NAME at 50 chars → `scenarios:` (10) + `scn-NNN` (7) + `+NNN`×k caps at ~8 scns. The FU-71 range form `scenarios:scn-A..scn-B` IS ≤50 chars but `ralph_expand_scns` drops it as "unparseable segment". So a 20-scn slice has NO valid single-label representation: the `+`-form overflows GH's 50-char cap, and the range form the operator reaches for is rejected by the parser. Net: the planner (auto-pilot/to-issues) emitted 1 mega-issue per slice; every Ralph launch died at the §63 gate ("unparseable scenarios label 'scn-370..scn-389'"). The operator had to hand-decompose each slice into ≤8-scn chained sub-issues (belong #172-174, #175-178, #179-182).
+
+**Live evidence:** belong #169/#170 (mega-issues, closed); first launch failures in /tmp/ralph-22.log /ralph-24.log ("❌ Issue #170 has an unparseable scenarios label 'scn-370..scn-389'"). Existing label high-water in repo = 9 scns (`scenarios:scn-100+...+108` = 49 chars).
+
+**Fix.** Two coordinated changes (both framework): (1) `ralph_expand_scns` — accept the range form `scn-A..scn-B` (expand inclusively to scn-A..scn-B), so FU-71's documented fallback actually parses; this makes a 50-char label express an arbitrary contiguous range. Keep `+`/comma forms. (2) `/to-issues` (and by composition /auto-pilot) — SIZE each emitted issue so its scenarios label fits the 50-char cap: prefer a contiguous range when scns are contiguous (emit `scn-A..scn-B`), else split into multiple issues ≤8 scns. State the label-cap contract in to-issues' SKILL.md AND in ralph_expand_scns' doc-comment (FU-17 anti-drift). Demand the structured rule: "an issue's scenarios label MUST round-trip through ralph_expand_scns and be ≤50 chars" as a to-issues self-check.
+
+**Acceptance.** `scripts/__tests__/ralph-lib.test.mjs`: `ralph_expand_scns "scn-409..scn-412"` → `scn-409 scn-410 scn-411 scn-412`; mixed `scn-001..003,scn-010` works. A to-issues fixture with 20 contiguous scns emits a single `scenarios:scn-A..scn-B` label that (a) is ≤50 chars and (b) round-trips. A fresh consumer's 20-scn slice launches Ralph without manual decomposition.
+
+## FOLLOW-UP 97 — the budget label estimator under-budgets every issue because it scales with slice size, not with the per-call repo-context base cost that dominates  ·  **Severity: MEDIUM (every sub-issue budget-exceeded mid-run, forcing a bump+resume cycle that wastes a full iteration's setup)**
+
+**Problem.** /to-issues assigned budgets 100k–250k. Measured per-`/tdd`-call cost was ~80k–130k — dominated by the repo-context the engine re-reads each call, NOT the slice's code size (a thin 5-scn relay slice and a heavy foundation slice both cost ~100k/call). A sub-issue needs tdd + run-acceptance + reviewer (+ maybe a fix iteration) ≈ 250–300k floor REGARDLESS of scn count. Result: nearly every sub-issue hit `budget-exceeded` on the first or second call (e.g. #172 "132473 > 120000 after run-acceptance", #175 "227311 > 200000", #179 "272171 > 250000"); each required a manual budget-bump-to-300k + `--resume` (a fresh iteration's setup re-paid).
+
+**Live evidence:** belong /tmp/ralph-172.log, ralph-175.log, ralph-179.log budget-exceeded lines; session-log `ralph.call.completed` showing /tdd ≈103k (#172), with cheap resumed /tdd ≈38k once work was committed.
+
+**Fix.** /to-issues budget estimator: floor = base-context-cost × expected-calls, where base-context-cost is a configurable constant (~100k, the measured per-call repo-context overhead) and expected-calls ≥3 (tdd+acceptance+reviewer). So minimum budget ≈300k even for tiny slices; add a per-scn increment on top. Document the constant + the formula in to-issues SKILL.md so it's tunable, not a magic number.
+
+**Acceptance.** to-issues fixture: a 3-scn slice gets ≥300k (not 100k). belong campaign would have run start-to-PR with zero budget-bump resumes.
+
+## FOLLOW-UP 98 — the FU-92 per-call hang watchdog (`gtimeout 1800`) does not fire when the host sleeps, because its wall-clock alarm is suspended with the machine, leaving `/tdd` calls wedged indefinitely  ·  **Severity: MEDIUM (any run spanning a laptop sleep wedges; recurred ~4× in the campaign; silent — no log line, just a frozen session)**
+
+**Problem.** `ralph-isolated.sh`/`ralph-local.sh` wrap each engine call in `gtimeout -k 10 1800 claude -p …`. When the host sleeps mid-call, the claude process's connection dies but the process stays in state `SN` (sleeping, ~28s CPU then frozen), and `gtimeout`'s 1800s timer does not advance during system sleep (timers are suspended), so it never kills the wedged call on wake. The run hangs with a stale session log (>35 min) and no terminal marker. Detected only by the operator's session-log-age heuristic; recovery required `pkill -9 -f "ralph-local.sh N"` + `pkill -9 -f "claude -p …#N"` then `--resume`. (Note: when gtimeout DID fire post-wake it produced the cleaner engine_failure path — FU-99.)
+
+**Live evidence:** belong #180 (23b) wedged ~10h overnight; #177/#182 wedged repeatedly; processes showed `etime 24:xx / TIME 0:28 / STAT SN`. Operator mitigation that fully stopped recurrence: `caffeinate -ims -t 14400` (prevent host idle sleep for the campaign duration).
+
+**Fix.** Make the watchdog wall-clock-aware: alongside the monotonic gtimeout, record a wall-clock start and, on each loop tick / heartbeat, if `now - call_start_wall > RALPH_CALL_TIMEOUT` AND the child is still alive with frozen CPU, kill+retry (treat as outage). OR detect a sleep gap (a heartbeat that jumps > a threshold) and abort the in-flight call. Document in ralph-isolated.sh that long-running detached campaigns on a laptop should pair with a no-sleep guard (caffeinate/systemd-inhibit), and consider auto-launching one when a TTY/laptop is detected.
+
+**Acceptance.** A test simulating a wall-clock jump > RALPH_CALL_TIMEOUT during a mock call triggers kill+retry. Doc note added. (Mitigation `caffeinate` recorded as the interim consumer-side workaround.)
+
+## FOLLOW-UP 99 — a transient engine outage (3× zero-token no-op `/tdd`) ends the run `engine_failure` and requires a manual `--resume`; it should auto-resume a bounded number of times once the engine recovers  ·  **Severity: LOW (recoverable, but a manual intervention that shouldn't be needed; hit 3 runs simultaneously when transport/auth blipped)**
+
+**Problem.** `ralph-local.sh` correctly declares `engine_failure` after "3 consecutive iterations (tdd-failed) — zero token advance" (transport/auth-window/CLI no-op returning exit 0, 0 tokens). It then exits 1 and waits for a human `--resume`. Because the cause is a TRANSIENT engine/transport outage (not slice code), and it commonly hits multiple concurrent runs at once, the operator must manually `--resume` each. This is signal-class-1 toil (manual intervention around an autonomous flow).
+
+**Live evidence:** belong #177/#178/#182 all exited simultaneously "🛑 Engine made no progress for 3 consecutive iterations (tdd-failed)"; `claude -p "OK"` returned immediately after → engine was already back; all 3 recovered cleanly on `--resume`.
+
+**Fix.** On `engine_failure` specifically (distinct from budget/code blocks), before exiting: probe the engine (a trivial `claude -p` health check with a short timeout); if it responds, auto-`--resume` in place up to N times (e.g. 2) with backoff; only exit `engine_failure` for human attention if the probe still fails. Record each auto-resume in the NDJSON. This keeps a transient cloud blip from halting an unattended campaign.
+
+**Acceptance.** Mock engine returns 0-token no-op 3× then healthy → run auto-resumes and completes without human action; NDJSON shows the auto-resume events. Mock engine stays down → exits engine_failure after N probes.
+
+## FOLLOW-UP 100 — stacked-chain impl PRs re-conflict on every human merge because each branch independently `git merge origin/main`, creating divergent merge commits (N×N churn)  ·  **Severity: decision (maintainer) — partly inherent to stacked-PR + moving-main; needs a ruling on the framework's preferred reconciliation**
+
+**Problem.** When auto-pilot decomposes a slice into a chain (A→B→C→D, each `--base` the prior) and an unrelated planning PR (slice-22a) lands on main mid-flight, every chain branch is behind main and conflicts on the shared file (here the `TransactionalPorts` executor). The operator's merge-fix had each branch independently `git merge origin/main`. Then each human merge of one PR advances main again and RE-CONFLICTS all remaining open PRs (the independent merge commits diverge), so they must be re-merge-fixed between every human merge — O(chain²) resume cycles. It converges (one fewer per merge) but is heavy toil.
+
+**Live evidence:** belong PRs #188/#189/#191/#192/#193 went MERGEABLE→CONFLICTING→re-fixed repeatedly as Yeison merged #187 then others (2026-06-17). Also: #188 (24a) review noted accept/reject/get-quote read the OLD `findByQuoteRequestId` until 24c's swap, so the chain MUST merge as a unit (no window in main) — a related constraint to-issues should encode.
+
+**Fix (options for maintainer ruling).** (a) auto-pilot rebases the whole in-flight chain onto main as a unit when main moves (one rebase, no per-branch merge commits), instead of independent per-branch merges; (b) to-issues marks a chain as a "merge-unit" (merge all-or-none in order, fast-forward) and the review loop enforces it, eliminating the inter-merge window; (c) accept the churn but give the operator a one-shot "re-fix all conflicting chain PRs" helper. Recommend (b) (encodes the #188-style "merge as a unit" constraint structurally) combined with (a) for the cross-slice drift case. Honest note: some drift is inherent when an unrelated PR lands mid-chain; the framework can minimize, not eliminate.
+
+**Acceptance.** A maintainer decision recorded; if (b): to-issues emits a merge-unit marker for chained sub-issues, and a test pins that the review/merge tooling refuses to merge a chain member out of order / leaves no main window.
