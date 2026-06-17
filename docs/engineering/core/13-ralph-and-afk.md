@@ -439,6 +439,18 @@ A Night Shift slice-group is the one place stacking is **sanctioned**: each Ralp
 2. **The engine carries the base.** `ralph-local.sh --base <prev-branch>` (also accepted by `ralph-isolated.sh`, which starts the worktree at that ref) branches the slice FROM the previous sibling's branch and opens the PR **against** it (`gh pr create --base`). Merge order = chain order; GitHub retargets child PRs automatically when the base merges and its branch is deleted. A chained branch **may merge `origin/main` mid-run** when it needs a dependency that merged after the fork (merge commits only) — this is blessed, but it creates the double-merge-base trap on retarget; see the merge-train runbook point 5 (FOLLOW-UP 81) for the signature and recovery.
 3. **Finding-attribution (PR-Attr) is mandatory** — unchanged from the stacked rule above: a blocking finding is fixed on the branch that owns the offending code, never on a branch stacked above it.
 4. **Cascade procedure.** If the foundation changes post-review, each child refreshes with `git merge <prev-branch>` (in chain order) and re-gates. (Candidate for automation later; manual and documented for now.)
+5. **Merge as a UNIT, in order (FOLLOW-UP 100, maintainer ruling 2026-06-17).** `/to-issues` stamps every chained member with `merge-unit:<slug>` + `chain-order:N`, and `train-merge.mjs` **refuses to merge a member out of order** — so `main` never holds a window where an intermediate state reads a not-yet-swapped dependency (live: slice-24's accept/reject read the OLD `findByQuoteRequestId` until the chain tip swapped it; the chain MUST land all-or-none, in order).
+
+#### Stacked-chain reconciliation when `main` moves (FOLLOW-UP 100)
+
+When an unrelated PR lands on `main` under an in-flight chain, do **not** `git merge origin/main` per branch: each independent merge commit diverges, so every human merge of one member re-conflicts the rest — O(chain²) re-fix churn. Instead rebase the **whole chain onto `main` as one unit**:
+
+```bash
+git rebase --onto origin/main <old-chain-base> <chain-tip-branch>   # one reconciliation
+# then re-push each member (the chain's internal bases are preserved)
+```
+
+One operation, no per-branch merge commits, and the `merge-unit` order guard still holds. Some drift is inherent when an unrelated PR lands mid-chain — the framework minimizes it, it cannot eliminate it.
 
 The launch pattern for a chained group, in topological order from `group-slice-issues.mjs`:
 

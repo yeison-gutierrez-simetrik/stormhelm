@@ -632,3 +632,57 @@ test('FU-98: RALPH_NOSLEEP=off runs without a guard (back-compat)', () => {
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /no-sleep guard:/);
   });
 });
+
+// ── FOLLOW-UP 100: merge-unit ordering — train-merge refuses an out-of-order
+// chain member, so main never holds a window where an intermediate state reads
+// stale code (the slice-24 constraint: the chain merges as a unit, in order).
+test('FU-100: train-merge refuses a chain member merged out of order', () => {
+  withDir((dir) => {
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of ['train-merge.mjs', 'check-merge-safety.mjs']) {
+      copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    }
+    // PR #82 is chain-order 2 of merge-unit:quotes; #81 (order 1) is still open.
+    const r = spawnSync('node', ['scripts/train-merge.mjs', '82'], {
+      cwd: dir, encoding: 'utf8',
+      env: {
+        ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`,
+        MOCK_TRAIN_PRE_JSON: JSON.stringify({ number: 82, state: 'OPEN', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', headRefOid: 'h82', baseRefOid: 'b', isDraft: false, title: 'chain 2' }),
+        MOCK_TRAIN_VIEW_JSON: JSON.stringify({ headRefName: 'agent/feature-quotes-2', baseRefName: 'agent/feature-quotes-1', headRefOid: 'h82', labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:2' }] }),
+        MOCK_UNIT_SIBLINGS_JSON: JSON.stringify([
+          { number: 81, labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:1' }] },
+          { number: 82, labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:2' }] },
+        ]),
+      },
+    });
+    assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+    assert.match(`${r.stdout}${r.stderr}`, /Refusing to merge PR #82 out of order/);
+    assert.match(`${r.stdout}${r.stderr}`, /chain-order 1.*still open/);
+    // It refused BEFORE any merge/retarget side effect.
+    assert.ok(!existsSync(join(dir, '.mock-gh-trainlog')), 'no merge/edit was attempted');
+  });
+});
+
+test('FU-100: the lowest open chain member is allowed past the order guard', () => {
+  withDir((dir) => {
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of ['train-merge.mjs', 'check-merge-safety.mjs']) {
+      copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    }
+    // #81 is the lowest open order → the guard proceeds (then fails later at the
+    // real merge with no git repo, which is fine — we assert it PASSED the guard).
+    const r = spawnSync('node', ['scripts/train-merge.mjs', '81'], {
+      cwd: dir, encoding: 'utf8',
+      env: {
+        ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`,
+        MOCK_TRAIN_PRE_JSON: JSON.stringify({ number: 81, state: 'OPEN', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', headRefOid: 'h81', baseRefOid: 'b', isDraft: false, title: 'chain 1' }),
+        MOCK_TRAIN_VIEW_JSON: JSON.stringify({ headRefName: 'agent/feature-quotes-1', baseRefName: 'main', headRefOid: 'h81', labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:1' }] }),
+        MOCK_UNIT_SIBLINGS_JSON: JSON.stringify([
+          { number: 81, labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:1' }] },
+          { number: 82, labels: [{ name: 'merge-unit:quotes' }, { name: 'chain-order:2' }] },
+        ]),
+      },
+    });
+    assert.match(`${r.stdout}${r.stderr}`, /merge-unit:quotes: PR #81 is chain-order 1 \(the next open member\) — proceeding/);
+  });
+});

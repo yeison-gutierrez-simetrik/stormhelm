@@ -257,6 +257,20 @@ Then decide packaging (Axis 2, by review-size budget — see `core/13` "Cumulati
 
 Emit a `slice-group:<slug>` label on every issue of a group so the relationship is queryable.
 
+> **Merge-unit labels for a CHAIN (FOLLOW-UP 100).** When a group is executed
+> as a base-branch chain (the case above), also stamp every member with
+> **`merge-unit:<slug>`** and **`chain-order:N`** (1-based, topological). These
+> encode the "merge all-or-none, IN ORDER" contract: `train-merge.mjs` refuses
+> to merge a member out of order, so main never holds a window where an
+> intermediate state reads a not-yet-swapped dependency (live: slice-24
+> accept/reject read the OLD `findByQuoteRequestId` until the chain tip's swap —
+> the chain MUST land as a unit). When `main` moves under an in-flight chain, do
+> NOT `git merge origin/main` per branch (that creates divergent merge commits
+> and O(chain²) re-conflict churn on every human merge); rebase the **whole
+> chain onto main as one unit** (`git rebase --onto main <old-base> <chain-tip>`,
+> then re-push each member) — one reconciliation, no per-branch merge commits.
+> See `core/13` "Stacked-chain reconciliation".
+
 ### Step 6 — Create via `gh issue create`
 
 For each slice:
