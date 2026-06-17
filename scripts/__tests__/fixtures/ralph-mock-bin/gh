@@ -47,6 +47,12 @@ budget:50k}"
       printf '%s\n' "${MOCK_PR_DEPENDENTS_JSON:-[]}"
       exit 0
     fi
+    # FOLLOW-UP 100: --label merge-unit:* queries answer the unit-siblings JSON
+    # (train-merge's order guard lists the unit's open members).
+    if printf '%s\n' "$@" | grep -q -- "--label"; then
+      printf '%s\n' "${MOCK_UNIT_SIBLINGS_JSON:-[]}"
+      exit 0
+    fi
     # Pre-formatted rows (the real call uses --jq); empty by default so the
     # watcher's empty-list path (FOLLOW-UP 32 lesson 3) is exercised.
     # FOLLOW-UP 48: per-dep branch discovery — when the --jq carries a

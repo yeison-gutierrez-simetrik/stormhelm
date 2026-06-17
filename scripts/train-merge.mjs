@@ -41,8 +41,37 @@ const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: 'i
 // 1. pre-merge safety (refuses on mergeable≠MERGEABLE or state≠CLEAN).
 run('node', ['scripts/check-merge-safety.mjs', pr, 'pre']);
 
-const view = JSON.parse(gh('pr', 'view', pr, '--json', 'headRefName,baseRefName,headRefOid'));
+const view = JSON.parse(gh('pr', 'view', pr, '--json', 'headRefName,baseRefName,headRefOid,labels'));
 const { headRefName, baseRefName, headRefOid } = view;
+
+// 1b. FOLLOW-UP 100: merge-unit ordering. A chained slice-group must merge
+// all-or-none IN ORDER, leaving NO window on main where an intermediate state
+// reads stale code (live: slice-24 accept/reject read the OLD
+// findByQuoteRequestId until the chain tip swapped it). A PR labeled
+// `merge-unit:<slug>` is refused unless it is the LOWEST open `chain-order:N`
+// of its unit — the next member in order. /to-issues stamps both labels on
+// chained sub-issues; this is where the contract is enforced.
+const labelNames = (lbls) => (lbls || []).map((l) => l.name);
+const orderOf = (lbls) => {
+  const m = labelNames(lbls).find((n) => /^chain-order:\d+$/.test(n));
+  return m ? Number(m.split(':')[1]) : Infinity;
+};
+const unit = labelNames(view.labels).find((n) => n.startsWith('merge-unit:'));
+if (unit) {
+  const myOrder = orderOf(view.labels);
+  const siblings = JSON.parse(gh('pr', 'list', '--label', unit, '--state', 'open', '--json', 'number,labels'));
+  const minOpen = Math.min(...siblings.map((s) => orderOf(s.labels)));
+  if (myOrder > minOpen) {
+    console.error(
+      `❌ Refusing to merge PR #${pr} out of order: it is chain-order ${myOrder} of ${unit}, ` +
+      `but an earlier member (chain-order ${minOpen}) is still open. A merge-unit merges IN ORDER — ` +
+      `merging out of order leaves a window on main where an intermediate state reads stale code (FU-100). ` +
+      `Merge the earlier member first.`,
+    );
+    process.exit(1);
+  }
+  console.log(`🔗 merge-unit ${unit}: PR #${pr} is chain-order ${myOrder} (the next open member) — proceeding.`);
+}
 
 // 2. retarget every open dependent BEFORE the branch can disappear.
 const dependents = JSON.parse(

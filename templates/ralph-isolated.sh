@@ -17,6 +17,13 @@
 #                               monorepo worktree (cwd = the worktree);
 #                               default: pnpm install → npm ci → npm install
 #                               (FU-85)
+#   RALPH_NOSLEEP               background no-sleep guard so a host idle sleep
+#                               can't wedge a call (FU-98): 'auto' (default —
+#                               caffeinate on macOS / systemd-inhibit on Linux),
+#                               a custom HOLD-command (held in the background for
+#                               the run), or 'off' to disable. The guard is
+#                               decoupled — if it fails to start, the run still
+#                               proceeds (unguarded), never wedged by the guard.
 #
 # Behavior:
 #   - creates .worktrees/ralph-<issue>-<worker>-<ts> detached at HEAD
@@ -166,8 +173,45 @@ if [ ! -e "$WT/node_modules" ]; then
 fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
 
+# FOLLOW-UP 98: a host sleep mid-call wedges the run. The per-call gtimeout
+# (FU-92) uses a MONOTONIC timer that is SUSPENDED while the machine sleeps, so
+# it never kills a call whose connection died during sleep — the run hangs with
+# a frozen session log and no terminal marker (recurred ~4× in one campaign).
+# The wall-clock-aware kill is impractical (the loop is blocked inside the
+# synchronous call, so no in-process watchdog can run); the fix that fully
+# stopped recurrence is to PREVENT idle sleep for the run's duration.
+#   - macOS:  caffeinate -ims   (no idle/display/system sleep)
+#   - Linux:  systemd-inhibit --what=idle:sleep --why=ralph
+# Run the guard DECOUPLED: launch it in the BACKGROUND holding the inhibit, then
+# run the loop directly and kill the guard after. Critically, the run never
+# DEPENDS on the guard succeeding — a guard that fails to start (no D-Bus session
+# on a CI container; a missing tool) must not wedge the very run it protects
+# (FU-98 consumer review: a broken systemd-inhibit was killing real runs). On
+# failure the run simply proceeds unguarded. Override with RALPH_NOSLEEP: a
+# hold-command (run in the background until the loop ends), or 'off' to skip.
+NOSLEEP_PID=""
+nosleep_start() { "$@" >/dev/null 2>&1 & NOSLEEP_PID=$!; }
+case "${RALPH_NOSLEEP:-auto}" in
+  off|0|'') : ;;
+  auto)
+    if command -v caffeinate >/dev/null 2>&1; then
+      nosleep_start caffeinate -ims
+      echo "☕ no-sleep guard: caffeinate (background pid ${NOSLEEP_PID}; FU-98)"
+    elif command -v systemd-inhibit >/dev/null 2>&1; then
+      nosleep_start systemd-inhibit --what=idle:sleep --why="ralph #${ISSUE}" sleep infinity
+      echo "☕ no-sleep guard: systemd-inhibit (background pid ${NOSLEEP_PID}; FU-98)"
+    else
+      echo "⚠️  no caffeinate/systemd-inhibit found — a host SLEEP during a call may wedge the run (FU-98). Keep the machine awake, or set RALPH_NOSLEEP to a hold-command." >&2
+    fi ;;
+  *) nosleep_start bash -c "$RALPH_NOSLEEP"
+     echo "☕ no-sleep guard: ${RALPH_NOSLEEP} (background pid ${NOSLEEP_PID}; FU-98)" ;;
+esac
+
 rc=0
 ( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
+
+# Stop the background no-sleep guard (harmless if it never started or already died).
+[ -n "$NOSLEEP_PID" ] && kill "$NOSLEEP_PID" 2>/dev/null || true
 
 echo ""
 echo "── Isolated run finished (exit ${rc}) ──"

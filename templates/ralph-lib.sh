@@ -393,8 +393,11 @@ ralph_acceptance_result_check() {
 # Normalize a scenarios:* label VALUE to space-separated scn-NNN tokens.
 # Accepts every form the label takes in the wild: GitHub-compact
 # `scn-021+022` (the canonical — 50-char label limit), spelled
-# `scn-021+scn-022`, and comma `scn-021,scn-022`.
+# `scn-021+scn-022`, comma `scn-021,scn-022`, and the RANGE form
+# `scn-A..scn-B` / `scn-A..B` (FU-96 — the only single-label shape that fits
+# GitHub's 50-char label cap for a slice with more than ~8 scenarios).
 #   ralph_expand_scns "scn-021+022,scn-030" → "scn-021 scn-022 scn-030"
+#   ralph_expand_scns "scn-409..scn-412"    → "scn-409 scn-410 scn-411 scn-412"
 # ──────────────────────────────────────────────────────────────────────
 ralph_expand_scns() {
   local out="" scn
@@ -403,6 +406,26 @@ ralph_expand_scns() {
       scn-*) : ;;
       *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
     esac
+    # FOLLOW-UP 96: range form scn-A..scn-B (or scn-A..B). Expand A..B inclusive,
+    # preserving A's zero-pad width. `10#` forces base-10 (scn-021 must not be
+    # read as octal). A non-numeric or backwards range falls through to the drop
+    # below — the parser and check-invariants.mjs must agree on what a label means.
+    case "$scn" in
+      scn-*..*)
+        local a="${scn#scn-}"; a="${a%%..*}"
+        local b="${scn##*..}"; b="${b#scn-}"
+        case "${a}-${b}" in
+          *[!0-9-]*|-*|*-) : ;;                       # not a clean numeric range → drop
+          *)
+            if [ "$((10#$a))" -le "$((10#$b))" ]; then
+              local w=${#a} n
+              for n in $(seq "$((10#$a))" "$((10#$b))"); do
+                out="${out}${out:+ }scn-$(printf "%0${w}d" "$n")"
+              done
+              continue
+            fi ;;
+        esac ;;
+    esac
     # Drop non-numeric garbage (scn-foo) — keeps this expander consistent
     # with check-invariants.mjs' parser, which ignores such segments; the
     # two auditors must agree on what a label means. FU-35: warn on the
@@ -410,7 +433,7 @@ ralph_expand_scns() {
     # unsupported grammar is at least visible in the console/transcript.
     case "$scn" in
       scn-*[!0-9]*|scn-)
-        echo "ralph_expand_scns: dropping unparseable segment '${scn#scn-}' (canonical form: scn-NNN+NNN)" >&2
+        echo "ralph_expand_scns: dropping unparseable segment '${scn#scn-}' (canonical form: scn-NNN+NNN or scn-A..scn-B)" >&2
         continue ;;
     esac
     out="${out}${out:+ }${scn}"

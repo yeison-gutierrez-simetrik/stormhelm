@@ -67,11 +67,21 @@ const issues = issueFiles.map((f) => {
   const lbl = labelLine(t);
   // Accept every form the scenarios:* label takes in the wild (FOLLOW-UP 21):
   // canonical GitHub-compact `scn-021+022` (the 50-char label limit forces it),
-  // spelled `scn-021+scn-022`, and comma `scn-021,scn-022`. The old /scn-\d+/g
-  // silently dropped bare numeric continuations → INV-5 false orphans on every
-  // multi-scenario label.
-  const scns = [...t.matchAll(/scenarios:([a-z0-9+,-]+)/gi)].flatMap((m) =>
+  // spelled `scn-021+scn-022`, comma `scn-021,scn-022`, and the RANGE form
+  // `scn-A..scn-B` (FU-96 — the only single-label shape that fits a >8-scn
+  // slice). This MUST agree with ralph-lib.sh `ralph_expand_scns`: the engine
+  // and this offline auditor must read a label identically, or a slice that
+  // launches green is flagged orphan here (or vice-versa). The char class now
+  // includes `.` so `scenarios:scn-409..scn-412` is captured whole, not cut at
+  // the first dot (which silently expanded to ZERO — the old near-miss).
+  const scns = [...t.matchAll(/scenarios:([a-z0-9+,.-]+)/gi)].flatMap((m) =>
     m[1].split(/[+,]/).flatMap((seg) => {
+      const range = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/);
+      if (range) {
+        const [a, b, w] = [+range[1], +range[2], range[1].length];
+        if (a > b) return [];   // backwards range → nothing (matches the expander)
+        return Array.from({ length: b - a + 1 }, (_, k) => `scn-${String(a + k).padStart(w, '0')}`);
+      }
       const n = seg.match(/^(?:scn-)?(\d+)$/);
       return n ? [`scn-${n[1]}`] : [];
     }),
@@ -139,7 +149,11 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
 // error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
 // Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
 {
-  const SCN_VALUE = /^((scn-)?\d+)([+,](scn-)?\d+)*$/;
+  // A segment is a single scn (`scn-021`/`021`) OR a range (`scn-A..scn-B`,
+  // FU-96); segments join with `+`/`,`. Must agree with ralph_expand_scns and
+  // the INV-5 expander above — all three read a label identically.
+  const SEG = '(?:scn-)?\\d+(?:\\.\\.(?:scn-)?\\d+)?';
+  const SCN_VALUE = new RegExp(`^${SEG}(?:[+,]${SEG})*$`);
   const malformed = [];
   for (const f of issueFiles) {
     for (const m of read(f).matchAll(/scenarios:([^\s`'")\]]+)/gi)) {
@@ -148,7 +162,7 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
   }
   if (malformed.length)
     add('CONFIG', '§63', 'fail',
-      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6): ${malformed.join('; ')}`);
+      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6): ${malformed.join('; ')}`);
 }
 
 // INV-1: multi-module ⇒ SAD exists

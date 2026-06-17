@@ -165,14 +165,24 @@ for the smallest slice (one use case + one route):
 Input tokens dominate (each session re-reads the issue, the skills, and the
 code), so small slices do NOT proportionally shrink the cost.
 
-**Rule: `budget ≈ expected_iterations × 80k`, floor `budget:150k` for any
-slice.** A 50k budget killed a *successful* live run mid-flight — the work
-was green; the label blocked it.
+**Rule (FOLLOW-UP 97 — base-context-dominated): `budget ≈ BASE_CONTEXT ×
+expected_calls + per-scn increment`, floor `budget:300k` for ANY slice.** The
+cost that dominates is the **per-call repo-context** the engine re-reads on
+every `/tdd` / `/run-acceptance` / reviewer call — NOT the slice's code size.
+Measured 2026-06-17: a thin 5-scn relay slice and a heavy foundation slice
+both cost **≈100k per call** (`BASE_CONTEXT`); one sub-issue needs tdd +
+run-acceptance + reviewer (+ often one fix iteration) = **≥3 calls**, so the
+floor is ≈300k even for a tiny slice. Under-budgeting cost a `budget-exceeded`
+bump+resume on nearly every sub-issue of the live campaign (#172 132k>120k,
+#175 227k>200k, #179 272k>250k), each re-paying a fresh iteration's setup.
 
-- Smallest slice, expected to land in 1–2 iterations: `budget:150k`.
-- Typical slice (2–3 iterations): `budget:200k`–`budget:250k`.
-- Brownfield no tests (characterization first): add one iteration (`+80k`).
-- Multi-file feature (>5 files): scale by expected iterations, not file count.
+- `BASE_CONTEXT` ≈ **100k** (the measured per-call repo-context overhead — a
+  tunable constant, not a magic number; raise it for a large repo).
+- `expected_calls` ≥ **3** (tdd + acceptance + reviewer); +1–2 for an expected
+  fix iteration.
+- Smallest slice (even 1 scn): `budget:300k` floor — NOT 150k.
+- Brownfield no tests (characterization first): +1 call (`+100k`).
+- Multi-file feature (>5 files): scale by expected calls, not file count.
 
 **Heavy-slice multiplier (FOLLOW-UP 75).** The 80k/iteration model holds for
 small slices, but a slice that is **a NEW bounded context**, OR
@@ -185,7 +195,7 @@ sessions died `budget_exceeded` with the work already green (307k/300k,
 heavy slices up front; the maximally-frustrating failure is green work on a
 dead ledger.
 
-Use coarse buckets (150k, 200k, 250k, 300k, 400k, 500k). Round up. Note budgets
+Use coarse buckets (300k floor, then 400k, 500k, 600k). Round up. Note budgets
 are **per session**: a blocked-then-relaunched issue spends a fresh budget
 (the ledger does not carry over).
 
@@ -194,7 +204,7 @@ are **per session**: a blocked-then-relaunched issue spends a fresh budget
 ```markdown
 # Issue NNN — <slice title>
 
-**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+043` `budget:150k` `severity:p2`
+**Labels:** `ralph-ready` `shift:afk` `scenarios:scn-042+043` `budget:300k` `severity:p2`
 
 ## Scenarios covered
 - scn-042, scn-043 (see `features/listings/listing-publication.feature`)
@@ -247,6 +257,20 @@ Then decide packaging (Axis 2, by review-size budget — see `core/13` "Cumulati
 
 Emit a `slice-group:<slug>` label on every issue of a group so the relationship is queryable.
 
+> **Merge-unit labels for a CHAIN (FOLLOW-UP 100).** When a group is executed
+> as a base-branch chain (the case above), also stamp every member with
+> **`merge-unit:<slug>`** and **`chain-order:N`** (1-based, topological). These
+> encode the "merge all-or-none, IN ORDER" contract: `train-merge.mjs` refuses
+> to merge a member out of order, so main never holds a window where an
+> intermediate state reads a not-yet-swapped dependency (live: slice-24
+> accept/reject read the OLD `findByQuoteRequestId` until the chain tip's swap —
+> the chain MUST land as a unit). When `main` moves under an in-flight chain, do
+> NOT `git merge origin/main` per branch (that creates divergent merge commits
+> and O(chain²) re-conflict churn on every human merge); rebase the **whole
+> chain onto main as one unit** (`git rebase --onto main <old-base> <chain-tip>`,
+> then re-push each member) — one reconciliation, no per-branch merge commits.
+> See `core/13` "Stacked-chain reconciliation".
+
 ### Step 6 — Create via `gh issue create`
 
 For each slice:
@@ -255,7 +279,7 @@ For each slice:
 gh issue create \
   --title "<slug> — <slice title>" \
   --body "$(cat <generated-body>)" \
-  --label "ralph-ready,shift:afk,scenarios:scn-042+043,budget:150k,severity:p2,slice-group:<slug>"
+  --label "ralph-ready,shift:afk,scenarios:scn-042+043,budget:300k,severity:p2,slice-group:<slug>"
 ```
 
 > **Canonical `scenarios:` label form: `scenarios:scn-042+043`** — the first
@@ -268,14 +292,25 @@ gh issue create \
 > canonical compact form here and in the file's `**Labels:**` line — same
 > string in both places.
 >
-> **Overflow (FOLLOW-UP 71):** if the compact `scenarios:` label would still
-> exceed 50 chars (a foundation / `tier:N` slice with ~15+ contiguous scns —
-> e.g. 19 scns ≈ 90 chars), **omit the GitHub `scenarios:` label** (keep
-> `tier:N`) and let the issue file's `**Labels:**` line carry the full spelled
-> list. INV-5 reads `scn-NNN` from the FILE, not the GitHub label, so the
-> omission is safe — the gate still maps every scenario. Do NOT use a
-> `scn-137..155` range (rejected by the label format checker). See `core/12`
-> "GitHub label format → Overflow fallback".
+> **Overflow — prefer the RANGE form (FOLLOW-UP 96).** If the compact `+`-joined
+> `scenarios:` label would exceed 50 chars (more than ~8 scns — e.g. 19 scns ≈ 90
+> chars) **and the scns are contiguous**, emit the **range** label
+> `scenarios:scn-A..scn-B` — it fits any count in ≤50 chars and now round-trips
+> through every consumer (`ralph_expand_scns`, `check-invariants.mjs` INV-5, the
+> §63 gate — all expand `scn-A..scn-B` inclusively as of FU-96). This is the
+> preferred single-label representation for a large contiguous slice; it
+> replaces the old "omit the label" fallback.
+>
+> **Sizing self-check (MUST hold for every emitted issue):** the `scenarios:`
+> label MUST (a) be ≤50 chars AND (b) round-trip through `ralph_expand_scns` to
+> exactly the issue's scn set. For contiguous scns use the range; for
+> non-contiguous scns that overflow, split into multiple issues of ≤8 scns each
+> (do not emit an un-launchable mega-issue — live: a 20-scn issue died at the
+> §63 gate every launch and had to be hand-decomposed). Only if neither fits
+> (non-contiguous AND must stay one issue) fall back to **omitting the GitHub
+> label** and carrying the spelled list in the file's `**Labels:**` line (FU-71;
+> INV-5 reads `scn-NNN` from the FILE, so the gate still maps every scenario).
+> State this contract here AND in `ralph_expand_scns`' doc-comment (FU-17).
 
 If the slice is sensitive: add `--label "require-human-review"` and **omit** `--label "ralph-ready"` until human confirms. Omit `slice-group:<slug>` for standalone issues (singletons).
 
