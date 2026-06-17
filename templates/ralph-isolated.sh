@@ -17,6 +17,10 @@
 #                               monorepo worktree (cwd = the worktree);
 #                               default: pnpm install → npm ci → npm install
 #                               (FU-85)
+#   RALPH_NOSLEEP               no-sleep guard wrapping the run so a host idle
+#                               sleep can't wedge a call (FU-98): 'auto' (default
+#                               — caffeinate on macOS / systemd-inhibit on Linux),
+#                               a custom command, or 'off' to disable
 #
 # Behavior:
 #   - creates .worktrees/ralph-<issue>-<worker>-<ts> detached at HEAD
@@ -166,8 +170,37 @@ if [ ! -e "$WT/node_modules" ]; then
 fi
 mkdir -p "$WT/.planning/ralph-sessions" "$WT/.planning/acceptance"
 
+# FOLLOW-UP 98: a host sleep mid-call wedges the run. The per-call gtimeout
+# (FU-92) uses a MONOTONIC timer that is SUSPENDED while the machine sleeps, so
+# it never kills a call whose connection died during sleep — the run hangs with
+# a frozen session log and no terminal marker (recurred ~4× in one campaign).
+# The wall-clock-aware kill is impractical (the loop is blocked inside the
+# synchronous call, so no in-process watchdog can run); the fix that fully
+# stopped recurrence is to PREVENT idle sleep for the run's duration. Wrap the
+# loop in a no-sleep guard when one is available:
+#   - macOS:  caffeinate -ims   (no idle/display/system sleep)
+#   - Linux:  systemd-inhibit --what=idle:sleep --why=ralph
+# Override/disable with RALPH_NOSLEEP: a custom command, or 'off' to skip
+# (e.g. a server that never sleeps, or no guard installed).
+NOSLEEP=()
+case "${RALPH_NOSLEEP:-auto}" in
+  off|0|'') : ;;
+  auto)
+    if command -v caffeinate >/dev/null 2>&1; then
+      NOSLEEP=(caffeinate -ims)
+      echo "☕ no-sleep guard: caffeinate -ims (host idle-sleep inhibited for the run; FU-98)"
+    elif command -v systemd-inhibit >/dev/null 2>&1; then
+      NOSLEEP=(systemd-inhibit --what=idle:sleep --why="ralph #${ISSUE}")
+      echo "☕ no-sleep guard: systemd-inhibit (FU-98)"
+    else
+      echo "⚠️  no caffeinate/systemd-inhibit found — a host SLEEP during a call will wedge the run (FU-98). Keep the machine awake, or set RALPH_NOSLEEP to a guard command." >&2
+    fi ;;
+  *) read -r -a NOSLEEP <<< "$RALPH_NOSLEEP"
+     echo "☕ no-sleep guard: ${RALPH_NOSLEEP} (FU-98)" ;;
+esac
+
 rc=0
-( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
+( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ${NOSLEEP[@]+"${NOSLEEP[@]}"} ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
 
 echo ""
 echo "── Isolated run finished (exit ${rc}) ──"

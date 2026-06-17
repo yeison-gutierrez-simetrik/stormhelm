@@ -605,3 +605,30 @@ test('FU-85: workspace monorepo → real install in the worktree, never the prim
     assert.ok(!existsSync(join(dir, 'node_modules', '.installed-here')), 'the primary checkout is untouched');
   });
 });
+
+// ── FOLLOW-UP 98: no-sleep guard. A host idle-sleep mid-call wedges the run
+// (the FU-92 gtimeout's monotonic timer is suspended during sleep). The fix that
+// stopped recurrence is to inhibit idle sleep for the run; ralph-isolated wraps
+// the loop in caffeinate/systemd-inhibit (auto) or a RALPH_NOSLEEP command.
+test('FU-98: RALPH_NOSLEEP wraps the run (the guard command is invoked around the loop)', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    const marker = join(dir, '.nosleep-ran');
+    const rec = join(dir, 'nosleep-rec.sh');
+    writeFileSync(rec, '#!/usr/bin/env bash\n: > "$NOSLEEP_MARKER"\nexec "$@"\n');
+    chmodSync(rec, 0o755);
+    const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: `bash ${rec}`, NOSLEEP_MARKER: marker });
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.ok(existsSync(marker), 'the RALPH_NOSLEEP guard command wrapped (and ran) the loop');
+    assert.match(`${r.stdout}${r.stderr}`, /no-sleep guard/);
+  });
+});
+
+test('FU-98: RALPH_NOSLEEP=off runs without a guard (back-compat)', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: 'off' });
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /no-sleep guard:/);
+  });
+});
