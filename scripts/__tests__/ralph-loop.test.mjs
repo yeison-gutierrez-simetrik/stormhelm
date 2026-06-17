@@ -1589,3 +1589,50 @@ test('FU-92: a fast call under the timeout is unaffected (no false kill)', () =>
     assert.ok(events.some((e) => e.event === 'ralph.pr.opened'), 'a normal run still completes');
   });
 });
+
+// ── FOLLOW-UP 99: auto-resume after a TRANSIENT engine outage. A few zero-token
+// no-op calls (transport/auth blip) used to end the run engine_failure and wait
+// for a manual --resume — toil that hit several concurrent runs at once. Now: on
+// the engine-outage path, probe the engine; if it responds, auto-resume in place
+// up to RALPH_AUTO_RESUME_MAX times before handing to a human.
+test('FU-99: engine recovers after a transient no-op → auto-resumes in place, completes', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '5'], {
+      MOCK_ZERO_CALLS: '2',            // first 2 calls are 0-token no-ops, then healthy
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+      RALPH_AUTO_RESUME_MAX: '2', RALPH_AUTO_RESUME_BACKOFF: '0',
+    });
+    assert.equal(status, 0, `the run recovers and completes: ${out}`);
+    const events = readEvents(dir, 1);
+    assert.ok(events.some((e) => e.event === 'ralph.engine.auto_resume' && e.details?.attempt === 1),
+      'an auto-resume is recorded in the NDJSON');
+    assert.equal(endStatus(events), 'completed', 'the recovered run reaches a PR, not engine_failure');
+    assert.match(out, /pull\/9/);
+  });
+});
+
+test('FU-99: engine stays down → exits engine_failure after the probe cap (no false auto-resume)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '5'], {
+      MOCK_IN_TOKENS: '0', MOCK_OUT_TOKENS: '0',   // every call (incl. the probe) is a no-op
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0',
+      RALPH_AUTO_RESUME_MAX: '2', RALPH_AUTO_RESUME_BACKOFF: '0',
+    });
+    assert.notEqual(status, 0);
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'engine_failure', 'a still-dead engine ends engine_failure');
+    assert.ok(!events.some((e) => e.event === 'ralph.engine.auto_resume'),
+      'no auto-resume is logged when the probe never succeeds');
+  });
+});
+
+test('FU-99: RALPH_AUTO_RESUME_MAX=0 disables auto-resume (engine_failure immediately)', () => {
+  withConsumer((dir) => {
+    const { status } = runRalph(dir, ['1', '5'], {
+      MOCK_ZERO_CALLS: '2',
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0', RALPH_AUTO_RESUME_MAX: '0',
+    });
+    assert.notEqual(status, 0);
+    assert.equal(endStatus(readEvents(dir, 1)), 'engine_failure', 'disabled → no probe, ends engine_failure');
+  });
+});

@@ -49,9 +49,18 @@ fi
 # emit <text> — honors --output-format json with a result envelope + usage,
 # mirroring the real CLI (text mode carries no usage data at all).
 emit() {
+  # MOCK_ZERO_CALLS=<N>: the first N calls report ZERO tokens (a transient
+  # engine no-op — transport/auth blip), the rest report normally. Simulates an
+  # outage that RECOVERS, for the FU-99 auto-resume path. Counter persists in a
+  # file across the mock's separate invocations.
+  local in="${MOCK_IN_TOKENS:-1200}" out="${MOCK_OUT_TOKENS:-340}"
+  if [ -n "${MOCK_ZERO_CALLS:-}" ]; then
+    local seen; seen=$(cat .mock-zero-count 2>/dev/null || echo 0); seen=$((seen + 1)); echo "$seen" > .mock-zero-count
+    if [ "$seen" -le "$MOCK_ZERO_CALLS" ]; then in=0; out=0; fi
+  fi
   if [ -n "$json_mode" ]; then
     printf '{"type":"result","subtype":"success","result":"%s","usage":{"input_tokens":%s,"output_tokens":%s}}\n' \
-      "$1" "${MOCK_IN_TOKENS:-1200}" "${MOCK_OUT_TOKENS:-340}"
+      "$1" "$in" "$out"
   else
     printf '%s\n' "$1"
   fi

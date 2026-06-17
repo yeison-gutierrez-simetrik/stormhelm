@@ -19,6 +19,10 @@
 #                         sleep / dropped connection) is killed and treated as an
 #                         engine outage instead of hanging the run (default 1800,
 #                         needs GNU timeout/gtimeout; FU-92)
+#   RALPH_AUTO_RESUME_MAX times to auto-resume in place after a TRANSIENT engine
+#                         outage once a health probe shows the engine is back,
+#                         before handing to a human (default 2; 0 disables; FU-99)
+#   RALPH_AUTO_RESUME_BACKOFF  seconds before each engine health probe (default 30)
 #
 # Reads the GitHub issue, runs /tdd + /run-acceptance until every
 # @release scenario passes or the budget is exhausted. Before opening
@@ -523,6 +527,41 @@ ralph_try_model_fallback() {
 }
 
 # ──────────────────────────────────────────────────────────────────────
+# FOLLOW-UP 99: a TRANSIENT engine outage (a few zero-token no-op calls when
+# transport/auth blips) is recoverable — the engine is commonly back seconds
+# later, and the blip tends to hit several concurrent runs at once, so a manual
+# --resume per run is pure toil on the unattended path. Before ending
+# engine_failure, PROBE the engine with a trivial health call; if it responds,
+# auto-resume in place up to RALPH_AUTO_RESUME_MAX times (default 2) with a
+# backoff. Only a still-dead engine after the cap exits for a human --resume.
+# Each auto-resume is recorded in the NDJSON. (Distinct from the FU-84 model
+# fallback: this is "same engine, recovered" — tried after the fallback.)
+# ──────────────────────────────────────────────────────────────────────
+AUTO_RESUME_COUNT=0
+ralph_engine_probe_resume() {
+  local phase="${1:-unknown}"
+  [ "${RALPH_AUTO_RESUME_MAX:-2}" -gt 0 ] || return 1
+  if [ "$AUTO_RESUME_COUNT" -ge "${RALPH_AUTO_RESUME_MAX:-2}" ]; then
+    echo "🛑 Engine still down after ${AUTO_RESUME_COUNT} auto-resume attempt(s) — handing to a human." >&2
+    return 1
+  fi
+  local backoff="${RALPH_AUTO_RESUME_BACKOFF:-30}"
+  echo "🩺 Probing the engine before giving up (auto-resume $((AUTO_RESUME_COUNT + 1))/${RALPH_AUTO_RESUME_MAX:-2}, after ${backoff}s backoff)…" >&2
+  sleep "$backoff"
+  local probe=""
+  probe=$(ralph_call_claude_with_retry "Reply with the single word OK." 2>/dev/null) || true
+  if [ -n "$probe" ]; then
+    AUTO_RESUME_COUNT=$((AUTO_RESUME_COUNT + 1))
+    ralph_log_event "warn" "ralph.engine.auto_resume" \
+      "{\"phase\":$(ralph_json_string "$phase"),\"attempt\":${AUTO_RESUME_COUNT},\"max\":${RALPH_AUTO_RESUME_MAX:-2}}"
+    echo "✅ Engine responded — auto-resuming in place (${AUTO_RESUME_COUNT}/${RALPH_AUTO_RESUME_MAX:-2})." >&2
+    return 0
+  fi
+  echo "🛑 Engine probe failed — still down; ending engine_failure for a human --resume." >&2
+  return 1
+}
+
+# ──────────────────────────────────────────────────────────────────────
 # FOLLOW-UP 84: iteration-level no-progress detector. The FU-74 guard is
 # per-call (exit 0 + 0 tokens); a CLI that exits NON-zero without
 # matching the 429 regex (the subscription usage-window message) slips
@@ -548,6 +587,10 @@ check_engine_progress_or_fail() {
     return 0
   fi
   if ralph_try_model_fallback; then
+    NOPROGRESS_ITERS=0
+    return 0
+  fi
+  if ralph_engine_probe_resume "$phase"; then   # FU-99: transient outage recovered?
     NOPROGRESS_ITERS=0
     return 0
   fi
@@ -657,6 +700,10 @@ for i in $(seq 1 "$MAX_ITER"); do
         # FU-83/84: a different model = a different rate bucket — try the
         # one-shot fallback before declaring the outage terminal.
         if ralph_try_model_fallback; then
+          ENGINE_FAILS=0
+          continue
+        fi
+        if ralph_engine_probe_resume "tdd-noop"; then   # FU-99: transient outage recovered?
           ENGINE_FAILS=0
           continue
         fi
