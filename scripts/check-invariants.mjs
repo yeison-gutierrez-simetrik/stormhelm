@@ -149,7 +149,11 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
 // error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
 // Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
 {
-  const SCN_VALUE = /^((scn-)?\d+)([+,](scn-)?\d+)*$/;
+  // A segment is a single scn (`scn-021`/`021`) OR a range (`scn-A..scn-B`,
+  // FU-96); segments join with `+`/`,`. Must agree with ralph_expand_scns and
+  // the INV-5 expander above — all three read a label identically.
+  const SEG = '(?:scn-)?\\d+(?:\\.\\.(?:scn-)?\\d+)?';
+  const SCN_VALUE = new RegExp(`^${SEG}(?:[+,]${SEG})*$`);
   const malformed = [];
   for (const f of issueFiles) {
     for (const m of read(f).matchAll(/scenarios:([^\s`'")\]]+)/gi)) {
@@ -158,7 +162,7 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
   }
   if (malformed.length)
     add('CONFIG', '§63', 'fail',
-      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN (see /to-issues Step 6): ${malformed.join('; ')}`);
+      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6): ${malformed.join('; ')}`);
 }
 
 // INV-1: multi-module ⇒ SAD exists

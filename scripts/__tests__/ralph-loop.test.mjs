@@ -483,16 +483,27 @@ test('FU-34: iteration N\'s failure_reason lands in iteration N+1\'s /tdd prompt
   });
 });
 
-// ── FOLLOW-UP 35: unparseable scenarios label fails loudly, pre-iteration ─────
+// ── FOLLOW-UP 35 / 96: scenarios-label parse gate, pre-iteration ──────────────
 
-// A range form (live near-miss: scn-031..038) expanded to ZERO scenarios with
-// no error — the engine must refuse BEFORE iteration 1 with the canonical form.
-test('FU-35: range-form scenarios label → engine aborts pre-iteration with the canonical form named', () => {
+// FU-96 made the range form scn-A..scn-B a SUPPORTED grammar (it is the only
+// single-label shape that fits a >8-scn slice). So a range label now PARSES and
+// the engine proceeds — it no longer aborts as "unparseable" (the old FU-35
+// behavior this test used to pin). A genuinely garbage label still aborts below.
+test('FU-96: range-form scenarios label parses → engine proceeds (does not abort)', () => {
   withConsumer((dir) => {
-    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-031..038\nbudget:150k' });
+    const { out } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-031..scn-038\nbudget:300k' });
+    assert.doesNotMatch(out, /unparseable scenarios label/, 'the range form is accepted, not rejected');
+    const ev = readEvents(dir, 1);
+    assert.ok(names(ev).includes('ralph.iteration.started'), 'the engine launches the slice instead of aborting at the §63 gate');
+  });
+});
+
+test('FU-35: a genuinely unparseable scenarios label → engine aborts pre-iteration', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_LABELS: 'ralph-ready\nscenarios:scn-foo\nbudget:300k' });
     assert.notEqual(status, 0);
-    assert.match(out, /unparseable scenarios label 'scn-031\.\.038'/);
-    assert.match(out, /scn-NNN\+NNN/, 'the canonical form is named');
+    assert.match(out, /unparseable scenarios label 'scn-foo'/);
+    assert.match(out, /scn-A\.\.scn-B/, 'the supported range form is named in the error');
     const ev = readEvents(dir, 1);
     assert.ok(!names(ev).includes('ralph.iteration.started'), 'no iteration burned');
   });

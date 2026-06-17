@@ -190,16 +190,29 @@ test('INV-5 credits the comma form scenarios:scn-001,scn-002', () => {
   assert.match(out, /INV-5 §59: 2 @release scns mapped/);
 });
 
-// FOLLOW-UP 35: an unsupported scenarios grammar must fail CONFIG-loudly —
-// it expands to zero scenarios and blinds every label-driven invariant.
-test('FU-35: range-form scenarios label → CONFIG failure naming file + canonical form', () => {
+// FOLLOW-UP 96: the range form scn-A..scn-B is now a SUPPORTED grammar (it is
+// the only single-label shape that fits a >8-scn slice). The malformed-label
+// CONFIG check must ACCEPT it — and INV-5/INV-3 must read it identically to
+// ralph_expand_scns. A trivial in-range mutation keeps the fixture valid.
+test('FU-96: a range-form scenarios label is accepted (no malformed CONFIG)', () => {
   const { status, out } = runMutated((dir) => {
     const p = join(dir, 'issues/001-auth.md');
-    writeFileSync(p, readFileSync(p, 'utf8').replace('`scenarios:scn-001`', '`scenarios:scn-001..003`'));
+    writeFileSync(p, readFileSync(p, 'utf8').replace('`scenarios:scn-001`', '`scenarios:scn-001..001`'));
+  });
+  assert.equal(status, 0, `a valid range must not fail the gate:\n${out}`);
+  assert.doesNotMatch(out, /unparseable scenarios label/, 'the range grammar is accepted, not flagged');
+});
+
+// A genuinely unsupported grammar still fails CONFIG-loudly — it expands to zero
+// scenarios and would blind every label-driven invariant.
+test('FU-35: an unparseable scenarios label → CONFIG failure naming file + canonical form', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'issues/001-auth.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('`scenarios:scn-001`', '`scenarios:scn-001..foo`'));
   });
   assert.equal(status, 1, 'unparseable grammar must fail the gate');
-  assert.match(out, /❌ CONFIG.*scn-001\.\.003/);
-  assert.match(out, /scn-NNN\+NNN/, 'canonical form named');
+  assert.match(out, /❌ CONFIG.*scn-001\.\.foo/);
+  assert.match(out, /scn-A\.\.scn-B/, 'the supported range form is named');
 });
 
 test('INV-5 still reports a real orphan (a scn no label form mentions)', () => {
