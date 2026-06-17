@@ -529,7 +529,11 @@ function setupIsolatedConsumer(dir) {
 }
 const isoRun = (dir, args, env = {}) => spawnSync('bash', [join(dir, 'ralph-isolated.sh'), ...args], {
   cwd: dir, encoding: 'utf8',
-  env: { ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`, RALPH_WORKER_ID: 'w0', ...env },
+  // RALPH_NOSLEEP=off by default: the FU-98 guard is orthogonal to what these
+  // tests assert, and 'auto' would launch a REAL caffeinate/systemd-inhibit not
+  // in the mock-bin (systemd-inhibit fails on a CI container). A test that
+  // exercises the guard sets RALPH_NOSLEEP explicitly.
+  env: { ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`, RALPH_WORKER_ID: 'w0', RALPH_NOSLEEP: 'off', ...env },
 });
 
 test('FU-76: --resume refreshes a STALE engine script from the primary checkout', () => {
@@ -607,20 +611,20 @@ test('FU-85: workspace monorepo → real install in the worktree, never the prim
 });
 
 // ── FOLLOW-UP 98: no-sleep guard. A host idle-sleep mid-call wedges the run
-// (the FU-92 gtimeout's monotonic timer is suspended during sleep). The fix that
-// stopped recurrence is to inhibit idle sleep for the run; ralph-isolated wraps
-// the loop in caffeinate/systemd-inhibit (auto) or a RALPH_NOSLEEP command.
-test('FU-98: RALPH_NOSLEEP wraps the run (the guard command is invoked around the loop)', () => {
+// (the FU-92 gtimeout's monotonic timer is suspended during sleep). The guard
+// inhibits idle sleep for the run — launched DECOUPLED in the background, so a
+// guard that fails to start can never wedge the run it protects (the consumer-
+// review fix: a broken systemd-inhibit on a CI container was killing real runs).
+test('FU-98: a RALPH_NOSLEEP hold-command is launched in the background around the loop', () => {
   withDir((dir) => {
     setupIsolatedConsumer(dir);
     const marker = join(dir, '.nosleep-ran');
-    const rec = join(dir, 'nosleep-rec.sh');
-    writeFileSync(rec, '#!/usr/bin/env bash\n: > "$NOSLEEP_MARKER"\nexec "$@"\n');
-    chmodSync(rec, 0o755);
-    const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: `bash ${rec}`, NOSLEEP_MARKER: marker });
+    // A hold-command that records it started, then holds — the guard runs it in
+    // the background and kills it when the loop ends.
+    const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: `touch ${marker}; sleep 30` });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
-    assert.ok(existsSync(marker), 'the RALPH_NOSLEEP guard command wrapped (and ran) the loop');
-    assert.match(`${r.stdout}${r.stderr}`, /no-sleep guard/);
+    assert.ok(existsSync(marker), 'the RALPH_NOSLEEP guard command was launched');
+    assert.match(`${r.stdout}${r.stderr}`, /no-sleep guard:.*background pid/);
   });
 });
 
@@ -630,6 +634,17 @@ test('FU-98: RALPH_NOSLEEP=off runs without a guard (back-compat)', () => {
     const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: 'off' });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /no-sleep guard:/);
+  });
+});
+
+// The consumer-review blocker: a guard that FAILS to start must NOT wedge the
+// run (a broken systemd-inhibit on a CI container exited the wrapped run 1).
+test('FU-98: a guard that fails to start does not break the run (decoupled, resilient)', () => {
+  withDir((dir) => {
+    setupIsolatedConsumer(dir);
+    const r = isoRun(dir, ['1', '--max-iterations', '1'], { RALPH_NOSLEEP: 'this-binary-does-not-exist --x' });
+    assert.equal(r.status, 0, `a broken guard must not wedge the run it protects:\n${r.stdout}${r.stderr}`);
+    assert.match(`${r.stdout}${r.stderr}`, /Isolated run finished \(exit 0\)/);
   });
 });
 
