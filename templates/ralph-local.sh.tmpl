@@ -1060,6 +1060,22 @@ EOF
     fi
     PR_BASE_ARGS=()
     [ -n "$PR_TARGET" ] && PR_BASE_ARGS=(--base "$PR_TARGET")
+    # FOLLOW-UP 102: a --resume run can reach here with a PR ALREADY open for
+    # this head, and `gh pr create` has intermittently created a byte-identical
+    # DUPLICATE (across auth contexts) instead of failing. Guard with an explicit
+    # lookup and REUSE the existing PR rather than trusting create's own
+    # "already exists" error (unreliable; live: dup PRs #215/#219/#220).
+    EXISTING_PR=$(gh pr list --head "$BRANCH" ${PR_TARGET:+--base "$PR_TARGET"} --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+    if [ -n "$EXISTING_PR" ]; then
+      echo "↪ PR #${EXISTING_PR} is already open for ${BRANCH}${PR_TARGET:+ → ${PR_TARGET}} — reusing it, NOT creating a duplicate (FU-102)." >&2
+      ralph_git_action "pr-create" "reused" "existing PR #${EXISTING_PR}"
+      gh label create "ralph-done" --force --color "5319E7" \
+        --description "Ralph delivered a draft PR for this issue" >/dev/null 2>&1 || true
+      gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
+      ralph_log_event "info" "ralph.pr.reused" "{\"pr\":${EXISTING_PR}}"
+      ralph_end_session "completed"
+      exit 0
+    fi
     if gh pr create --draft ${PR_BASE_ARGS[@]+"${PR_BASE_ARGS[@]}"} --head "$BRANCH" --title "$PR_TITLE" --body "$PR_BODY${STACKED_DIFF_NOTE:+
 
 $STACKED_DIFF_NOTE}"; then
