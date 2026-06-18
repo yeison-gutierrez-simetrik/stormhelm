@@ -57,6 +57,8 @@ For each FR, identify which bounded context owns it. The mapping comes from `CON
 
 Scan all existing `features/**/*.feature` for the highest `@scn-` tag. Start your numbering at the next integer. IDs are global across the project, never re-used.
 
+> **Campaign-wide reservation (FOLLOW-UP 105).** Scanning `features/` for the next-free id only sees MERGED work — two parallel slices in the same auto-pilot campaign both scan the same base and collide (live: slices 26 & 27 both took scn-470/471, surfacing as INV-5 orphans + ambiguous traceability only at merge). When a campaign authors multiple slices from one base, **reserve a contiguous scn block up front and partition it per slice** (the campaign already declares its slice set), so the ranges are disjoint by construction. Backstop: `check-invariants.mjs` now fails authoring (CONFIG §59) if any `scn-NNN` is defined in two feature files — a reused id is caught before merge, not after.
+
 ### Step 3 — Translate each FR into one or more scenarios
 
 Rules per scenario:

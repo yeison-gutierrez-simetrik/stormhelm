@@ -97,9 +97,14 @@ const issues = issueFiles.map((f) => {
 // scn → approved? (from .feature # status, PR-B/§58)
 const scnApproved = {};
 const definedScns = new Set();
+const scnFiles = new Map();   // FOLLOW-UP 105: scn id → set of feature files defining it
 for (const f of featureFiles) {
   const t = read(f);
   const status = (t.match(/^#\s*status:\s*([a-zA-Z]+)/im) || [, null])[1]?.toLowerCase();
+  for (const m of new Set([...t.matchAll(/@(scn-\d+)/g)].map((x) => x[1]))) {
+    if (!scnFiles.has(m)) scnFiles.set(m, new Set());
+    scnFiles.get(m).add(f.split('/').slice(-2).join('/'));
+  }
   // FOLLOW-UP 39: 'implemented' is post-approval BY DEFINITION (§58 lifecycle:
   // draft → clarifying → approved → implemented; a feature cannot reach it
   // without the human checkpoint) — and INV-8 *requires* close-outs to flip
@@ -163,6 +168,20 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
   if (malformed.length)
     add('CONFIG', '§63', 'fail',
       `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6): ${malformed.join('; ')}`);
+}
+
+// FOLLOW-UP 105: a scn-NNN id defined in TWO feature files is an authoring-time
+// collision — /to-issues allocates scn ranges per-issue with no campaign-wide
+// reservation, so two parallel slices in one campaign reused scn-470/471 (live).
+// It surfaced only at merge as INV-5 orphans + ambiguous traceability; catch it
+// HERE (fail authoring) instead. A scn legitimately appears once per file.
+{
+  const collisions = [...scnFiles.entries()]
+    .filter(([, files]) => files.size > 1)
+    .map(([scn, files]) => `${scn} in ${[...files].sort().join(' + ')}`);
+  if (collisions.length)
+    add('CONFIG', '§59', 'fail',
+      `scn id reused across feature files (each scn-NNN is global and defined in exactly ONE feature — /to-issues must reserve disjoint ranges per slice): ${collisions.join('; ')}`);
 }
 
 // INV-1: multi-module ⇒ SAD exists
