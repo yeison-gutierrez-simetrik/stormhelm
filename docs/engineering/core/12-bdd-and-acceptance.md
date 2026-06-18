@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126, §127
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126, §127, §128
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -890,3 +890,37 @@ adapter, and flag a use case whose name has zero callers outside
 gate can't reliably know every consumer's adapter/DI vocabulary, so this is an
 enforced **review convention** (like §93's SSRF audit), not a single lint — but
 "drive the real surface" is now a stated contract, not folklore.
+
+## §128. The §114 pre-merge confirmation is a structural merge gate; a money guard needs a scenario on BOTH the write and the evaluation path
+
+Two coupled failures let a money-critical gap land in `main` (FOLLOW-UP 104,
+maintainer ruling 2026-06-18): the §114 confirmation re-review was a *documented
+step*, not a *gate*, so a chain was human-merged ~1 min before the confirmation
+found a missing state guard; and **green CI did not catch it** because no
+acceptance scenario exercised the path the gap was on.
+
+### (a) The §114 confirmation is structural
+
+A chain leaf under auto-pilot carries **`require-§114-confirmation`** until the
+§114 reviewer posts a CLEAN verdict and removes it. While present it **blocks
+merge** — `train-merge.mjs` refuses it (same machinery as `require-human-review`
+/ §64). This closes the merge-while-confirmation-pending race: a green-looking PR
+whose authoritative re-review is still running is not mergeable.
+
+### (b) A money guard is scenario'd on both paths
+
+The deeper lesson: a money/settlement guard has **two** reachable paths and a
+scenario for the submit/write path does NOT cover the evaluation/charge path.
+Slice-26's submit-side B-1 guard had a scenario; the **evaluate-side** guard
+(`evaluate-timesheet-cycle` checking `sow.status` before an off-session top-up)
+did not — so a SOW that became `frozen`/`cancelled`/`pending_payment` could still
+be charged. The rule (threat-model → scenario): for each money guard the threat
+model names, `/to-scenarios` emits an **"entity became non-fundable AFTER
+accrual"** scenario (the evaluation/charge path), not only the write-time reject.
+Then green CI alone is sufficient for that class — the gap fails RED in `/tdd`,
+not at a human re-review running against the clock.
+
+Enforcement: (a) is mechanical (`train-merge` + the label); (b) is a
+`/to-scenarios` + `/security-hardening` + §114-reviewer convention (a
+stack-agnostic gate can't enumerate every consumer's money guards). Both are
+required — (a) closes the race, (b) removes the dependence on catching it.
