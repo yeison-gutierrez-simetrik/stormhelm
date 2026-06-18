@@ -853,17 +853,19 @@ ralph_call_claude_with_retry() {
   # engine connection drops mid-call, `claude` can block forever on a half-open
   # socket — the loop is stuck INSIDE this synchronous call, so an mtime/heartbeat
   # watchdog (which would have to run concurrently) can never fire. A bounded
-  # `timeout` is the robust fix: a hung call is killed and mapped to the FU-74
-  # engine-outage code (125), which the loop already escalates to engine_failure
-  # after RALPH_ENGINE_MAX, prompting a clean --resume instead of an indefinite
-  # hang. Default 1800s (generous — a real long iteration must not be killed),
-  # override via RALPH_CALL_TIMEOUT. Needs GNU `timeout`/`gtimeout`; absent it,
-  # degrade to the un-bounded call (pre-FU behavior) with a one-time warning.
+  # `timeout` is the robust fix: a hung call is killed and returned as a DISTINCT
+  # timeout code (126), which the loop scores apart from a 0-token engine no-op
+  # (125) — FU-101: a slow-but-PRODUCTIVE /tdd that committed work before the
+  # SIGKILL is NOT an engine outage and must not increment the FU-99 counter.
+  # Default 3600s (FU-101: the empirical floor for a money-slice acceptance cycle
+  # — full acceptance + Postgres testcontainers + 1500+ vitest legitimately runs
+  # 24-30 min; 1800s killed productive calls), override via RALPH_CALL_TIMEOUT.
+  # Needs GNU `timeout`/`gtimeout`; absent it, degrade to the un-bounded call.
   local timeout_bin
   timeout_bin=$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)
   local timeout_pfx=()
   if [ -n "$timeout_bin" ]; then
-    timeout_pfx=("$timeout_bin" -k 10 "${RALPH_CALL_TIMEOUT:-1800}")
+    timeout_pfx=("$timeout_bin" -k 10 "${RALPH_CALL_TIMEOUT:-3600}")
   elif [ -z "${_RALPH_TIMEOUT_WARNED:-}" ]; then
     export _RALPH_TIMEOUT_WARNED=1
     echo "⚠️  no 'timeout'/'gtimeout' on PATH — the FU-92 per-call hang watchdog is OFF (a stalled engine call can hang the run). Install coreutils to enable it." >&2
@@ -920,16 +922,17 @@ ralph_call_claude_with_retry() {
     local stderr_content
     stderr_content=$(cat "$stderr_file")
 
-    # FOLLOW-UP 92: `timeout` kills a hung call with 124 (TERM) or 137 (128+9,
-    # the -k SIGKILL escalation). Map either to the engine-outage code 125 so the
-    # loop's FU-74/84 path counts it toward engine_failure and prompts --resume —
-    # NOT the rate-limit-exhausted block (which our OWN 124 means). A genuine long
-    # call that finished is unaffected; only a killed-by-timeout call lands here.
+    # FOLLOW-UP 92/101: `timeout` kills a hung call with 124 (TERM) or 137 (128+9,
+    # the -k SIGKILL escalation). Return the DISTINCT timeout code 126 — NOT the
+    # 0-token engine-outage code 125 (FU-101: a slow-but-productive /tdd that
+    # committed work before the kill is not an outage; the caller decides by
+    # checking whether the worktree advanced) and NOT 124 (our OWN rate-limit-
+    # exhausted code). A call that finished on its own is unaffected.
     if [ -n "$timeout_bin" ] && { [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; }; then
-      ralph_log_event "error" "ralph.error.engine" \
-        "{\"call\":\"claude\",\"reason\":\"call-timeout\",\"timeout_s\":${RALPH_CALL_TIMEOUT:-1800},\"signal_exit\":${exit_code}}"
-      echo "⏱️  engine call exceeded RALPH_CALL_TIMEOUT=${RALPH_CALL_TIMEOUT:-1800}s and was killed (hung connection / host sleep) — treating as an engine outage." >&2
-      return 125
+      ralph_log_event "warn" "ralph.error.engine" \
+        "{\"call\":\"claude\",\"reason\":\"call-timeout\",\"timeout_s\":${RALPH_CALL_TIMEOUT:-3600},\"signal_exit\":${exit_code}}"
+      echo "⏱️  engine call exceeded RALPH_CALL_TIMEOUT=${RALPH_CALL_TIMEOUT:-3600}s and was killed — the caller scores it timeout vs outage by whether the worktree advanced (FU-101)." >&2
+      return 126
     fi
 
     # Inspect stderr for 429 signals

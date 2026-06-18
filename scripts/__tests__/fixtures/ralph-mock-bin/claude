@@ -81,6 +81,10 @@ if echo "$prompt" | grep -q "/tdd"; then
     fi
     git add -A >/dev/null 2>&1
     git -c user.email=ralph@mock -c user.name=ralph-mock commit -qm "tdd work for issue ${issue}" >/dev/null 2>&1 || true
+    # MOCK_COMMIT_THEN_HANG=<secs>: a slow-but-PRODUCTIVE /tdd — commit (above)
+    # THEN hang, so the FU-92 timeout SIGKILLs it AFTER the worktree advanced.
+    # FU-101: this must score 'timeout' (productive), not an engine outage.
+    if [ -n "${MOCK_COMMIT_THEN_HANG:-}" ]; then sleep "$MOCK_COMMIT_THEN_HANG"; fi
   fi
   emit "advanced one slice; unit tests green"; exit 0
 fi

@@ -16,9 +16,11 @@
 #                         tolerated before engine_failure (default 3, FU-74/84)
 #   RALPH_ENGINE_BACKOFF  seconds between engine no-op retries (default 60)
 #   RALPH_CALL_TIMEOUT    per-call wall-clock cap (s) — a hung engine call (host
-#                         sleep / dropped connection) is killed and treated as an
-#                         engine outage instead of hanging the run (default 1800,
-#                         needs GNU timeout/gtimeout; FU-92)
+#                         sleep / dropped connection) is killed (default 3600,
+#                         the floor for a money-slice acceptance cycle; FU-101).
+#                         A timeout that COMMITTED work is scored 'timeout'
+#                         (productive), not an engine outage (FU-92/101); needs
+#                         GNU timeout/gtimeout
 #   RALPH_AUTO_RESUME_MAX times to auto-resume in place after a TRANSIENT engine
 #                         outage once a health probe shows the engine is back,
 #                         before handing to a human (default 2; 0 disables; FU-99)
@@ -577,7 +579,13 @@ ralph_engine_probe_resume() {
 NOPROGRESS_ITERS=0
 check_engine_progress_or_fail() {
   local phase="${1:-unknown}"
-  if [ "$RALPH_TOKENS_CUMULATIVE" -gt "$ITER_TOKENS_BEFORE" ]; then
+  # Progress = the token counter advanced OR the worktree advanced (FU-101: a
+  # productive /tdd that committed work but was SIGKILLed by the timeout before
+  # emitting its usage envelope advances HEAD without advancing tokens — that is
+  # real progress, NOT an engine outage).
+  local head_now; head_now=$(git rev-parse HEAD 2>/dev/null || true)
+  if [ "$RALPH_TOKENS_CUMULATIVE" -gt "$ITER_TOKENS_BEFORE" ] \
+     || { [ -n "$head_now" ] && [ "$head_now" != "${ITER_HEAD_BEFORE:-}" ]; }; then
     NOPROGRESS_ITERS=0
     return 0
   fi
@@ -664,6 +672,7 @@ for i in $(seq 1 "$MAX_ITER"); do
   ralph_iteration_start "tdd"
   ITER_EPOCH=$(date +%s)   # staleness floor for this iteration's result file
   ITER_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE   # FU-84: no-progress baseline
+  ITER_HEAD_BEFORE=$(git rev-parse HEAD 2>/dev/null || true)   # FU-101: worktree-advance baseline
 
   # NOTE the `|| RC=$?` idiom: under `set -e`, a bare VAR=$(cmd) with a
   # non-zero cmd kills the whole script BEFORE the rc check — the 124
@@ -691,8 +700,27 @@ for i in $(seq 1 "$MAX_ITER"); do
   while :; do
     TDD_RC=0
     CALL_START=$(date +%s); CALL_TOKENS_BEFORE=$RALPH_TOKENS_CUMULATIVE
+    CALL_HEAD_BEFORE=$(git rev-parse HEAD 2>/dev/null || true)   # FU-101: did this call commit?
     ralph_call_claude_with_retry "/tdd for issue #$ISSUE_NUM. Read the FULL issue — body AND comments ('gh issue view $ISSUE_NUM' plus 'gh issue view $ISSUE_NUM --comments'; the plan and its amendments may live in comments). If the latest comment carries reviewer findings, fix those FIRST. Then the scn-* scenarios mentioned ($SCENARIOS) — advance one slice.${FAIL_FEEDBACK}" >/dev/null || TDD_RC=$?
     ralph_call_completed "tdd" "$CALL_START" "$CALL_TOKENS_BEFORE"
+    if [ "$TDD_RC" -eq 126 ]; then
+      # FOLLOW-UP 101: a timeout-KILL is not automatically an engine outage. If
+      # the worktree advanced during the call, /tdd was slow-but-PRODUCTIVE
+      # (committed real work before the SIGKILL) — score it `timeout`, do NOT
+      # increment the FU-99 engine-outage counter, and proceed to acceptance so
+      # the committed work is gated. Only a timeout that produced NO commit is a
+      # genuine hang → fall through to the outage path (re-coded 125).
+      CALL_HEAD_AFTER=$(git rev-parse HEAD 2>/dev/null || true)
+      if [ -n "$CALL_HEAD_AFTER" ] && [ "$CALL_HEAD_AFTER" != "$CALL_HEAD_BEFORE" ]; then
+        echo "⏱️  /tdd exceeded the timeout but COMMITTED work (${CALL_HEAD_BEFORE:0:9}→${CALL_HEAD_AFTER:0:9}) — scoring 'timeout' (productive), NOT an engine outage; re-gating next iteration." >&2
+        ralph_log_event "warn" "ralph.tdd.timeout" \
+          "{\"productive\":true,\"head_before\":$(ralph_json_string "${CALL_HEAD_BEFORE:0:9}"),\"head_after\":$(ralph_json_string "${CALL_HEAD_AFTER:0:9}")}"
+        break
+      fi
+      echo "⏱️  /tdd timed out with NO commit — treating as an engine outage." >&2
+      ralph_log_event "warn" "ralph.tdd.timeout" "{\"productive\":false}"
+      TDD_RC=125
+    fi
     if [ "$TDD_RC" -eq 125 ]; then
       ENGINE_FAILS=$((ENGINE_FAILS + 1))
       echo "⚠️  engine no-op (exit 0, 0 tokens) on /tdd — attempt ${ENGINE_FAILS}/${RALPH_ENGINE_MAX:-3} (CLI crash / auth window / transport)" >&2
