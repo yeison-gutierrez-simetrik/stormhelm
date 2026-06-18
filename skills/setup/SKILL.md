@@ -621,14 +621,14 @@ After generation, the skill runs a self-check:
 ✅ Stormhelm configured for <ProjectName>
 
 Active capabilities:
-  - core (every §N living in `docs/engineering/core/*.md` — currently 101 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§126; the rest is stack-specific)
+  - core (every §N living in `docs/engineering/core/*.md` — currently 102 rules: §1–§4, §11–§32, §34–§37, §45–§49, §56–§107, §108–§116, §122–§127; the rest is stack-specific)
   - typescript (§5–§10, §33, §50–§55, §117–§121)        ← if TS selected
   - typescript-hono (§38–§44)                            ← if Hono selected
   - python (§5-py–§10-py, §33-py, §50-py–§55-py,
            §117-py–§121-py)                              ← if Python selected
   - python-fastapi (§38-py–§44-py)                       ← if FastAPI selected
 
-Active rules: §1–§126 (plus -py twins where Python is active)
+Active rules: §1–§127 (plus -py twins where Python is active)
 Hooks: git-guardrails (mandatory) + webfetch-cache, context-monitor, closed-set-check (opt-in, §113)
 Compliance mode: SOC2 + GDPR
 Ralph: enabled, 1 worker, 500k token budget/night

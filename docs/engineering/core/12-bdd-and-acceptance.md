@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126, §127
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -851,3 +851,42 @@ has no golden and no check (`na`, the majority case). `/setup` copies the
 checker as a consumer-runtime script. This is consumer-contract testing (Pact)
 made local and deterministic: the golden is the recorded consumer expectation of
 the provider's wire, and the double may not drift from it.
+
+## §127. A `@release` scenario must drive the production input adapter, not call the use case directly
+
+An acceptance step that exercises a use case via `container.<useCase>.execute(...)`
+(or any direct domain/application call) tests a path **production never
+traverses** — it bypasses the HTTP/MCP/CLI input adapter that real traffic
+enters through. The scenario then passes while the production **wiring does not
+exist**: no route, hook, or webhook calls the use case. Green CI + green
+acceptance certify a feature that is unreachable end-to-end. (Live, FOLLOW-UP
+103: slice-27c's `FundMilestonesUseCase` — a ratified money decision,
+fund-all-upfront — was built and DI-registered but had **no route**; `scn-482`
+passed by calling the container directly. In production every milestone would
+have shipped with `charge=NULL`. Only a §114 reviewer `grep` returning zero
+non-test callers caught it.)
+
+This is the entrypoint-layer sibling of §126 (double fidelity at the wire) and
+§106 (no stub past the gate): **the acceptance gate must exercise the real
+surface.**
+
+### The rule
+
+- A `@release` scenario's step definitions MUST drive the slice's behavior
+  through its **production input adapter** (the HTTP route / MCP tool / CLI
+  command / queue handler), never via a direct `container.<uc>.execute(...)` or
+  domain-object call. The adapter is part of what `@release` certifies.
+- **Money / settlement-adjacent and entrypoint-critical** use cases are
+  strict: a use case that has tests/steps but **no production caller** is a
+  §106-class stub — it must fail review, not ship green.
+
+### Enforcement
+
+The `/security-hardening` and `/run-acceptance` reviews, and the §114 merge-gate
+reviewer, check this: for each `@release` (especially money) scenario, flag a
+step def referencing `container.<useCase>.execute` directly instead of the input
+adapter, and flag a use case whose name has zero callers outside
+`container`/tests/steps (no production reachability). A stack-agnostic executable
+gate can't reliably know every consumer's adapter/DI vocabulary, so this is an
+enforced **review convention** (like §93's SSRF audit), not a single lint — but
+"drive the real surface" is now a stated contract, not folklore.

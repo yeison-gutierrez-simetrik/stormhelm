@@ -20,7 +20,7 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 │   ├── WORKFLOWS-GUIDE.md              — canonical user-facing guide (English)
 │   ├── engineering/
 │   │   ├── AGENTS.md                   — rule index (all §N rules)
-│   │   ├── core/                       — 17 rule files (§1 – §126 to date)
+│   │   ├── core/                       — 17 rule files (§1 – §127 to date)
 │   │   └── capabilities/               — language/stack-specific rules
 │   │       ├── typescript/, typescript-hono/    — TS + Hono
 │   │       ├── python/, python-fastapi/         — Python + FastAPI
@@ -87,7 +87,7 @@ Two kinds of script live in `scripts/`, and the distinction matters for adoption
 
 ## Key conventions
 
-**§N rule numbering.** Rules are numbered §1 through §126 (current max). Each lives in exactly one file under `docs/engineering/core/` or `capabilities/`. The header of each file lists `**Rules in this file.** §X, §Y, §Z` — the linter enforces this header is correct. Never reuse a §N. New rules append at the next available number.
+**§N rule numbering.** Rules are numbered §1 through §127 (current max). Each lives in exactly one file under `docs/engineering/core/` or `capabilities/`. The header of each file lists `**Rules in this file.** §X, §Y, §Z` — the linter enforces this header is correct. Never reuse a §N. New rules append at the next available number.
 
 **INV-N invariants.** Executable invariants live in `scripts/check-invariants.mjs`. Reserved numbering:
 - INV-1 §107 — multi-module feature ⇒ SAD exists

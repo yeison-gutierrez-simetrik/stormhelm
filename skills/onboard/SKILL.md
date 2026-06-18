@@ -67,7 +67,7 @@ This project's active stack:
   - TypeScript (style + async)
   - TypeScript + Hono (HTTP framework conventions)
 
-Active rule count: §1 – §126
+Active rule count: §1 – §127
 ```
 
 Skill walks through the folder map:
