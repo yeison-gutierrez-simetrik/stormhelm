@@ -882,14 +882,24 @@ surface.**
 
 ### Enforcement
 
-The `/security-hardening` and `/run-acceptance` reviews, and the §114 merge-gate
-reviewer, check this: for each `@release` (especially money) scenario, flag a
-step def referencing `container.<useCase>.execute` directly instead of the input
-adapter, and flag a use case whose name has zero callers outside
-`container`/tests/steps (no production reachability). A stack-agnostic executable
-gate can't reliably know every consumer's adapter/DI vocabulary, so this is an
-enforced **review convention** (like §93's SSRF audit), not a single lint — but
-"drive the real surface" is now a stated contract, not folklore.
+**Two layers (FU-103 round-2):**
+
+1. **Mechanical CI backstop (stack-agnostic) — `scripts/check-release-step-fidelity.mjs`.**
+   The *syntactic* half is a pure grep, no DI vocabulary required: an acceptance
+   **step definition** that drives behavior via `container.<x>.execute(` bypasses
+   the input adapter. This lint fails RED in CI on that pattern (a legitimate
+   `Given`-seed carries an inline `// acceptance-driver-ok` opt-out). It catches
+   the most common shape — the live `scn-482` miss was exactly a container-direct
+   step. `/setup` copies it; run it in the acceptance gate.
+2. **Review convention (the reachability half).** Whether a use case has a
+   *production caller* needs the consumer's DI/adapter vocabulary, so the
+   `/security-hardening`, `/run-acceptance`, and §114 merge-gate reviews flag a
+   use case whose name has zero callers outside `container`/tests/steps. A
+   stack-agnostic gate can't reliably know every consumer's wiring — like §93's
+   SSRF audit, this stays an enforced review convention.
+
+"Drive the real surface" is now a stated contract with a mechanical backstop for
+its checkable half, not folklore.
 
 ## §128. The §114 pre-merge confirmation is a structural merge gate; a money guard needs a scenario on BOTH the write and the evaluation path
 

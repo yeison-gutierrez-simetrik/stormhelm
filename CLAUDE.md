@@ -54,6 +54,7 @@ The repo's own `skills/`, `agents/`, `hooks/`, and `docs/engineering/` are the *
 │   ├── preflight.mjs                   — [consumer-runtime] per-skill precondition checks (PR-B)
 │   ├── check-skill-doc-delivery.mjs    — [consumer-runtime] §125 spec-FR ⇒ skill-doc diff gate (FU-88)
 │   ├── check-double-fidelity.mjs       — [consumer-runtime] §126 external-double ⇆ real-shape golden (FU-90)
+│   ├── check-release-step-fidelity.mjs — [consumer-runtime] §127 @release step drives the real adapter, not container.execute (FU-103)
 │   ├── sync-closed-sets.mjs            — [consumer-runtime] §36 generator, called by closed-set-check hook (PR-E)
 │   └── __tests__/                      — [self-maint]       test fixtures + .test.mjs files (node --test)
 ├── .github/workflows/
@@ -83,7 +84,7 @@ All three must be ✅ before merge. CI runs `check-framework-metadata.mjs` (`ver
 Two kinds of script live in `scripts/`, and the distinction matters for adoption: The distinction is **machine-readable**: every `scripts/*.mjs` carries a `// scope: consumer-runtime | framework-self` header (FU-95), and `check-framework-metadata.mjs` enforces that `/setup`'s copy loop equals the `consumer-runtime`-tagged set — so a re-sync vendors only the consumer-runtime subset and a framework-self script can never leak into a consumer (where it would ENOENT-crash).
 
 - **`[self-maint]`** — run only against *this* repo while maintaining the framework: `check-framework-metadata.mjs` and the `__tests__/` suite. Consumers do **not** need these.
-- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), `sonar-sweep` (post-PR QG read-out), `check-skill-doc-delivery` (§125 spec-FR ⇒ skill-doc diff gate), and `check-double-fidelity` (§126 external-double fidelity). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
+- **`[consumer-runtime]`** — invoked at runtime by shipped skills/hooks via `node scripts/<x>.mjs` (relative to the consumer repo root): `preflight`, `check-invariants`, `check-merge-safety`, `group-slice-issues`, `parse-layers-affected` (imported by group-slice), `sync-closed-sets` (called by the `closed-set-check` hook), `compose-sonar-properties`, `train-merge` (HC2 stacked merges), `sonar-sweep` (post-PR QG read-out), `check-skill-doc-delivery` (§125 spec-FR ⇒ skill-doc diff gate), `check-double-fidelity` (§126 external-double fidelity), and `check-release-step-fidelity` (§127 @release step-fidelity lint). Because skills call them by relative path, **`/setup` copies this subset into the consumer repo** (see `skills/setup`). Adopting the framework without these scripts leaves every skill that calls `node scripts/...` broken — which is exactly the gap this taxonomy makes explicit.
 
 ## Key conventions
 
