@@ -4,7 +4,7 @@
 
 **When to read.** Wiring the composition root, adding a Hono middleware, placing a Zod schema, mapping a `Result` to HTTP, defining an error response, writing a Drizzle repository, deciding where authentication vs authorization belongs.
 
-**Rules in this file.** §38, §39, §40, §41, §42, §43, §44
+**Rules in this file.** §38, §39, §40, §41, §42, §43, §44, §129
 
 > See `../../AGENTS.md` (or `../../../AGENTS.md` from capabilities) for the full rule index. Related: `02-architecture.md` (layers and direction), `04-input-boundaries.md` (parsing at the perimeter), `05-domain-modeling.md` (§19 Result types).
 
@@ -520,3 +520,62 @@ export const buildPersistencePorts = (exec: DrizzleExecutor): TransactionalPorts
 The use case never sees a `tx`, `scope`, or any Drizzle object.
 
 If a use case has a single repository write, the transaction can remain an internal detail of the adapter — `TransactionManagerPort` is opt-in.
+
+## §129. Migrations run through Drizzle's tracked migrator — never a raw replay-all runner
+
+A migration runner that reads every `*.sql` and re-applies all of them on each
+run, tolerating only a few "already exists" error codes, is **replay-unsafe**:
+it works on a fresh DB (E2E, testcontainers) and silently traps the first
+persistent-DB deploy. A `RENAME COLUMN` throws `42703` on replay, a `DROP`
+throws undefined-object, a data `INSERT` throws `23505` — none in the tolerated
+set. The runner *looks* general-purpose but is fresh-DB-only, and nothing says
+so. (Live, FOLLOW-UP 106: belong's `e2e/migrate.mjs` succeeded on the first dev
+deploy and failed on the second at a `0013` `RENAME COLUMN`.)
+
+### The rule
+
+- The drizzle stack runs migrations through **Drizzle's official tracked
+  migrator** (`migrate()` from `drizzle-orm/<driver>/migrator`). It records
+  applied migrations in `__drizzle_migrations` (schema `drizzle`) via the
+  existing `meta/_journal.json`, applies only **unapplied** migrations, and is
+  forward-only / replay-safe:
+
+  ```ts
+  import { drizzle } from "drizzle-orm/postgres-js";
+  import { migrate } from "drizzle-orm/postgres-js/migrator";
+  import postgres from "postgres";
+  const sql = postgres(process.env.DATABASE_URL, { max: 1 }); // max:1 for migrations
+  try { await migrate(drizzle(sql), { migrationsFolder: "<migrations dir>" }); }
+  finally { await sql.end(); }
+  ```
+
+- A raw replay-all runner is **forbidden for any persistent DB**. If one is kept
+  for a fresh-DB-only context (a test bootstrap), its header MUST say
+  **"FRESH-DB ONLY; not replay-safe; never use to migrate a persistent DB"** so
+  no one reaches for it on a deploy.
+
+### Gate — replay-safety (the structured regression guard)
+
+A consumer CI job (template) applies migrations **twice** against a fresh
+ephemeral DB and asserts the 2nd run is a **no-op** (zero applied, exit 0). With
+the tracked migrator this is automatically green; a reintroduced raw-replay
+runner, a hand-edited applied migration (journal-hash break), or any
+non-idempotent statement under a raw runner makes it RED — the gate that would
+have caught belong's runner before it shipped:
+
+```yaml
+# .github/workflows/migrate-replay-safety.yml (consumer)
+jobs:
+  replay-safety:
+    services:
+      db: { image: postgres:16, env: { POSTGRES_PASSWORD: test }, ports: ['5432:5432'] }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: node <your-migrate-entry>.mjs   # 1st: applies all
+      - run: node <your-migrate-entry>.mjs   # 2nd: MUST be a no-op (exit 0, nothing applied)
+```
+
+**Anti-drift (FU-17):** state the "tracked, forward-only, replay-safe" contract
+in all three artifacts that touch it — this rule, the scaffolded migrate entry
+(if `/setup` ships one), and the CI gate template above.

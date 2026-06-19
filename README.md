@@ -11,7 +11,7 @@ The name combines two ideas: the **helm** — the wheel that keeps a ship on cou
 ## TL;DR — what you get
 
 - **31 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, …) that drive a disciplined workflow inside Claude Code. *(Plus one framework-self skill, `/verify-framework-consistency`, in `skills-internal/` — used to maintain Stormhelm itself, not shipped to adopting projects.)*
-- **128 numbered rules** (`§1 – §128`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
+- **129 numbered rules** (`§1 – §129`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
 - **A sub-agent** (`reviewer`) that audits diffs in a fresh context and cites rule numbers in its findings.
 - **Five Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, block destructive shell commands via `git-guardrails.cjs` (§68), and warn on closed-set/doc drift via `closed-set-check.cjs` (§36).
 - **A capability system** with `capabilities/typescript` + `capabilities/typescript-hono` and `capabilities/python` + `capabilities/python-fastapi` shipped. Each capability activates only when your project uses that stack.
