@@ -2331,3 +2331,48 @@ Context: slices 25-27 ran end-to-end on `/auto-pilot` (3 parallel chains, squash
 
 ## Dedup note — FOLLOW-UP 100 confirmed
 The squash-from-leaf merge model this campaign used exhibited the exact N×N re-conflict churn FU-100 describes: each human merge of one leaf re-conflicted the open siblings on the shared surface (`transaction-manager.ts`, `container.ts`, the audit-event unions, `meta/_journal.json`), each needing a per-leaf merge-fix `--resume`. NOT a new FU — adds a second real data point (squash-from-leaf, not only stacked merge-commits) to FU-100's reconciliation ruling.
+
+## FOLLOW-UP 106 — the TS+drizzle stack leaves consumers a raw-SQL "replay-all + tolerate duplicate-create" migration runner with NO applied-migration tracking; it is replay-UNSAFE on any persistent DB and only survives because E2E always starts from a fresh DB  ·  **Severity: MEDIUM (adoption gap + missing gate — bit belong's first persistent-DB deploy; the framework ships no tracked-migrator standard nor a replay-safety gate, so every consumer that deploys the drizzle stack to a real DB re-creates the same trap)**
+
+**Problem.** The drizzle-stack consumer pattern (belong's `e2e/migrate.mjs`, mirrored from `src/test-support/auth-test-context.ts`) applies migrations by reading every `*.sql` file in order and running each statement, swallowing ONLY the three "already exists" codes:
+```js
+// e2e/migrate.mjs
+const code = error?.code;
+if (code !== "42P07" && code !== "42710" && code !== "42701") throw error;
+```
+It never consults the drizzle journal (`meta/_journal.json`, which the repo already maintains) and never records what it applied. So **every** run re-applies **all** migrations. That is safe only on a fresh DB. On a PERSISTENT DB (a deployed dev/prod Cloud SQL) the deploy's migrate Job re-runs on every deploy and replays non-idempotent statements that throw codes OUTSIDE the tolerated set:
+- `ALTER TABLE … RENAME COLUMN provider TO source` → `42703 undefined_column` on replay (already renamed) — belong migration `0013`.
+- `DROP COLUMN/CONSTRAINT` → undefined-object on replay — `0025/0032/0034/0037`.
+- data `INSERT/UPDATE` → `23505 unique_violation` or silent double-apply — `0009/0016/0026/0028/0029/0032`.
+
+Blast radius: **every consumer that deploys the drizzle stack to a persistent database.** The runner looks general-purpose but is fresh-DB-only, and nothing says so. It passed every Night Shift / E2E gate (those use fresh DBs / testcontainers) and only surfaced on belong's first real deployment.
+
+**Live evidence:** belong-marketplace dev deploy, 2026-06-19. First `marketplace-run-migrations-dev` Cloud Run Job execution succeeded (fresh DB). The replay (next deploy) fails at `0013`'s `RENAME COLUMN`. Diagnosed by reading `e2e/migrate.mjs` + grepping the 34 migrations for RENAME/DROP/INSERT before the next deploy fired (prevention, not autopsy).
+
+**Verify:**
+```bash
+# Any drizzle-stack consumer: apply migrations to a DB, then apply AGAIN → 2nd run errors.
+node e2e/migrate.mjs   # fresh DB → "migrations complete"
+node e2e/migrate.mjs   # SAME DB → throws on the first RENAME/DROP (code not in {42P07,42710,42701})
+# Confirm no tracking + the journal is ignored:
+grep -nE "_journal|__drizzle_migrations|migrationsFolder|applied|migrate\(" e2e/migrate.mjs   # → nothing
+```
+
+**Fix.** Replace the fragile "replay-all + grep error codes" prose contract with the platform primitive + a gate:
+
+1. **Standard — mandate Drizzle's official tracked migrator for the drizzle stack.** The framework's drizzle-stack engineering guidance (and the scaffolded migrate artifact, if `/setup` ships one) should use `migrate()` from `drizzle-orm/<driver>/migrator`, which records applied migrations in `__drizzle_migrations` (schema `drizzle`) via the existing `meta/_journal.json`, applies only UNAPPLIED migrations, and is forward-only / replay-safe. Canonical (postgres-js):
+```js
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
+const sql = postgres(process.env.DATABASE_URL, { max: 1 }); // max:1 for migrations
+try { await migrate(drizzle(sql), { migrationsFolder: "<migrations dir>" }); }
+finally { await sql.end(); }
+```
+Delete the raw-replay runner, OR — if one is intentionally kept for a fresh-DB-only context — its header MUST state "FRESH-DB ONLY; not replay-safe; never use to migrate a persistent DB", so no consumer reaches for it on a deploy.
+
+2. **Gate — a replay-safety CI check (the structured regression guard).** A framework CI gate template (`.github/workflows/`, + a `scripts/__tests__/`-style fixture if the runner is framework-vendored) that, against a fresh ephemeral DB, **applies migrations twice and asserts the 2nd run is a no-op** (zero applied, exit 0). With the official migrator this is automatically green; a reintroduced raw-replay runner, a hand-edited applied migration (journal-hash break), or any non-idempotent statement under a raw runner makes it RED. This is the gate that would have caught belong's runner before it shipped.
+
+Anti-drift (FU-17 lesson): state the "tracked, forward-only, replay-safe" contract in ALL three artifacts that touch it — the stack engineering doc, the scaffolded migrate artifact (if any), and the CI gate template.
+
+**Acceptance.** (a) The drizzle-stack guidance/scaffold uses the official tracked migrator (or any kept raw runner is loudly fenced as fresh-DB-only). (b) A replay-safety gate exists: running migrations twice against a persistent DB applies nothing on the 2nd run (exit 0), and the gate is RED if a raw-replay runner is used. (c) Consumer-visible: a fresh consumer's first persistent-DB deploy AND every subsequent deploy's migrate step succeed with no manual DB resets. belong is doing the local fix now (`e2e/migrate.mjs` → `migrate()`, reset the dev DB, add the double-apply CI job) — the agent may lift it verbatim.
