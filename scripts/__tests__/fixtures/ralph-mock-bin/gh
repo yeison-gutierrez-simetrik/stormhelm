@@ -42,6 +42,14 @@ budget:50k}"
       printf '%s\n' "${MOCK_READY:-1}"
     fi ;;
   "pr list")
+    # FOLLOW-UP 102: --head queries (the duplicate-PR guard) answer with the
+    # existing-PR number (or empty). Checked BEFORE --base since the guard call
+    # carries both. The script uses `--jq '.[0].number // empty'`, so emit the
+    # already-filtered value the way gh's --jq would.
+    if printf '%s\n' "$@" | grep -q -- "--head"; then
+      printf '%s\n' "${MOCK_EXISTING_PR:-}"
+      exit 0
+    fi
     # FOLLOW-UP 60: --base queries answer the dependents JSON.
     if printf '%s\n' "$@" | grep -q -- "--base"; then
       printf '%s\n' "${MOCK_PR_DEPENDENTS_JSON:-[]}"

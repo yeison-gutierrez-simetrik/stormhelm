@@ -1647,3 +1647,65 @@ test('FU-99: RALPH_AUTO_RESUME_MAX=0 disables auto-resume (engine_failure immedi
     assert.equal(endStatus(readEvents(dir, 1)), 'engine_failure', 'disabled → no probe, ends engine_failure');
   });
 });
+
+// ── FOLLOW-UP 101: a timeout-KILL that committed work is PRODUCTIVE, not an
+// engine outage. The FU-92 watchdog (now default 3600s) killing a slow /tdd
+// must not be mis-scored as a zero-token outage that increments the FU-99
+// counter — the work it committed is real and gets gated next iteration.
+test('FU-101: /tdd that commits then exceeds the timeout → scored timeout (productive), not engine_failure', () => {
+  withConsumer((dir) => {
+    spawnSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: dir });
+    const r = runRalphT(dir, ['1', '3'], {
+      MOCK_TDD_COMMIT: '1', MOCK_COMMIT_THEN_HANG: '30',   // commit, then hang past the timeout
+      RALPH_CALL_TIMEOUT: '1',
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0', RALPH_AUTO_RESUME_MAX: '0',
+    });
+    const out = `${r.stdout}${r.stderr}`;
+    const events = readEvents(dir, 1);
+    assert.ok(events.some((e) => e.event === 'ralph.tdd.timeout' && e.details?.productive === true),
+      'the timeout-with-commit is recorded productive');
+    assert.notEqual(endStatus(events), 'engine_failure', 'a productive timeout is NOT an engine outage');
+    assert.match(out, /COMMITTED work.*scoring 'timeout'/);
+  });
+});
+
+test('FU-101: /tdd that times out with NO commit is still an engine outage', () => {
+  withConsumer((dir) => {
+    spawnSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: dir });
+    const r = runRalphT(dir, ['1', '3'], {
+      MOCK_HANG: '30',                 // hang with NO commit
+      RALPH_CALL_TIMEOUT: '1',
+      RALPH_ENGINE_MAX: '2', RALPH_ENGINE_BACKOFF: '0', RALPH_AUTO_RESUME_MAX: '0',
+    });
+    assert.notEqual(r.status, 0);
+    const events = readEvents(dir, 1);
+    assert.equal(endStatus(events), 'engine_failure', 'a no-commit timeout remains an outage');
+    assert.ok(events.some((e) => e.event === 'ralph.tdd.timeout' && e.details?.productive === false));
+  });
+});
+
+// ── FOLLOW-UP 102: duplicate-PR guard. A --resume run reaching `gh pr create`
+// with a PR already open for the head intermittently created a byte-identical
+// DUPLICATE (across auth contexts). The guard looks up the open PR for the head
+// first and REUSES it instead of trusting create's own "already exists" error.
+test('FU-102: an already-open PR for the head is reused, not duplicated', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_EXISTING_PR: '215' });
+    assert.equal(status, 0, out);
+    const events = readEvents(dir, 1);
+    assert.ok(events.some((e) => e.event === 'ralph.pr.reused' && e.details?.pr === 215),
+      'the existing PR is reused (ralph.pr.reused)');
+    assert.ok(!events.some((e) => e.event === 'ralph.pr.opened'), 'no new PR is opened');
+    assert.doesNotMatch(out, /pull\/9/, 'gh pr create is NOT called');
+    assert.equal(endStatus(events), 'completed');
+  });
+});
+
+test('FU-102: with no existing PR, the run still creates one (back-compat)', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3']);   // MOCK_EXISTING_PR unset → none
+    assert.equal(status, 0, out);
+    assert.match(out, /pull\/9/, 'a fresh head opens a PR as before');
+    assert.ok(readEvents(dir, 1).some((e) => e.event === 'ralph.pr.opened'));
+  });
+});

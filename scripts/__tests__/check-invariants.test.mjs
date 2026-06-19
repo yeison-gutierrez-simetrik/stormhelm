@@ -345,3 +345,24 @@ test('FU-78: a single-file override (only escalating issue carries it) still pas
   assert.equal(status, 0, 'the lone covered escalation passes');
   assert.match(out, /INV-6.*OVERRIDDEN \(per-file\)/s);
 });
+
+// FOLLOW-UP 105: a scn-NNN defined in two feature files is an authoring-time
+// collision (per-issue scn allocation with no campaign-wide reservation reused
+// scn-470/471 live). check-invariants must fail it HERE, not let it surface as
+// an INV-5 orphan at merge.
+test('FU-105: a scn id reused across two feature files fails CONFIG (authoring-time)', () => {
+  const { status, out } = runMutated((dir) => {
+    // list.feature already owns scn-002; add a scenario reusing scn-001 (auth's).
+    const p = join(dir, 'features/identity/list.feature');
+    writeFileSync(p, readFileSync(p, 'utf8') + '\n@scn-001 @release\nScenario: duplicate id across files\n  Given x\n  When y\n  Then z\n');
+  });
+  assert.equal(status, 1, 'a cross-feature scn collision must fail the gate');
+  assert.match(out, /scn id reused across feature files/);
+  assert.match(out, /scn-001.*identity\/auth\.feature.*identity\/list\.feature|scn-001.*list\.feature.*auth\.feature/s);
+});
+
+test('FU-105: the clean fixture (disjoint scn ids per feature) has no collision', () => {
+  const { status, out } = run(FIXTURE);
+  assert.equal(status, 0, out);
+  assert.doesNotMatch(out, /reused across feature files/);
+});

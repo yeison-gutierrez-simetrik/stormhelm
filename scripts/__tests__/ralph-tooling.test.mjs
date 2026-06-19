@@ -701,3 +701,27 @@ test('FU-100: the lowest open chain member is allowed past the order guard', () 
     assert.match(`${r.stdout}${r.stderr}`, /merge-unit:quotes: PR #81 is chain-order 1 \(the next open member\) — proceeding/);
   });
 });
+
+// ── FOLLOW-UP 104: the §114 pre-merge confirmation is a structural gate. A leaf
+// carrying `require-§114-confirmation` (the confirmation re-review hasn't posted
+// a CLEAN verdict) is refused by train-merge — closing the merge-while-pending
+// race that landed a money-critical gap in main.
+test('FU-104: train-merge refuses a PR still carrying require-§114-confirmation', () => {
+  withDir((dir) => {
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of ['train-merge.mjs', 'check-merge-safety.mjs']) {
+      copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    }
+    const r = spawnSync('node', ['scripts/train-merge.mjs', '88'], {
+      cwd: dir, encoding: 'utf8',
+      env: {
+        ...process.env, PATH: `${MOCK_BIN}:${process.env.PATH}`,
+        MOCK_TRAIN_PRE_JSON: JSON.stringify({ number: 88, state: 'OPEN', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', headRefOid: 'h88', baseRefOid: 'b', isDraft: false, title: 'confirmation pending' }),
+        MOCK_TRAIN_VIEW_JSON: JSON.stringify({ headRefName: 'agent/feature-hours', baseRefName: 'main', headRefOid: 'h88', labels: [{ name: 'require-§114-confirmation' }] }),
+      },
+    });
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(`${r.stdout}${r.stderr}`, /Refusing to merge PR #88: it carries 'require-§114-confirmation'/);
+    assert.ok(!existsSync(join(dir, '.mock-gh-trainlog')), 'no merge was attempted while confirmation is pending');
+  });
+});

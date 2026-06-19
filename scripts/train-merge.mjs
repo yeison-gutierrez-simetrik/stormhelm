@@ -52,6 +52,22 @@ const { headRefName, baseRefName, headRefOid } = view;
 // of its unit — the next member in order. /to-issues stamps both labels on
 // chained sub-issues; this is where the contract is enforced.
 const labelNames = (lbls) => (lbls || []).map((l) => l.name);
+
+// 1a. FOLLOW-UP 104: the §114 pre-merge confirmation re-review is a documented
+// step but was not a structural gate — a chain was human-merged ~1 min BEFORE
+// the confirmation found a money-critical gap, which landed in main. A leaf that
+// still carries `require-§114-confirmation` is NOT mergeable: the reviewer
+// removes that label only after posting a CLEAN verdict. This closes the
+// merge-while-confirmation-pending race (same posture as require-human-review).
+if (labelNames(view.labels).some((n) => /^require-§114-confirmation$/.test(n))) {
+  console.error(
+    `❌ Refusing to merge PR #${pr}: it carries 'require-§114-confirmation' — the §114 pre-merge ` +
+    `confirmation re-review has not posted a CLEAN verdict yet (FU-104). Merging now risks landing a ` +
+    `gap the confirmation is still checking. Wait for the reviewer to remove the label, then re-run.`,
+  );
+  process.exit(1);
+}
+
 const orderOf = (lbls) => {
   const m = labelNames(lbls).find((n) => /^chain-order:\d+$/.test(n));
   return m ? Number(m.split(':')[1]) : Infinity;
