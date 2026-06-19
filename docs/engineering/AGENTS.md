@@ -279,6 +279,7 @@ One agent is shipped: `agents/reviewer.md` (implements §114). Two are specified
 - §42 Map Result to HTTP at the adapter; `errorHandler` is for unexpected only
 - §43 All HTTP errors share a single response shape
 - §44 Drizzle schemas are not domain entities
+- §129 Migrations run through Drizzle's tracked migrator (forward-only, replay-safe) + a replay-safety CI gate; never a raw replay-all runner on a persistent DB
 
 #### `capabilities/python/03-style.md` — Python language style
 
@@ -359,7 +360,7 @@ The rule files include illustrative code examples. **These examples use a sample
 
 ## Provenance
 
-The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §128) with patterns required for AI-agent operation: BDD outside-in (§56–§62), Ralph/AFK discipline (§63–§70), brownfield protocols (§71–§76), observability (§77–§83), supply-chain security (§84–§90), bug handling (§91–§96), improvements (§97–§102), module contracts + Agent Teams (§103–§107), hooks & runtime guards (§108–§113), formal sub-agents (§114–§116), package management & supply-chain hygiene (§117–§121), external-API verification via Context7 (§122), the cumulative-vs-stacked PR convention (§123), and registry-fixture pins for growing surfaces (§124), gate-enforced skill-doc deliverables (§125), golden-pinned external-provider doubles (§126), drive-the-real-surface acceptance (§127), and the §114 confirmation merge gate + dual-path money guards (§128). <!-- metadata-ok: a non-max sub-range / frozen historical figure, not the rule-set upper bound (FU-94) -->
+The core rule set (§1 – §55) is **inspired by and adapted from** the engineering guidelines published by the Belong A2A Marketplace team. Their public AGENTS.md is one of the strongest practical implementations of the hierarchical agent-rules pattern available. Stormhelm preserves the rule numbering as a sign of respect to the original work and extends it (§56 – §128) with patterns required for AI-agent operation: BDD outside-in (§56–§62), Ralph/AFK discipline (§63–§70), brownfield protocols (§71–§76), observability (§77–§83), supply-chain security (§84–§90), bug handling (§91–§96), improvements (§97–§102), module contracts + Agent Teams (§103–§107), hooks & runtime guards (§108–§113), formal sub-agents (§114–§116), package management & supply-chain hygiene (§117–§121), external-API verification via Context7 (§122), the cumulative-vs-stacked PR convention (§123), and registry-fixture pins for growing surfaces (§124), gate-enforced skill-doc deliverables (§125), golden-pinned external-provider doubles (§126), drive-the-real-surface acceptance (§127), the §114 confirmation merge gate + dual-path money guards (§128), and the drizzle tracked-migrator + replay-safety gate (§129). <!-- metadata-ok: a non-max sub-range / frozen historical figure, not the rule-set upper bound (FU-94) -->
 
 The structural pattern (hierarchical `AGENTS.md` + topical files loaded on demand) comes from **`mattpocock/skills`** (AI Hero).
 
@@ -367,4 +368,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §128** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.
+**§1 – §129** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.
