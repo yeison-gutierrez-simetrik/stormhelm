@@ -2262,3 +2262,72 @@ Shared context: the 2026-06-17 belong auto-pilot campaign ran slices 22/23/24 en
 **Fix (options for maintainer ruling).** (a) auto-pilot rebases the whole in-flight chain onto main as a unit when main moves (one rebase, no per-branch merge commits), instead of independent per-branch merges; (b) to-issues marks a chain as a "merge-unit" (merge all-or-none in order, fast-forward) and the review loop enforces it, eliminating the inter-merge window; (c) accept the churn but give the operator a one-shot "re-fix all conflicting chain PRs" helper. Recommend (b) (encodes the #188-style "merge as a unit" constraint structurally) combined with (a) for the cross-slice drift case. Honest note: some drift is inherent when an unrelated PR lands mid-chain; the framework can minimize, not eliminate.
 
 **Acceptance.** A maintainer decision recorded; if (b): to-issues emits a merge-unit marker for chained sub-issues, and a test pins that the review/merge tooling refuses to merge a chain member out of order / leaves no main window.
+
+---
+
+## BATCH — belong auto-pilot campaign 25-27 (Broadcast RFP / Hourly+Timesheets / Milestone pricing) retrospective
+
+Context: slices 25-27 ran end-to-end on `/auto-pilot` (3 parallel chains, squash-from-leaf merge), all merged to belong `origin/main a061ca5`. The vendored engine was at stormhelm `0541607` (FU-96..100 already landed). These five items are the campaign's measured framework gaps; one confirms FU-100, one consumer-only item is intentionally NOT filed (a supervision watcher I wrote self-matched its own `pgrep` — pure consumer code, recorded in belong memory). Suggested order below mirrors blast radius.
+
+## FOLLOW-UP 101 — `RALPH_CALL_TIMEOUT` default 1800s is too SHORT for repo-context-heavy `/tdd` calls (they run 24-30min), so the FU-92 watchdog kills *productive* calls, not hung ones  ·  **Severity: HIGH (drove the dominant waste this campaign: lost in-flight work, false `engine_failure`/zero-token counts, repeated budget bumps)**
+
+**Problem.** Distinct from FU-98 (which is the wall-clock alarm being *suspended during host sleep*). This is the alarm being *correctly armed but too short*: in a large hexagonal repo a single `/tdd` iteration legitimately runs 24-30 min (full acceptance + Postgres testcontainers + 1500+ vitest). The 1800s `gtimeout` then SIGKILLs a call that is committing real work. ralph-local accounts the killed iteration as a **0-token advance** and increments the FU-99 engine-outage counter (`N/3`), so a productive-but-slow run looks like a transport outage. Observed on every chain (25a/26B/27c); each cost a 30-min wall-clock cycle and contributed to the `300k→400k` budget bumps (the killed call's tokens still counted).
+
+**Live evidence:** belong issue #199 log `/tmp/ralph-199.log` — `⏱️ engine call exceeded RALPH_CALL_TIMEOUT=1800s and was killed ... treating as an engine outage` immediately followed by `zero token advance this iteration (tdd-failed) — 1/3`, while `git -C .worktrees/ralph-199-* log` showed 3 real commits in that same window. Recurred on #206, #204. The campaign mitigation was to relaunch every run with `RALPH_CALL_TIMEOUT=3600`, which eliminated the churn.
+
+**Verify.** `grep -n RALPH_CALL_TIMEOUT templates/ralph-local.sh templates/ralph-lib.sh` (origin/main) — confirm the default literal and that a killed call is scored as a zero-token outage rather than a distinct `timeout`/`partial` state.
+
+**Fix.** (a) Raise the default to 3600s (the empirical floor for a money-slice acceptance cycle), OR make it adaptive (`base-context-cost × factor`, same spirit as the FU-97 budget floor). (b) More important: distinguish a **timeout-kill** from a **0-token engine no-op** — a call that produced commits before the SIGKILL is NOT an engine outage and must not increment the FU-99 counter. Emit a structured `tdd.outcome: "timeout"` event (not `engine_failure`) when the worktree HEAD advanced during the call. Prose→structured: today the timeout and the no-op collapse into the same "zero token advance" string.
+
+**Acceptance.** A `scripts/__tests__` fixture: a mock `/tdd` that commits then exceeds the timeout → asserts the iteration is recorded `timeout` (worktree advanced), NOT `engine_failure`, and the FU-99 counter does not increment. Default timeout ≥3600 (or adaptive) pinned.
+
+## FOLLOW-UP 102 — a `ralph --resume` that ends in `gh pr create` against an already-open PR CREATES A DUPLICATE PR instead of reusing the existing one  ·  **Severity: MEDIUM (3 duplicate PRs this campaign — #215/#219/#220 — each byte-identical, each needing manual close; pollutes the PR list and risks a double-merge)**
+
+**Problem.** ralph-isolated/ralph-local's terminal `gh pr create` is documented (FU benign-exit-1) to fail with "a pull request for branch ... already exists" and exit 1. But this campaign it intermittently SUCCEEDED in creating a SECOND PR for the same head branch → main (same `headRefOid`), because the create ran under a gh auth/context where the prior PR's existence check didn't short-circuit. Result: byte-identical duplicate PRs the operator had to detect (same HEAD sha) and close by hand.
+
+**Live evidence:** belong PRs #214 (25b) + duplicate #215; #217 (27c) + #219; + #220 — all confirmed `headRefOid` identical to their original via `gh pr view N --json headRefOid`. Created by `--resume` runs of issues #200/#204.
+
+**Verify.** `grep -n 'gh pr create' templates/ralph-local.sh templates/ralph-isolated.sh` (origin/main) — check whether the create is guarded by an explicit `gh pr list --head <branch> --state open` lookup before invoking create.
+
+**Fix.** Before `gh pr create`, query `gh pr list --head "$BRANCH" --base "$BASE" --state open --json number`; if one exists, SKIP create (or `gh pr comment` the update note) and treat as success. Structured guard over relying on the create's own "already exists" error (which is not reliable across auth contexts). 
+
+**Acceptance.** Fixture with a mock `gh` whose `pr list --head` returns an existing PR → assert the run does NOT call `gh pr create` and exits 0. A second run on the same branch produces no second PR.
+
+## FOLLOW-UP 103 — an acceptance step that drives a use case via `container.<uc>.execute(...)` instead of the real HTTP/production entrypoint can pass while the production wiring DOESN'T EXIST (masked a money feature with no caller)  ·  **Severity: HIGH (a ratified money decision — fund-all-upfront — had zero production reachability yet its `@release` scn was green; only a §114 grep caught it)**
+
+**Problem.** Service-double-fidelity's sibling at the *entrypoint* layer. slice 27c's `FundMilestonesUseCase` (the H-1 fund-all-upfront capture) was built + DI-registered but had NO route/hook/webhook calling it; in production a milestone SOW would materialize N `pending` milestones with `charge=NULL` and every release would fail `CHARGE_MISSING`. Yet `scn-482` passed because its step called `this.infra.container.fundMilestones.execute(...)` directly — a path production never traverses. Green CI + green acceptance asserted a feature that didn't exist end-to-end.
+
+**Live evidence:** belong issue #204, `features/settlement/steps/milestone-settlement.steps.ts:299` (the direct container call); the §114 reviewer flagged it via `grep "fundMilestones"` returning 0 hits outside container+tests+steps. Fixed by adding `POST /sows/:id/fund-milestones` + a step that drives the real route (the gap would have shipped otherwise).
+
+**Verify.** Inspect the acceptance harness conventions in `docs/engineering/` / the `to-scenarios`/`run-acceptance` skills — is there any rule that `@release` (esp. money) scns must traverse the input adapter, not the container?
+
+**Fix.** A gate/lint in `/run-acceptance` (or a step-lint): for `@release`-tagged money/entrypoint-critical scenarios, flag step defs that reference `container.<useCase>.execute` directly instead of the HTTP/MCP/CLI input adapter. At minimum a warn; ideally a §106-style stub-detection sibling that fails when a use case has tests/steps but no production caller. Prose→structured: "drive the real surface" is currently a convention, not an enforced contract.
+
+**Acceptance.** A fixture slice whose money use case has a passing container-direct step but no route → the gate flags it. A use case with a real route + a route-driving step → passes.
+
+## FOLLOW-UP 104 — the §114 pre-merge confirmation re-review is not a structural MERGE GATE, so a chain can be (and was) human-merged WHILE the confirmation was still running — landing a money-critical gap in main  ·  **Severity: decision (maintainer) — the §114 re-review is a documented step (playbook point 6) but nothing blocks a merge while it's pending; needs a ruling on making it a gate vs. a label vs. CI-encoded scenario**
+
+**Problem.** Campaign 26 (Hourly+Timesheets) was human-merged to main ~1 min BEFORE the §114 confirmation re-review completed. The confirmation then found BLOCKING item #2 — `evaluate-timesheet-cycle` never checks `sow.status` before firing the off-session top-up, so a SOW that went `frozen`/`cancelled`/`pending_payment` could still be charged off-session. The gap landed in main and had to be patched as a follow-up PR (#221, adding `scn-492`). Green CI did NOT catch it because no acceptance scenario exercised the active→non-active transition (the submit-side B-1 guard had a scenario; the evaluate-side guard did not).
+
+**Live evidence:** belong main `40fd170` (chain 26 merged, no `status !== "active"` in `evaluate-timesheet-cycle`) vs `72d5423` (#221 added it); the §114 confirmation review (belong reviewer agent) reported item #2 OPEN ~1 min after the merge timestamp.
+
+**Verify.** Read the `/feature` + `/gates` + `run-acceptance` skills (origin/main) — is the §114 reviewer wired as a blocking gate, or only invoked-and-reported? Is there a mechanism to mark a chain "confirmation-pending, do-not-merge"?
+
+**Fix.** Two options (maintainer's call): (a) make the §114 confirmation a structural gate — a `require-§114-confirmation` label / status check the chain leaf carries until the reviewer posts a CLEAN verdict, blocking merge (matches `require-human-review` machinery). (b) Push the missed coverage into CI: the threat model already names the state-transition class (T-series); require an acceptance scenario per money guard covering the *evaluation/charge of already-accrued state* (not just the submit-side), so green CI alone is sufficient. (a) is process-structural, (b) is test-structural; ideally both. The deeper lesson: a money guard needs a scenario for BOTH the *write* path and the *evaluation* path — submit-time B-1 ≠ charge-time guard.
+
+**Acceptance.** (a) a fixture chain with a pending confirmation cannot be merged (label/status blocks it). (b) the threat-model→scenario rule pins that each money guard has an "entity became non-fundable after accrual" scenario.
+
+## FOLLOW-UP 105 — `/to-issues` (auto-pilot) allocates `scn-NNN` ranges per-issue without a campaign-wide reservation, so two slices in the same campaign collided on scn-470/471  ·  **Severity: MEDIUM (INV-5 orphans + ambiguous traceability; caught late by Ralph's own reviewer, forced a renumber to 490/491 mid-merge)**
+
+**Problem.** During campaign 25-27 the slice-26 fix-scenarios were assigned `scn-470/471`, which were already slice-27's canonical allocation (milestone-lifecycle, scn-470..481). The auto-pilot/`to-issues` scn allocator reserves the next-free range per issue against features/ at authoring time, but does NOT reserve a campaign-wide block nor detect that a *parallel* slice in the same campaign already owns those ids. The collision only surfaced when the second feature file hit `check-invariants` (INV-5 orphans + ambiguous traceability on merge).
+
+**Live evidence:** belong issue #207 reviewer note — `commit fa48fc9 reused scn-470/scn-471 (already canonical on main for milestone-lifecycle.feature)`; renumbered to 490/491 in `713ae02`.
+
+**Verify.** Read the `/auto-pilot` + `/to-issues` skills (origin/main) — how is the starting scn computed (`grep scn- features/`)? Does it account for in-flight sibling slices not yet merged?
+
+**Fix.** When auto-pilot runs a multi-slice campaign, reserve a contiguous campaign-wide scn block up front and partition it per slice (the campaign already declares its slice set). Failing that, `check-invariants` should gain a cross-feature scn-uniqueness check that fails authoring (not merge) when an id is reused across feature files. Structured reservation over per-issue next-free scanning.
+
+**Acceptance.** A fixture with two sibling slices authored from the same base → the allocator assigns disjoint scn ranges; a forced duplicate id fails an invariant.
+
+## Dedup note — FOLLOW-UP 100 confirmed
+The squash-from-leaf merge model this campaign used exhibited the exact N×N re-conflict churn FU-100 describes: each human merge of one leaf re-conflicted the open siblings on the shared surface (`transaction-manager.ts`, `container.ts`, the audit-event unions, `meta/_journal.json`), each needing a per-leaf merge-fix `--resume`. NOT a new FU — adds a second real data point (squash-from-leaf, not only stacked merge-commits) to FU-100's reconciliation ruling.
