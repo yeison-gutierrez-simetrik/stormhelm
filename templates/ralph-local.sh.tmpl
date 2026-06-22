@@ -373,7 +373,7 @@ fi
 # every such slice is un-launchable (live: belong #83, 19 scns scn-137..155).
 if ! echo "$LABELS" | grep -qE "^scenarios:" \
    && ! printf '%s' "$ISSUE_BODY" | grep -qE 'scenarios:scn-[0-9]'; then
-  echo "❌ Issue #$ISSUE_NUM declares no scenarios — neither a 'scenarios:scn-*' GitHub label nor a 'scenarios:scn-*' token in the issue body (§63 mandatory). For a >9-scenario slice, carry the spelled list in the body's **Labels:** line (FU-71)." >&2
+  echo "❌ Issue #$ISSUE_NUM declares no scenarios — neither a 'scenarios:scn-*' GitHub label nor a 'scenarios:scn-*' token in the issue body (§63 mandatory). Note: GitHub REJECTS commas in label names, so a multi-scn label must use the comma-free '+' form (e.g. 'scenarios:scn-627+628+629'); a bug/follow-up reusing existing scns can instead put a 'scenarios:scn-627,scn-628' token (commas OK) in the issue BODY (FU-112). For a >9-scenario slice, carry the spelled list in the body's **Labels:** line (FU-71)." >&2
   exit 1
 fi
 
@@ -664,6 +664,23 @@ ACCEPT_RESULT_FILE=".planning/acceptance/issue-${ISSUE_NUM}-result.json"
 # iteration when it did).
 REVIEWER_REPORT_FILE=".planning/acceptance/issue-${ISSUE_NUM}-reviewer.md"
 mkdir -p .planning/acceptance
+
+# FOLLOW-UP 111(b): a --resume / relaunch on an issue whose green PR is ALREADY
+# open used to run a full /tdd + /run-acceptance cycle (a heavy testcontainer
+# run) before the end-of-loop existing-PR guard (FU-102) caught it and reused —
+# pure waste on a finished slice, and on a one-Ralph host it blocks other work.
+# Short-circuit here, before the loop: a PR open for this head means the slice
+# already reached green (Ralph opens a draft PR only on the green path).
+EXISTING_PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+if [ -n "$EXISTING_PR" ]; then
+  echo "↪ PR #${EXISTING_PR} is already open for ${BRANCH} — this slice already reached green; reusing it and exiting WITHOUT a redundant /run-acceptance (FU-111b)." >&2
+  gh label create "ralph-done" --force --color "5319E7" \
+    --description "Ralph delivered a draft PR for this issue" >/dev/null 2>&1 || true
+  gh issue edit "$ISSUE_NUM" --add-label ralph-done --remove-label ralph-ready >/dev/null 2>&1 || true
+  ralph_log_event "info" "ralph.pr.reused" "{\"pr\":${EXISTING_PR},\"early\":true}"
+  ralph_end_session "completed"
+  exit 0
+fi
 
 for i in $(seq 1 "$MAX_ITER"); do
   echo ""
