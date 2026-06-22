@@ -296,6 +296,23 @@ When `/security-hardening` detects that a slice crosses a trust boundary and no 
 
 Auto-generated `.draft.md` files do not satisfy §87 compliance. They are working drafts, never contracts.
 
+#### The ratification flip is owned by the close-out PR, never the impl branch (FOLLOW-UP 109)
+
+The threat-model ratification (the `.draft.md → .md` rename, or a `Status: DRAFT
+→ RATIFIED` header flip) is **not** applied on the implementation branch.
+Convention (maintainer ruling, batch-28 — sibling of §128/FU-104's "a documented
+step that races a fast merge"): a `require-human-review` impl PR legitimately
+carries the threat model as **DRAFT**, and the **close-out PR is the single,
+predictable owner of the ratification flip** (the same place §58 flips
+`approved → implemented`). A fast reviewer who merges the impl PR therefore can
+**never orphan** the flip — there is no flip on the impl branch to lose (live:
+slice-35a #300 merged before the flip commit landed, leaving `main` DRAFT until a
+manual re-apply). The alternative — a merge gate refusing a DRAFT threat model —
+was considered and rejected as higher-friction (it forces the flip onto the impl
+branch and adds a blocking check); this convention removes the race instead of
+gating on it. The close-out skill is the documented sole flipper; no campaign
+re-applies an orphaned flip by hand.
+
 This rule exists because **threat models are business decisions, not engineering analyses**. An agent can produce a competent first read of the STRIDE categories (and should, to save the human's time), but the act of accepting residual risks, choosing between mitigation/transfer/acceptance, and signing off the model is a human responsibility that the framework will not delegate.
 
 ### Why
