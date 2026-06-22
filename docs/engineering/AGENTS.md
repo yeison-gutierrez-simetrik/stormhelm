@@ -129,6 +129,7 @@ This document is a **template index**. When you run `/setup`, a personalized `AG
 - §126 An external-provider test-double is pinned to a recorded real-shape golden (check-double-fidelity.mjs) — no green against an invented wire contract
 - §127 A @release scenario must drive the production input adapter (HTTP/MCP/CLI), not call the use case via container.<uc>.execute directly
 - §128 The §114 pre-merge confirmation is a structural merge gate (require-§114-confirmation); a money guard is scenario'd on BOTH the write and the evaluation path
+- §130 Ralph's "green" is the full @release CI definition of done — the final pre-PR gate runs full @release (not the slice tag-subset, FU-107), and a referenced @release scn skipped under IMPLEMENTED_ONLY is a gate failure (check-skipped-release-scn.mjs, FU-108)
 
 #### `core/13-ralph-and-afk.md` — Ralph & AFK operations
 
@@ -368,4 +369,4 @@ The structural pattern (hierarchical `AGENTS.md` + topical files loaded on deman
 
 ## Total rule count
 
-**§1 – §129** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.
+**§1 – §130** in the shipped capabilities (`core` + `typescript` + `typescript-hono` + `python` + `python-fastapi`). The Python capability adds language-suffixed twins (`§5-py`, `§52-py`, …) for rules with stack-specific semantics. New capabilities extend the numbering without renumbering existing rules.

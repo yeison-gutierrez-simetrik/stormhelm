@@ -181,6 +181,38 @@ check is what prevents that false green.
 Report pass/fail per scenario, plus `ran/expected` counts and the manual
 exclusions.
 
+### Step 3b — Full `@release` final gate + skipped-scn check (§130)
+
+Steps 2–3 are **scoped** — fast, but blind to a regression in *another* feature.
+A change correct for this slice's scns that breaks an exact-cardinality /
+registry / shared assertion elsewhere passes them, and Ralph opens a PR that the
+full `@release` CI then red-fails (FU-107: scn-531 cardinality, scn-131 stub-FK,
+take-rate). `outcome:green` MUST mean "the suite CI runs is green," not "a subset
+passed." So the iteration that is about to go green runs the **exact CI
+definition of done**, before declaring green / opening the PR:
+
+```bash
+# (a) FU-108 / §130b: a @release scn this issue CLAIMS that still lives in a
+# `# status: approved` feature is SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI
+# green having never run it. Make the skip a gate failure, not a silent skip.
+node scripts/check-skipped-release-scn.mjs features "$ISSUE_FILE"   # FAIL → BLOCK
+
+# (b) FU-107 / §130a: run the full @release suite — the same definition of done
+# CI uses — NOT the slice tag-subset. This is the gate that decides green.
+$BDD_RUNNER --tags "@release and not @manual"                       # any red → BLOCK
+```
+
+- Per-iteration cost control is legitimate: iterations MAY stay scoped (Steps
+  2–3); the **final pre-PR gate** (this step, on the green iteration) is the one
+  that must be full-@release. If running full `@release` every iteration is
+  affordable, prefer it.
+- If the full run is genuinely prohibitive even as a final gate, the
+  irreducible minimum is the exact-cardinality / registry invariants (the
+  recurring cross-feature class) on every green — but the suite is the contract.
+- A red here is a real BLOCK: write the failure to the result file (Step 10) and
+  loop back to `/tdd`; do **not** open or ready a PR. The structured contract:
+  the engine's `outcome:green` equals the gate CI will apply.
+
 ### Step 4 — Visual acceptance gate (§104) — if UI involved
 
 If the feature has UI (detected by spec or by changed paths in `web/`, `app/`, `src/components/`):
