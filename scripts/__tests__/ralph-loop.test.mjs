@@ -103,6 +103,24 @@ test('happy path: green acceptance + clean review → PR opened, session complet
   });
 });
 
+// FU-111(b): a relaunch on an issue whose green PR is ALREADY open must exit
+// BEFORE the loop — no redundant /tdd + /run-acceptance cycle (a heavy
+// testcontainer run wasted on a finished slice).
+test('FU-111b: existing open PR for the head → early reuse+exit, no iteration', () => {
+  withConsumer((dir) => {
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_EXISTING_PR: '215' });
+    assert.equal(status, 0, out);
+    const events = readEvents(dir, 1);
+    const ev = names(events);
+    const reused = events.find((e) => e.event === 'ralph.pr.reused');
+    assert.ok(reused, 'must log ralph.pr.reused');
+    assert.equal(reused.details?.early, true, 'reuse must be the EARLY (pre-loop) guard');
+    assert.ok(!ev.includes('ralph.scenario.passed'), 'no acceptance run on an already-done slice');
+    assert.ok(!ev.includes('ralph.pr.opened'), 'must reuse, not open a second PR');
+    assert.equal(endStatus(events), 'completed');
+  });
+});
+
 // T3 — positional back-compat + flags; worker-id flows to the log.
 test('args: positional [issue max] and --max-iterations/--worker-id both run; worker_id logged', () => {
   withConsumer((dir) => {
