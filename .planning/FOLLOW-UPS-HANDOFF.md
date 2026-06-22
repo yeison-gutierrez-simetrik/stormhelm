@@ -2376,3 +2376,89 @@ Delete the raw-replay runner, OR — if one is intentionally kept for a fresh-DB
 Anti-drift (FU-17 lesson): state the "tracked, forward-only, replay-safe" contract in ALL three artifacts that touch it — the stack engineering doc, the scaffolded migrate artifact (if any), and the CI gate template.
 
 **Acceptance.** (a) The drizzle-stack guidance/scaffold uses the official tracked migrator (or any kept raw runner is loudly fenced as fresh-DB-only). (b) A replay-safety gate exists: running migrations twice against a persistent DB applies nothing on the 2nd run (exit 0), and the gate is RED if a raw-replay runner is used. (c) Consumer-visible: a fresh consumer's first persistent-DB deploy AND every subsequent deploy's migrate step succeed with no manual DB resets. belong is doing the local fix now (`e2e/migrate.mjs` → `migrate()`, reset the dev DB, add the double-apply CI job) — the agent may lift it verbatim.
+
+## FOLLOW-UP 107 — Ralph's pre-push/pre-PR gate runs the slice's SCOPED `--tags`, not the full @release, so cross-feature regressions ship "green"  ·  **Severity: HIGH (Ralph declares a slice done + opens a PR while a DIFFERENT feature's scenario is red; only the full-@release CI catches it — multiple times this campaign)**
+
+**Problem.** Ralph's loop gate evaluates only the slice's own `scenarios:` tags (`pnpm acceptance --tags @scn-NNN..`). A change that is correct for the slice's scns but breaks an EXACT-CARDINALITY or shared assertion in another feature passes Ralph's gate and Ralph opens a PR / logs `outcome:green`. The full @release (CI) then fails. The gate Ralph trusts to mean "done" is narrower than the gate that actually decides mergeability.
+
+**Live evidence (belong, this campaign):**
+- **scn-531 notification-registry cardinality:** adding notification types in slice 32a + 35 broke `features/notifications` exact-cardinality assertion (`ALL_SEEDED_TYPES`) — a DIFFERENT feature from the slice's tags; Ralph's scoped gate was green, full @release red.
+- **scn-131 stub-activation (slice 30a #268):** activating a slice-01 stub FK (mig 0050) broke `reputation-schema-foundations.feature` scn-131 ("sow_id carries no FK" + a bare insert); Ralph's `--tags @scn-533..541` never ran scn-131; only full @release CI caught it.
+- **take-rate @release fails (slice 269):** pre-existing settlement take-rate `@release` failures invisible to the slice's scoped tags.
+
+**Verify:** inspect the ralph gate invocation in `templates/ralph-lib.sh` / `ralph-local.sh.tmpl` (the `pnpm acceptance --tags` call) — confirm it scopes to the issue's scns rather than running the full `@release` suite before declaring green / opening the PR.
+
+**Fix.** Ralph's "green" gate before opening/updating a PR should run the **full @release** suite (the same definition of done CI uses), not the slice tag-subset — or, if full-suite cost per iteration is prohibitive, run scoped `--tags` per iteration but a **full @release as the final pre-PR gate**. At minimum, run the exact-cardinality / registry invariants (the recurring cross-feature class) on every green. Structured contract: the engine's `outcome:green` MUST mean "the suite CI will run is green," not "a tag subset is green."
+
+**Acceptance.** A slice whose change breaks an unrelated `@release` scenario does NOT reach `outcome:green` / an opened PR; a fixture drives a two-feature repo where editing feature A's code breaks feature B's scn and asserts the gate goes red. A fresh consumer's Ralph never opens a PR that CI then red-fails on a cross-feature regression.
+
+## FOLLOW-UP 108 — a new `@release` scenario added to a `# status: approved` feature SKIPs under `CUCUMBER_IMPLEMENTED_ONLY`, so CI is green having never executed it (false-green)  ·  **Severity: HIGH (a just-added scenario is invisible to test:acceptance/test:smoke until a manual approved→implemented flip; "acceptance pass" is a lie for that scn)**
+
+**Problem.** `test:acceptance`/`test:smoke` set `CUCUMBER_IMPLEMENTED_ONLY=1`, which skips entire `# status: approved` feature files. The documented practice writes scns `approved` first and flips to `implemented` only at close-out. So a `@release` scn added to an approved feature (or whose steps are undefined) is SKIPPED — CI goes green without ever running it. The green is real-looking but the scenario never executed.
+
+**Live evidence:** slice-40b D-11 — a new `@release` scn-566 added to an approved feature passed CI green while never running (caught by the external reviewer, not the gate). Same class repeatedly worked around by hand: `pnpm acceptance --tags @scn-NNN` (without IMPLEMENTED_ONLY) to confirm red→green before trusting CI.
+
+**Verify:** add an `@release` scn with no/partial steps to a `# status: approved` feature, run `pnpm test:acceptance` → observe green (the scn is skipped, not run/failed).
+
+**Fix.** A gate that detects "an `@release` scn is referenced (in a feature / an issue `scenarios:` token) but SKIPPED under IMPLEMENTED_ONLY" and fails or loudly warns — i.e. a referenced-but-not-executed scenario is a gate failure, not a silent skip. Structured contract: do not rely on the human remembering the close-out flip; make the skip observable. (Pairs with the close-out flip discipline, but the gate is the durable fix.)
+
+**Acceptance.** A fixture: an approved feature with a referenced `@release` scn → the gate reports the scn as skipped-but-required and fails. After flip to `implemented`, it runs and the gate passes.
+
+## FOLLOW-UP 109 — the §87 threat-model DRAFT→RATIFIED flip is not a merge precondition, so a fast reviewer merges the impl PR before the flip commit lands, orphaning it (main stays DRAFT)  ·  **Severity: decision (maintainer) — sibling of FU-104 (fast merge races a pending step); needs a ruling: make RATIFIED a merge gate vs. fold the flip into the close-out PR by convention**
+
+**Problem.** Convention is to flip the threat-model `Status: DRAFT → RATIFIED` on the impl branch before `gh pr ready`, recording the operator's ratification. Nothing blocks the merge on that flip being present. A reviewer who merges quickly takes the commit BEFORE the flip lands → the flip is orphaned on the branch and `main`'s threat-model stays `DRAFT` despite a real ratification.
+
+**Live evidence:** slice-35a #300 merged at commit `58b2f2a` before the §87-RATIFIED flip commit `495be62` landed → orphaned; main's `docs/threat-models/35-*.md` stayed DRAFT; the consumer had to re-apply the flip in the close-out PR #302. (Same family as FU-104: a fast merge races a documented-but-non-blocking step.)
+
+**Verify:** `INV-2`/§87 checks "threat model present" but not its Status — confirm no invariant/CI asserts `Status: RATIFIED` on a `require-human-review` impl PR at merge.
+
+**Fix (decision — two designs):** (a) **merge precondition** — a `require-human-review` impl PR cannot merge unless its referenced threat-model `Status == RATIFIED` (CI/invariant check), so the flip is structurally IN the merged commit; OR (b) **convention** — the impl PR keeps `DRAFT`, and the DRAFT→RATIFIED flip is owned by the close-out PR (single, predictable home), never the impl branch. (b) is lower-friction; (a) is stronger compliance. Maintainer picks.
+
+**Acceptance.** Either the merge gate refuses a DRAFT threat-model on a `require-human-review` impl PR (a) or the close-out skill is the documented sole flipper (b); a fixture pins the chosen rule. No campaign re-applies an orphaned flip by hand.
+
+## FOLLOW-UP 110 — no host-level "one Ralph at a time" lock, so two supervisor sessions on one host can't coordinate Ralph launches → manual go/hold + OOM risk  ·  **Severity: MEDIUM (multi-session campaigns must hand-coordinate RAM; a missed coordination OOM-kills the testcontainer Postgres, corrupting both runs)**
+
+**Problem.** `ralph-isolated.sh` has no host-level mutual exclusion. The campaign's documented host limit is ONE Ralph at a time (two concurrent acceptance/testcontainer runs OOM-kill the test Postgres on a 24GB host — observed slice-29a). When a campaign is split across two supervisor sessions (one per slice-range), neither session can see the other's Ralph intent, so launching becomes a manual human "go or hold?" decision.
+
+**Live evidence:** the 28→39 campaign ran a 2nd session for slices 36+. The slice-36 session reached its mandated "launch Ralph 36a" step and ESCALATED to the operator: *"RAM is free right now (no Ralph live), but this host is one-Ralph-at-a-time and the ORIGINAL session also launches Ralphs — I can't see its intent. Go now, or hold?"* — resolved only by the original session manually confirming it was idle + committing not to launch.
+
+**Verify:** inspect `ralph-isolated.sh`/`ralph-local.sh` for any `flock`/lock-file before the engine/acceptance run — there is none.
+
+**Fix.** A host-level lock (`flock` on a well-known path, e.g. `$TMPDIR/ralph-host.lock`) that `ralph-isolated` acquires before the engine/acceptance run and releases on exit/trap; concurrent launchers queue or fail-fast with a clear "another Ralph holds the host lock (pid/issue N)" message. Structured contract: a lock, not human coordination. (Optionally configurable to N>1 for bigger hosts.)
+
+**Acceptance.** Two `ralph-isolated` launches on one host serialize (the second waits/queues or exits with the lock-holder identity); a fixture asserts the second cannot start the engine while the first holds the lock.
+
+## FOLLOW-UP 111 — Ralph batches a whole layer before its first commit (0-commit timeout looks like a failure) and keeps looping a redundant `/run-acceptance` after a green PR is open  ·  **Severity: MEDIUM (productive-timeout iterations log `tdd-failed` with WIP uncommitted; and a done+green Ralph wastes host/RAM re-running acceptance post-PR)**
+
+**Problem (two related loop behaviors).** (a) Ralph sometimes builds an entire layer (15–37 files) before the first commit, hits `RALPH_CALL_TIMEOUT` (45m) with uncommitted WIP, and the iteration logs `outcome:tdd-failed` (code 126) — the WIP persists and the next iteration recovers, but the signal reads as a failure and complicates supervision. (b) After opening a green PR, the loop can continue and spawn a redundant `claude -p /run-acceptance` iteration (full testcontainer run) — pure waste on a finished slice, and on a one-Ralph host it blocks other work.
+
+**Live evidence:** slices 35b/#123/#303 each built large uncommitted WIP → 0-commit 45m timeout → `tdd-failed` → auto-continued iteration committed it (self-heal, but noisy). Slice-139 (#307): after the green PR was open, `ralph-local` was still running `claude -p /run-acceptance` (the supervisor reaped the tree to free the host).
+
+**Verify:** session NDJSON shows `ralph.iteration.completed outcome:tdd-failed` immediately followed by `ralph.tdd.timeout` with 0 new commits that iteration; and a `ralph.pr.opened`/`pr.reused` followed by another `/run-acceptance` call.
+
+**Fix.** (a) Nudge incremental per-layer commits (the engine prompt / `/tdd` guidance) so a timeout always leaves committed progress + a clean partial-green, and a productive-timeout that committed work logs `outcome:timeout-productive` rather than `tdd-failed`. (b) Loop "done" detection: once an iteration is green AND a PR is open for the issue with no new findings, the session ends rather than spawning another acceptance run.
+
+**Acceptance.** A timeout iteration that produced commits is not labeled `tdd-failed`; and a green+PR-open state terminates the loop (a fixture drives a session to green+PR and asserts no further `/run-acceptance` iteration starts).
+
+## FOLLOW-UP 112 — Ralph's §63 pre-check needs a `scenarios:scn-*` token but GitHub labels reject commas, so bug / multi-scn issues must hand-edit the issue BODY (undocumented)  ·  **Severity: LOW (a fresh consumer's first Ralph on a bug issue fails twice with a confusing "declares no scenarios" until they discover the body-token workaround)**
+
+**Problem.** `ralph-isolated` §63 pre-check requires a `scenarios:scn-*` token (GH label OR issue body). For a bug-fix / follow-up issue that reuses an existing scn or adds a couple, the natural move is a GH label — but GitHub **rejects commas in label names**, so `scenarios:scn-627,scn-628,scn-629` won't create (the repo's existing scenario labels use `+`/`..` ranges, not commas). The only path is hand-editing the issue BODY to embed the token. This is undocumented and the failure message ("Issue declares no scenarios") doesn't hint at it.
+
+**Live evidence:** launching Ralph on bug issues #303 (#303/#304 fix) and #139 each failed at the §63 check; a comma label would not attach; resolved only by appending `scenarios:scn-NNN,scn-MMM` to the issue body. (Related to FU-105's scn-allocation theme but distinct: this is the §63 token FORMAT + the GH-label-comma limitation for non-auto-pilot issues.)
+
+**Verify:** `gh label create "scenarios:scn-1,scn-2"` → GitHub rejects the comma; then run `ralph-isolated <bug-issue#>` with no body token → §63 "declares no scenarios" exit 1.
+
+**Fix.** (a) Document the body-token path in the §63 error message itself ("add a `scenarios:scn-N` token to the issue body or a comma-free `scenarios:scn-N+M` label"); (b) accept comma-separated lists in the body token (parser already reads the body); (c) for bug/follow-up issues, allow an explicit "reuses scn-NNN / no-new-scn" declaration so a fix that adds no scenario isn't blocked.
+
+**Acceptance.** A bug issue with no GH label but a body `scenarios:` token launches Ralph cleanly; the §63 failure message names the body-token + comma-free-label options. A fresh consumer's first bug-fix Ralph works without two failed launches.
+
+## FOLLOW-UP 113 (operational batch) — ralph launch-script hardening: orphan-reaping, macOS portability, timeout default, §106 honest-double visibility  ·  **Severity: MEDIUM (orphans → RAM/OOM) + LOW (the rest)**
+
+Surfaced across the campaign while running/killing/resuming Ralph on a macOS host. Each is small + script-local (`ralph-isolated.sh`/`ralph-local.sh`/templates) except the last (a convention).
+
+- **Orphan-reaping (MEDIUM):** killing `ralph-isolated`/`ralph-local` leaves orphans — the `timeout -k N claude -p` wrapper + the `claude` agent (~1–2GB), the npx `context7` MCP, and `caffeinate` — reparented to launchd, hoarding RAM. Accumulated orphans contributed to the testcontainer-Postgres OOM on slice-29a. **Fix:** run the engine call in its own process group + trap EXIT/INT/TERM → `kill -- -$pgid`; on `--resume`, reap prior orphans for the issue first. (belong has a runbook stopgap "kill the tree", but the scripts should own it.)
+- **macOS portability (LOW):** `setsid` does not exist on macOS — a `setsid bash -c '…' &` relaunch silently no-ops (command not found), so a relaunch built that way does nothing. And `pgrep -f "a\|b"` matches the LITERAL string `a\|b` (not an OR), so a liveness check like `pgrep -f "ralph-local.sh N\|ralph-isolated.sh N"` always returns nothing → false "ENDED". **Fix:** macOS-safe launch (`nohup … &`) and never use `\|` in `pgrep -f` (separate calls or `pgrep -f "ralph.*N"`).
+- **RALPH_CALL_TIMEOUT default (LOW — VERIFY FIRST):** the 1800s default kills productive `/tdd` on heavy slices (they write ~20 files + run testcontainer acceptance); 2700s is the working value used all campaign. **NOTE:** stormhelm PR #134 (batch-26) mentions "timeout" — confirm this isn't already addressed; if not, make the default tier-aware or raise it.
+- **§106 honest-double visibility (LOW / decision):** when acceptance deliberately doubles a real boundary with a documented reason, it's correct but easy to misread as false-green. Example: slice-36 scn-630 fakes the Better-Auth `sign-in/email` handshake because the ephemeral test-socket origin is not a trusted origin (a real round-trip would `MISSING_OR_NULL_ORIGIN`-reject); the test still drives the real token-store + bearer-replay. **Fix idea:** a lightweight "honest-double" tag/registry so reviewers/auditors see which boundaries are doubled + why without re-deriving it each review.
+
+**Acceptance (batch):** killing a ralph run leaves no orphaned `claude`/`caffeinate`/MCP processes (process-group kill); the launch/liveness scripts run correctly on macOS (no `setsid`, no `\|`-pgrep); a productive `/tdd` on a heavy slice is not killed at an over-tight default; honest-doubles are discoverable by a tag/grep.
