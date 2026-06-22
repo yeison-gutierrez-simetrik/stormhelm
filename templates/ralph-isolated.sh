@@ -207,11 +207,51 @@ case "${RALPH_NOSLEEP:-auto}" in
      echo "☕ no-sleep guard: ${RALPH_NOSLEEP} (background pid ${NOSLEEP_PID}; FU-98)" ;;
 esac
 
-rc=0
-( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) || rc=$?
+# FOLLOW-UP 113: reap the whole engine subtree on exit/kill. Killing this
+# script must NOT leave orphaned claude / MCP / caffeinate processes reparented
+# to init, hoarding RAM (a campaign OOM contributor). `setsid` is absent on
+# macOS, so a process-group kill isn't portable; instead recursively kill the
+# work subtree (pgrep -P works on macOS + Linux) plus the no-sleep guard and the
+# host lock — all from a single EXIT trap so a Ctrl-C/SIGTERM cleans up too.
+reap_tree() {  # SIGTERM a pid's descendants deepest-first, then the pid itself
+  local pid=$1 child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do reap_tree "$child"; done
+  kill "$pid" 2>/dev/null || true
+}
+WORK_PID=""
+cleanup() {
+  [ -n "$WORK_PID" ] && reap_tree "$WORK_PID"
+  [ -n "$NOSLEEP_PID" ] && kill "$NOSLEEP_PID" 2>/dev/null || true
+  [ -n "${HOST_LOCK_DIR:-}" ] && rm -rf "$HOST_LOCK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-# Stop the background no-sleep guard (harmless if it never started or already died).
-[ -n "$NOSLEEP_PID" ] && kill "$NOSLEEP_PID" 2>/dev/null || true
+# FOLLOW-UP 110 (opt-in): host-level mutual exclusion. Two heavy
+# testcontainer/acceptance runs on one RAM-constrained host can OOM-kill the
+# test Postgres. The framework already supports parallel workers (--worker-id),
+# so this is OFF by default — set RALPH_HOST_LOCK=1 to serialize Ralph across
+# SESSIONS on this host (e.g. a campaign split over two supervisor terminals).
+# mkdir is the portable atomic mutex; `flock` is Linux-only (absent on macOS).
+HOST_LOCK_DIR=""
+if [ -n "${RALPH_HOST_LOCK:-}" ] && [ "${RALPH_HOST_LOCK}" != "0" ] && [ "${RALPH_HOST_LOCK}" != "off" ]; then
+  lock_path="${TMPDIR:-/tmp}/ralph-host.lock"
+  waited=0
+  until mkdir "$lock_path" 2>/dev/null; do
+    [ "$waited" = 0 ] && echo "⏳ host lock held ($(cat "$lock_path/holder" 2>/dev/null || echo '?')) — RALPH_HOST_LOCK set; waiting (one Ralph at a time on this host)…" >&2
+    sleep 10; waited=$((waited+10))
+  done
+  HOST_LOCK_DIR="$lock_path"
+  printf 'pid %s issue %s\n' "$$" "$ISSUE" > "$lock_path/holder" 2>/dev/null || true
+  echo "🔒 host lock acquired (RALPH_HOST_LOCK; ${lock_path})" >&2
+fi
+
+rc=0
+( cd "$WT" && RALPH_WORKER_ID="$WORKER_ID" ./ralph-local.sh "$ISSUE" ${RESUME_FLAG[@]+"${RESUME_FLAG[@]}"} ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} ) &
+WORK_PID=$!
+wait "$WORK_PID" || rc=$?
+WORK_PID=""   # finished normally — nothing to reap; the EXIT trap releases the rest
 
 echo ""
 echo "── Isolated run finished (exit ${rc}) ──"
