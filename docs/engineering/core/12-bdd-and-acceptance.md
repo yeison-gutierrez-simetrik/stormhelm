@@ -4,7 +4,7 @@
 
 **When to read.** Writing a new feature, generating scenarios from a spec, adding step definitions, deciding what gates a merge or a pre-push, designing the AFK loop entry point.
 
-**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126, §127, §128
+**Rules in this file.** §56, §57, §58, §59, §60, §61, §62, §103, §104, §105, §106, §124, §125, §126, §127, §128, §130
 
 > See `AGENTS.md` for the full rule index. Related: `05-domain-modeling.md` (§22 PRD vocabulary, §36 closed domain values), `13-ralph-and-afk.md` (how Ralph consumes scenarios as gate), `08-testability.md` (§29 testing through public boundaries).
 
@@ -934,3 +934,48 @@ Enforcement: (a) is mechanical (`train-merge` + the label); (b) is a
 `/to-scenarios` + `/security-hardening` + §114-reviewer convention (a
 stack-agnostic gate can't enumerate every consumer's money guards). Both are
 required — (a) closes the race, (b) removes the dependence on catching it.
+
+## §130. Ralph's "green" is the full @release CI definition of done — a tag-subset gate and a silently-skipped @release scenario both ship false-green
+
+Two ways Ralph declared a slice done while the suite CI actually runs was red
+(FOLLOW-UP 107 + 108, the 28→39 campaign). Both share one root cause: **the gate
+Ralph trusts to mean "done" is narrower than the gate that decides
+mergeability.** `outcome:green` MUST mean "the @release suite CI will run is
+green," never "a subset passed."
+
+### (a) The final pre-PR gate runs the full @release suite, not the slice tag-subset (FU-107)
+
+`/run-acceptance` scopes per iteration to `@smoke` (Step 2) + the issue's own
+`scenarios:` scns (Step 3) — fast, but **blind to a regression in another
+feature**. A change correct for the slice's scns that breaks an
+exact-cardinality / registry / shared assertion in a DIFFERENT feature passes
+the scoped gate; Ralph opens a PR / logs `outcome:green`; the full `@release` CI
+then fails (live: scn-531 notification cardinality, scn-131 stub-activation FK,
+settlement take-rate). The fix: per-iteration runs may stay scoped, but the
+**iteration that goes green runs the full `@release` suite — the exact CI
+definition of done — before declaring green or opening the PR**
+(`$BDD_RUNNER --tags "@release and not @manual"`). `/run-acceptance` Step 3b owns
+this. If full-suite cost per iteration is prohibitive, scope the iterations but
+never the final gate. At minimum the exact-cardinality / registry invariants
+(the recurring cross-feature class) run on every green.
+
+### (b) A referenced @release scn skipped under IMPLEMENTED_ONLY is a gate failure, not a silent skip (FU-108)
+
+`test:acceptance` / `test:smoke` set `CUCUMBER_IMPLEMENTED_ONLY=1`, which skips
+whole `# status: approved` feature files. The documented practice writes scns
+`approved` first and flips to `implemented` only at close-out — so a `@release`
+scn an issue **claims to deliver** (its `scenarios:` token) that still lives in
+an approved feature is **SKIPPED by CI and CI goes green having never run it**
+(live: slice-40b D-11 scn-566). A referenced-but-not-executed scenario is a gate
+failure. `check-skipped-release-scn.mjs` is the backstop: given the issue's
+`scenarios:` tokens and `features/`, it fails naming any claimed `@release` scn
+whose feature would be skipped under `IMPLEMENTED_ONLY` (header not
+`# status: implemented`) — so the skip is observable in `/tdd`, not discovered by
+the §114 reviewer or by a production deploy. Pairs with the close-out
+approved→implemented flip discipline (§58), but the gate is the durable fix:
+it does not rely on the human remembering the flip.
+
+Enforcement: (a) is a `/run-acceptance` Step 3b contract (a stack-agnostic
+script can't run an arbitrary consumer's BDD runner); (b) is mechanical
+(`check-skipped-release-scn.mjs`, run at acceptance). Both make `outcome:green`
+mean what CI means.
