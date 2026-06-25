@@ -975,7 +975,23 @@ the §114 reviewer or by a production deploy. Pairs with the close-out
 approved→implemented flip discipline (§58), but the gate is the durable fix:
 it does not rely on the human remembering the flip.
 
+**A mid-file `# status:` is the silent-skip the status mechanism produces of
+itself (ISSUE #141).** `cucumber.mjs` `statusOf()` reads `# status:` ONLY from
+the header (it stops at the first `Feature`/`@` line), so a `# status:
+implemented` placed per-scenario / mid-file is **silently ignored** — the
+feature keeps its header status, is excluded under `IMPLEMENTED_ONLY`, and its
+`@release` scns never run while the gate stays green (bit belong PRs #350/#357).
+`check-skipped-release-scn.mjs` therefore also **lints for a `# status:` after
+the header block** and fails naming it: status is a header-only field, and the
+misuse must be loud, not silent. The script runs in two modes with a CI-safe
+exit contract (rc 0 clean · 1 a genuine risk · 2 only on a malformed call):
+`<features-dir>` alone = the issue-independent mid-file lint (wireable into a
+plain `pull_request` job); `<features-dir> <issue-file…>` = that plus the
+claimed-scn check above. A bare in-planning `@release` scn (an approved feature
+with no claim and no mid-file status) is correctly NOT flagged — only a
+claimed-done-but-skipped scn or a silently-ignored mid-file status is.
+
 Enforcement: (a) is a `/run-acceptance` Step 3b contract (a stack-agnostic
 script can't run an arbitrary consumer's BDD runner); (b) is mechanical
-(`check-skipped-release-scn.mjs`, run at acceptance). Both make `outcome:green`
-mean what CI means.
+(`check-skipped-release-scn.mjs`, run at acceptance AND as a standalone
+`pull_request` gate). Both make `outcome:green` mean what CI means.

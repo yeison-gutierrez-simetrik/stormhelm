@@ -20,25 +20,42 @@
 //
 // Pure of network/gh: reads the issue text it is handed and the features dir.
 //
-// Usage:
-//   node scripts/check-skipped-release-scn.mjs <features-dir> <issue-or-spec-file...>
+// ISSUE #141: also lints for a mid-file `# status:` (the silent-skip the status
+// mechanism produces of itself — cucumber.mjs ignores a status after the header,
+// so an approved feature with a per-scenario `# status: implemented` is skipped
+// while the gate is green), and has a CI-safe exit contract so it wires into a
+// plain `pull_request` job.
 //
-// Behavior:
-//   - Extracts claimed scns from every <issue-or-spec-file> `scenarios:` token
-//     (both compact forms: scenarios:scn-021,scn-022 and scenarios:scn-021+022).
-//   - No claimed scns  → prints `SKIPPED-SCN GATE: na`  and exits 0.
-//   - For each claimed scn that is @release, finds its .feature file and reads
-//     the file's `# status:` header. A @release scn in a feature whose header is
-//     not `# status: implemented` would be skipped under IMPLEMENTED_ONLY.
-//   - Any such scn → prints `SKIPPED-SCN GATE: FAIL` + the offenders, exits 1.
-//   - All claimed @release scns live in implemented features → `ok`, exits 0.
+// Usage:
+//   node scripts/check-skipped-release-scn.mjs <features-dir> [issue-or-spec-file...]
+//
+// Behavior (rc 0 clean · 1 a genuine false-green risk · 2 only on a malformed call):
+//   - ALWAYS: the mid-file-status lint across every feature — a `# status:` line
+//     AFTER the header block (cucumber's statusOf break point) → FAIL, named.
+//   - <features-dir> ALONE  → CI mode: just the lint (issue-independent backstop).
+//   - <features-dir> <issue-file…> → ALSO the §130b claimed-scn check: extracts
+//     claimed scns from each `scenarios:` token (compact forms scn-A,scn-B /
+//     scn-A+B / scn-A..B) and FAILs naming any claimed @release scn whose feature
+//     is not `# status: implemented` (would be skipped under IMPLEMENTED_ONLY).
+//   - Clean → `SKIPPED-SCN GATE: ok`; issue with no scenarios token + no mid-file
+//     status → `na`. Any problem → `SKIPPED-SCN GATE: FAIL` + offenders, exit 1.
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+// ISSUE #141: a sane exit contract so this wires plainly into a `pull_request`
+// CI job. rc 0 = clean · rc 1 = a genuine false-green risk · rc 2 ONLY on a
+// truly malformed call (no features dir). Two modes:
+//   <features-dir>               → CI mode: the issue-independent mid-file-status
+//                                  lint across every feature (FU-44: the script
+//                                  owns its own scoping for a bare node/pnpm call).
+//   <features-dir> <issue-file…> → Ralph per-slice: the above PLUS the §130b
+//                                  claimed-@release-scn-in-a-non-implemented-feature
+//                                  check (issue-aware).
 const args = process.argv.slice(2);
-if (args.length < 2) {
-  console.error('usage: node scripts/check-skipped-release-scn.mjs <features-dir> <issue-or-spec-file...>');
+if (args.length < 1) {
+  console.error('usage: node scripts/check-skipped-release-scn.mjs <features-dir> [issue-or-spec-file...]');
+  console.error('  <features-dir> alone = CI mode (mid-file-status lint, §130b/ISSUE #141)');
   process.exit(2);
 }
 const [featuresDir, ...issueFiles] = args;
@@ -116,31 +133,70 @@ function indexScenarios(files) {
   return idx;
 }
 
-const claimed = claimedScns(issueFiles);
-if (claimed.size === 0) {
-  console.log('SKIPPED-SCN GATE: na (no scenarios: tokens in the issue/spec)');
-  process.exit(0);
+// ISSUE #141 — mid-file `# status:` lint. `cucumber.mjs` statusOf() reads the
+// status ONLY from the header (it `break`s at the first `Feature`/`@` line), so
+// a `# status: implemented` placed per-scenario / mid-file is SILENTLY IGNORED:
+// the whole approved/draft feature is excluded under IMPLEMENTED_ONLY and its
+// @release scenarios never run — yet the gate reports green. This is the §106
+// false-green produced BY the §58-status mechanism itself (bit belong PRs
+// #350/#357). The status is a header-only contract; a `# status:` after the
+// header break is the misuse that must be loud, not silent.
+function findMidFileStatus(files) {
+  const offenders = [];
+  for (const file of files) {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    let pastHeader = false;
+    lines.forEach((l, i) => {
+      // cucumber's statusOf() break point: the first Feature: or @tag line.
+      if (!pastHeader && /^\s*(Feature|@)/.test(l)) pastHeader = true;
+      else if (pastHeader && /^\s*#\s*status:\s*\w+/i.test(l)) {
+        offenders.push(`MID-FILE STATUS ${file}:${i + 1} \`${l.trim()}\` — a '# status:' AFTER the header block is IGNORED by cucumber.mjs (statusOf breaks at the first Feature/@); the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`);
+      }
+    });
+  }
+  return offenders;
 }
 
-const idx = indexScenarios(featureFiles(featuresDir));
-const offenders = [];
-for (const scn of claimed) {
-  const info = idx.get(scn);
-  if (!info) continue;            // not found / not in features — Step-3 count check owns that
-  if (!info.release) continue;    // only @release scns gate CI's definition of done
-  if (info.status !== 'implemented') {
-    offenders.push(`${scn} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
+const features = featureFiles(featuresDir);
+const problems = [];
+
+// (1) Mid-file-status lint — ALWAYS (issue-independent; the silent-skip cause).
+problems.push(...findMidFileStatus(features));
+
+// (2) §130b claimed-@release-scn check — only when issue files are given
+// (Ralph per-slice acceptance). Distinguishes a legitimately-in-planning
+// @release scn (an approved feature with no claim) from a claimed-done-but-
+// skipped one (the issue claims it via scenarios: yet its feature isn't
+// implemented).
+let claimedCount = 0;
+if (issueFiles.length) {
+  const claimed = claimedScns(issueFiles);
+  claimedCount = claimed.size;
+  if (claimed.size) {
+    const idx = indexScenarios(features);
+    for (const scn of claimed) {
+      const info = idx.get(scn);
+      if (!info) continue;            // not found / not in features — Step-3 count check owns that
+      if (!info.release) continue;    // only @release scns gate CI's definition of done
+      if (info.status !== 'implemented') {
+        problems.push(`${scn} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
+      }
+    }
   }
 }
 
-if (offenders.length) {
+if (problems.length) {
   console.log('SKIPPED-SCN GATE: FAIL');
-  for (const o of offenders) console.log('  ✗ ' + o);
-  console.log('\nFix: flip the feature header to `# status: implemented` at close-out (§58),');
-  console.log('or run it without IMPLEMENTED_ONLY to confirm red→green. A referenced @release');
-  console.log('scn that CI skips is a false-green (§130b).');
+  for (const p of problems) console.log('  ✗ ' + p);
+  console.log('\nFix: keep `# status:` in the feature\'s FIRST comment block, and flip it to');
+  console.log('`# status: implemented` at close-out (§58). A deliverable @release scenario that');
+  console.log('does not actually run can never pass the acceptance gate silently (§130b, ISSUE #141).');
   process.exit(1);
 }
 
-console.log(`SKIPPED-SCN GATE: ok (${claimed.size} claimed scn(s); all @release ones are in implemented features)`);
+if (issueFiles.length && claimedCount === 0) {
+  console.log('SKIPPED-SCN GATE: na (no scenarios: tokens in the issue/spec; no mid-file status)');
+} else {
+  console.log(`SKIPPED-SCN GATE: ok (${features.length} feature(s) scanned; no mid-file status${issueFiles.length ? `; ${claimedCount} claimed scn(s), all @release ones implemented` : ', CI mode'})`);
+}
 process.exit(0);
