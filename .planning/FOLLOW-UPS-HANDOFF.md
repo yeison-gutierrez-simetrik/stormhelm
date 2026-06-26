@@ -2462,3 +2462,43 @@ Surfaced across the campaign while running/killing/resuming Ralph on a macOS hos
 - **§106 honest-double visibility (LOW / decision):** when acceptance deliberately doubles a real boundary with a documented reason, it's correct but easy to misread as false-green. Example: slice-36 scn-630 fakes the Better-Auth `sign-in/email` handshake because the ephemeral test-socket origin is not a trusted origin (a real round-trip would `MISSING_OR_NULL_ORIGIN`-reject); the test still drives the real token-store + bearer-replay. **Fix idea:** a lightweight "honest-double" tag/registry so reviewers/auditors see which boundaries are doubled + why without re-deriving it each review.
 
 **Acceptance (batch):** killing a ralph run leaves no orphaned `claude`/`caffeinate`/MCP processes (process-group kill); the launch/liveness scripts run correctly on macOS (no `setsid`, no `\|`-pgrep); a productive `/tdd` on a heavy slice is not killed at an over-tight default; honest-doubles are discoverable by a tag/grep.
+
+## FOLLOW-UP 114 — `git-guardrails` hook substring-matches blocked git verbs inside command DATA (heredoc / echo / printf args), false-positive-blocking benign Bash · **Severity: MEDIUM (any Bash whose TEXT merely contains a guarded verb — a log line, a commit message, a doc write that mentions `git reset --hard` — is blocked even though no git op runs; the operator must reword to proceed)**
+
+**Problem.** `hooks/git-guardrails.js` (vendored; belong copy `.claude/hooks/git-guardrails.cjs`) decides whether to block a Bash `PreToolUse` by SUBSTRING-matching the guarded verbs (e.g. `git branch -D`, `git reset --hard`, `git push --force`) against the *full command string*. It does not parse the command, so the match fires when the verb appears as DATA rather than as an invocation: a `printf '…' >> log`, an `echo`, or a heredoc body whose text merely mentions the verb is blocked even though no git subprocess runs. The block is keyed on `cmdString.includes('<verb>')`, not on "is there a git invocation whose argv is `[branch, -D, …]`".
+
+**Live evidence:** belong campaign 28→39 (this session). A `printf '…' >> .planning/slice-36-bitacora.log` whose bitácora line contained the words "since force-delete is guardrail-blocked" — earlier worded literally as the `branch -D` verb — was blocked by the hook (`Matched rule: git branch -D`). The operator had to reword the log line to "force-delete" to write a plain log append. The same class blocks any commit message / doc / echo that quotes a guarded verb.
+
+**Verify:**
+```bash
+# against the vendored hook; expect the false-positive on (b)
+echo '{"tool_input":{"command":"printf \"git branch -D\" >> /tmp/x"}}' | node .claude/hooks/git-guardrails.cjs ; echo "exit=$?"   # currently BLOCKS (wrong)
+echo '{"tool_input":{"command":"git branch -D feature"}}'              | node .claude/hooks/git-guardrails.cjs ; echo "exit=$?"   # correctly BLOCKS
+```
+
+**Fix.** Parse the command; do not substring-match. Anchor each guarded pattern to a real `git` invocation at a command boundary (start-of-command, or after `&&` / `;` / `|` / `\n`), and evaluate only the argv that belongs to that git invocation. Exclude quoted/heredoc string LITERALS from matching (a verb inside `'…'` / `"…"` / a heredoc body is data, never an invocation). The structured-contract replacement for `cmdString.includes('git branch -D')` is a minimal segment/argv check: split the command into invocations, and for each whose program is `git`, test its argv against the blocked-verb table. Apply the same fix to EVERY guarded pattern (`reset --hard`, `branch -D`, `push --force`/`--force-with-lease`, `clean -f`, etc.). Anti-drift: the hook ships in `hooks/` and installs to `.claude/hooks/` — both copies carry the parser.
+
+**Acceptance.** A fixture test (`scripts/__tests__/git-guardrails.test.mjs`, node:test, zero deps) pins: (a) `git branch -D foo` → BLOCKED; (b) `printf "git branch -D" >> file`, `echo "git reset --hard"`, and a heredoc body containing the verb → ALLOWED; (c) `true && git reset --hard` → BLOCKED (real invocation after `&&`); (d) `git commit -m "mentions git reset --hard"` → ALLOWED (verb is a quoted message arg). A consumer can write a bitácora line or commit message that mentions a guarded verb without the hook false-blocking the write.
+
+## FOLLOW-UP 115 — no liveness/wedge detection for a stuck engine call: a hung `/run-acceptance` (or `/tdd`) runs out the full `RALPH_CALL_TIMEOUT` and needs manual kill + `--resume` · **Severity: MEDIUM (autonomy gap — a genuinely WEDGED engine (alive PID, ~0 CPU, no test subprocess, no writes) burns up to the full 45 min before ralph-local scores it, and a human/supervisor must hand-detect & recover it; the productive-timeout path FU-111 handles a BUSY-but-slow engine, not a wedged one)**
+
+**Problem.** ralph-local's only liveness guard on an engine call is the `timeout -k 10 $RALPH_CALL_TIMEOUT` wall-clock cap (default 2700s). It cannot distinguish a working engine from a WEDGED one — a `claude -p` process that is alive but doing nothing: flat cumulative CPU, no `cucumber` / `vitest` / tool descendant, no new commits or worktree writes. Such a wedge runs out the FULL timeout before it is scored, wasting up to 45 min of wall-clock per occurrence; and because the FU-111 productive-timeout heuristic keys on "did the worktree advance," a wedged *verification* call (which never commits) can be mis-scored.
+
+**Live evidence:** belong campaign 39b, session `ralph-20260625-091905-w1`. A `/run-acceptance` engine call wedged: `claude -p /run-acceptance for the scn-* of issue #386` PID alive ~25 min, **cumulative CPU ~3 s**, 0 % instantaneous, **no** `cucumber`/`test:acceptance` descendant process, **0** worktree writes — genuinely stuck (not slow). The supervisor distinguished wedge-from-healthy only by manual forensics: a CPU-delta sample over 4 s (`ps -o time=` twice) plus a check for a `cucumber`/node descendant; then `TaskStop` + SIGKILL + relaunch `--resume`. With no structured signal, an unattended Night Shift would have stalled to the full timeout.
+
+**Verify:**
+```bash
+# a mock engine that hangs with no output/subprocess should be detected << RALPH_CALL_TIMEOUT, not run to it
+# (today: ralph-local only kills at the timeout; there is no earlier liveness check)
+grep -nE 'RALPH_CALL_TIMEOUT|timeout -k|heartbeat|liveness' ralph-lib.sh ralph-local.sh | head
+```
+
+**Fix (options for maintainer ruling).**
+(a) **Host-side sampler:** ralph-local samples the engine on an interval — if for K consecutive minutes it has (i) ~0 CPU accumulation AND (ii) no test/tool descendant AND (iii) no new commit/worktree write, declare it wedged and kill + re-resume early. Cheap, no engine change; but a legitimately slow API turn also shows ~0 host CPU, so it risks a false-positive kill.
+(b) **Engine heartbeat (recommended):** the engine emits a periodic NDJSON `engine.progress` beat (tokens / tool-calls since last beat) and ralph-local kills on a stale heartbeat. Measures engine-INTERNAL progress, not host CPU, so it cannot false-kill a slow-but-working turn — the structured-contract replacement for host-side CPU sampling (the fragile-prose version).
+(c) **Stopgap:** at minimum emit the wedge forensics (CPU-delta + descendant-process + write-since) into the session NDJSON so a watcher/supervisor can detect a wedge structurally instead of hand-sampling `ps`.
+Recommend (b) + (c) now; (a) only as a coarse backstop.
+
+**Acceptance.** A fixture with a mock engine bin that hangs (sleeps, no output, no subprocess) is detected and recovered in `<< RALPH_CALL_TIMEOUT`; the session NDJSON carries a structured wedge/heartbeat signal a watcher can key on; a slow-but-working engine (emits heartbeats / has a live test subprocess) is NOT killed early (no false-positive). A Night Shift survives a hung engine call without human intervention.
+
+*(Both surfaced driving belong-marketplace campaign 28→39 tail — slices 36–39. Unrelated singles, filed individually per the retrospective convention.)*
