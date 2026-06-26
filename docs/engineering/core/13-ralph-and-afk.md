@@ -570,16 +570,21 @@ Stormhelm ships its own `hooks/git-guardrails.cjs` (zero-dependency Node script)
 - `git stash`, `git stash pop`
 - `git rebase` interactive on local-only branches (not yet pushed)
 
-### Matching scope (FOLLOW-UP 68)
+### Matching scope (FOLLOW-UP 68, FOLLOW-UP 114)
 
 The guard matches §68 patterns against the command at **command position**,
-with **heredoc payloads stripped first**. Prose that merely NAMES a blocked
-operation — quoted inside a `<<EOF … EOF` body — is **not** blocked: the
-framework prescribes exactly such writing (filing FOLLOW-UPs, postmortems
-§95, runbooks, ADRs quoting this very list), and `cat >> doc << EOF … EOF`
-appends data, not git commands. A real destructive command is still caught
-everywhere it can execute — on its own line, after `&&`/`||`/`|`/`;`, or
-**before** a heredoc opener (`git reset --hard && cat <<EOF…`).
+with **heredoc payloads and quoted-string literals stripped first**. Prose
+that merely NAMES a blocked operation — quoted inside a `<<EOF … EOF` body
+(FU-68) **or** inside a single-line quoted literal such as `printf 'git reset
+--hard'`, `echo "… git push --force …"`, or a `git commit -m "…"` message that
+warns against the op (FU-114) — is **not** blocked: the framework prescribes
+exactly such writing (filing FOLLOW-UPs, postmortems §95, runbooks, ADRs
+quoting this very list, commit messages describing a removed step), and that
+text is data, not git commands. A real destructive command is still caught
+everywhere it can execute — on its own line, after `&&`/`||`/`|`/`;`,
+**before** a heredoc opener (`git reset --hard && cat <<EOF…`), or with only
+its operands quoted (`git push --force "origin" "main"` — the unquoted
+`--force` still matches).
 
 **Residual gap, stated honestly:** a heredoc body piped straight into an
 interpreter (`bash <<EOF … git push --force … EOF`) is NOT inspected by this
@@ -587,7 +592,9 @@ hook — the body is data to *this* command. That inner execution is the
 harness's to guard (the interpreter's own Bash invocation re-enters the hook
 only if it runs through the tool layer). Smuggling a destructive op this way
 is a deliberate, conspicuous construction — not the accidental false positive
-this scoping fixes.
+this scoping fixes. The quoted-literal strip (FU-114) carries the same kind of
+narrow residual: a guarded verb wrapped in *bare escaped* quotes
+(`echo \"git reset --hard\"`) is rare and likewise left to the harness.
 
 ### Why
 
