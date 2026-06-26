@@ -303,7 +303,7 @@ Regardless of pass/fail in Steps 2-7, invoke the `reviewer` agent:
 
 ```
 Task tool, subagent_type: "reviewer"
-Prompt: "Review the diff on branch <branch>. Scenarios: <scn-NNN list>. INVARIANT GATE RESULT (engine-run): <paste the INVARIANT GATE RESULT from your own context — the Ralph engine injects it into the acceptance prompt>. Produce the standard structured report."
+Prompt: "Review the diff on branch <branch>. Scenarios: <scn-NNN list>. RAN/EXPECTED (this slice): ran=<R> expected=<E> (from Step 10's result.json — Step 3's per-scenario tally). §130b SKIPPED-RELEASE-SCN GATE: <paste the `check-skipped-release-scn.mjs` output from Step 3b — pass, or the named skipped scn>. INVARIANT GATE RESULT (engine-run): <paste the INVARIANT GATE RESULT from your own context — the Ralph engine injects it into the acceptance prompt>. Produce the standard structured report."
 ```
 
 **Forward the INVARIANT GATE RESULT verbatim (FOLLOW-UP 52).** The engine runs
@@ -312,6 +312,14 @@ because the reviewer's sandbox cannot run `node` — if you omit it, the
 reviewer must emit a 🛑 "result absent" finding and the pass fails. Outside
 the Ralph loop (manual `/run-acceptance`), run
 `node scripts/check-invariants.mjs` yourself and paste the output.
+
+**Forward the RAN/EXPECTED counts and the §130b skipped-release-scn result too
+(FOLLOW-UP 116).** The reviewer asserts §58/§130b on `ran == expected`, NOT on
+".feature untouched" — an untouched `# status: approved` feature whose claimed
+`@release` scns skipped (`ran < expected` under `CUCUMBER_IMPLEMENTED_ONLY=1`)
+is the **skip-green** false-green, and without these counts the reviewer cannot
+tell run-green from skip-green and may approve a never-executed (money) slice.
+Omitting them forces the reviewer's "run-evidence absent" 🛑.
 
 The reviewer's findings are appended to the acceptance report.
 
