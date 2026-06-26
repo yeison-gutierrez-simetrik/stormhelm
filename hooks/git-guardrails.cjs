@@ -30,10 +30,18 @@
  *   < 50ms per invocation. Pure regex over a small list, zero I/O beyond
  *   reading stdin once.
  *
+ * Branch-aware force-push (ISSUE #140):
+ *   `git push --force-with-lease origin HEAD:<non-protected-branch>` is ALLOWED
+ *   (the legitimate post-rebase update of an agent/feature branch). Bare
+ *   `-f`/`--force`, and any force to a protected branch (main/master/develop,
+ *   extend via GIT_GUARDRAILS_PROTECTED_BRANCHES), stay blocked.
+ *
  * Bypass for humans:
- *   GIT_GUARDRAILS_DISABLE=1 git push --force-with-lease ...
- *   The disable flag is **never** set by ralph-local.sh. It is for humans
- *   doing explicit cleanup work in the Day Shift.
+ *   Set GIT_GUARDRAILS_DISABLE=1 on the HOOK command in .claude/settings.json
+ *   (read in the hook's OWN process). An INLINE `GIT_GUARDRAILS_DISABLE=1 <cmd>`
+ *   does NOT work — the harness runs the hook as a SIBLING of the Bash command,
+ *   so the inline prefix reaches only the child git, never the hook (ISSUE #140).
+ *   The disable flag is **never** set by ralph-local.sh.
  *
  * No external dependencies. Node ≥ 18 (uses no Node API beyond stdin / stderr / process).
  */
@@ -50,6 +58,27 @@ const BLOCKED_PATTERNS = [
     name: "git push --force",
     regex: /\bgit\s+push\b[^|;&]*\s(--force(-with-lease)?|-f)\b/,
     why: "force-push erases the audit trail of what Ralph did wrong",
+    // ISSUE #140: a post-rebase update to an agent/feature branch is the
+    // legitimate, expected flow (a sibling migration/PR landed → rebase →
+    // push). The documented GIT_GUARDRAILS_DISABLE=1 bypass is mechanically
+    // UNREACHABLE inline (the hook runs as a sibling of the Bash command, so an
+    // inline env prefix only reaches the git child). Branch-aware policy instead
+    // of a prose bypass: allow the SAFE form (--force-with-lease) to a
+    // NON-protected branch; keep blocking bare -f/--force everywhere and ANY
+    // force to a protected branch (main/master/develop + configurable).
+    allow: (command) => {
+      if (!/--force-with-lease\b/.test(command)) return false; // bare -f/--force is never auto-allowed
+      const dst = pushTargetBranch(command);
+      if (!dst) return false; // undeterminable target → keep blocking (specify `origin HEAD:branch`)
+      return !protectedBranches().has(dst);
+    },
+    hint: [
+      "A `--force-with-lease` to a NON-protected branch (your agent/feature",
+      "branch) is allowed automatically — specify the target explicitly, e.g.",
+      "  git push --force-with-lease origin HEAD:agent/issue-x",
+      "Bare `-f`/`--force`, or ANY force to a protected branch",
+      "(main/master/develop), stays blocked.",
+    ].join("\n"),
   },
   {
     name: "git reset --hard",
@@ -86,6 +115,35 @@ const BLOCKED_PATTERNS = [
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
+
+// ISSUE #140: protected branches that may NEVER be force-pushed (the §68
+// audit-trail invariant). main/master/develop by default; extend with a
+// comma-separated GIT_GUARDRAILS_PROTECTED_BRANCHES.
+const DEFAULT_PROTECTED = ["main", "master", "develop"];
+function protectedBranches() {
+  const extra = (process.env.GIT_GUARDRAILS_PROTECTED_BRANCHES || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return new Set([...DEFAULT_PROTECTED, ...extra]);
+}
+
+// Extract the destination branch from a `git push …` command, or null if it
+// cannot be determined (in which case the force-push allow stays conservative
+// and blocks). Handles `git push [flags] <remote> <src:dst|ref>`: a refspec
+// requires BOTH a remote and a ref (two bare tokens) — a single bare token
+// after `git push` is the REMOTE, not a branch, so the target is unknown.
+function pushTargetBranch(command) {
+  const m = command.match(/\bgit\s+push\b(.*)$/);
+  if (!m) return null;
+  const tail = m[1].split(/[|;&]/)[0]; // don't read past the push into a chained command
+  const nonFlags = tail.trim().split(/\s+/).filter((t) => t && !t.startsWith("-"));
+  if (nonFlags.length < 2) return null; // need <remote> <refspec>
+  const refspec = nonFlags[1];
+  let dst = refspec.includes(":") ? refspec.split(":").pop() : refspec;
+  dst = dst.replace(/^refs\/heads\//, "");
+  return dst || null;
+}
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -172,6 +230,10 @@ function findMatch(command) {
   const scannable = stripHeredocs(command);
   for (const entry of BLOCKED_PATTERNS) {
     if (entry.regex.test(scannable)) {
+      // ISSUE #140: a rule may carve out a legitimate, structurally-safe form
+      // (e.g. --force-with-lease to a non-protected branch). The allow predicate
+      // is the structured policy that replaces the unreachable env bypass.
+      if (typeof entry.allow === "function" && entry.allow(scannable)) continue;
       return entry;
     }
   }
@@ -190,10 +252,15 @@ function denialMessage(command, match) {
     `  Reason: ${match.why}`,
     `  Command: ${wrappedCommand}`,
     "",
-    "Ralph is never allowed to execute this. If you are a human running",
-    "explicit cleanup, bypass the hook for one invocation with:",
-    "",
-    "  GIT_GUARDRAILS_DISABLE=1 <your command>",
+    // ISSUE #140: a rule-specific hint takes precedence — for force-push it
+    // names the structured (branch-aware) way through, which is reachable from
+    // an agent's Bash context, unlike the env bypass below.
+    ...(match.hint ? [match.hint, ""] : []),
+    "To bypass the hook for one HUMAN invocation, set GIT_GUARDRAILS_DISABLE=1",
+    "on the HOOK command in .claude/settings.json (it is read in the hook's own",
+    "process). An INLINE `GIT_GUARDRAILS_DISABLE=1 <cmd>` does NOT work: the hook",
+    "runs as a sibling of your Bash command, so the inline prefix reaches only",
+    "the child, never the hook (ISSUE #140).",
     "",
     "See docs/engineering/core/13-ralph-and-afk.md §68 for the full list",
     "of blocked operations and rationale.",

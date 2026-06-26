@@ -556,7 +556,7 @@ Stormhelm ships its own `hooks/git-guardrails.cjs` (zero-dependency Node script)
 
 ### Blocked operations
 
-- `git push --force`, `git push -f`, `git push --force-with-lease`
+- `git push --force` / `git push -f` to **any** branch; `git push --force-with-lease` to a **protected** branch
 - `git reset --hard <ref>`
 - `git clean -fdx`, `git clean -fd`
 - `git branch -D <name>`
@@ -566,9 +566,26 @@ Stormhelm ships its own `hooks/git-guardrails.cjs` (zero-dependency Node script)
 ### Allowed operations
 
 - `git add`, `git commit`, `git push` (without force), `git pull`
+- **`git push --force-with-lease` to a NON-protected branch (ISSUE #140)** — the legitimate post-rebase update of an `agent/*`/feature branch when a sibling migration/PR lands. The target must be explicit (`origin HEAD:agent/issue-x`); bare `-f`/`--force` and any force to a protected branch stay blocked.
 - `git checkout -b <new-branch>` (only forward, not destructive)
 - `git stash`, `git stash pop`
 - `git rebase` interactive on local-only branches (not yet pushed)
+
+### Branch-aware force-push (ISSUE #140)
+
+The original guard blocked **all** force-push and documented a
+`GIT_GUARDRAILS_DISABLE=1 <cmd>` bypass — but that bypass is **mechanically
+unreachable** from an agent's Bash tool call: the harness runs the hook as a
+*sibling* of the command, so an inline env prefix sets the variable only for the
+child `git`, never for the hook process. The result was that any legitimate
+post-rebase push was un-completable by an agent without a destructive edit to
+vendored `.claude/settings.json`. The fix is a **structured branch policy** in
+place of the prose bypass: `--force-with-lease` (the lease-checked safe form) to
+a non-protected branch is allowed; bare `-f`/`--force`, and any force to
+`main`/`master`/`develop` (extend via `GIT_GUARDRAILS_PROTECTED_BRANCHES`), stay
+blocked. The env bypass remains for **human** cleanup but must be set on the
+**hook** command in `settings.json` (read in the hook's own process), never
+inline.
 
 ### Matching scope (FOLLOW-UP 68)
 
