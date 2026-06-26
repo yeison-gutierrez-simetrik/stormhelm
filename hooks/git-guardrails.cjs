@@ -226,8 +226,57 @@ function stripHeredocs(command) {
   return out.join("\n");
 }
 
+// FOLLOW-UP 114: strip QUOTED-LITERAL payloads before pattern-matching, the
+// single-line sibling of the FU-68 heredoc strip. The §68 rules must fire on
+// executable git invocations, not on a guarded verb sitting inside a quoted
+// string literal that is DATA — `printf 'git reset --hard …'`, `echo "… git
+// push --force …"`, `git commit -m "warn against git reset --hard"`, a doc
+// write whose message NAMES the op. A destructive flag in a real command is
+// unquoted (`git push --force`), so removing quoted contents is safe and does
+// NOT weaken detection: a real op with only its operands quoted (`git push
+// --force "origin" "main"`) still matches on the unquoted `--force`. Shell
+// quoting honored: single quotes are fully literal (no inner escapes); double
+// quotes respect `\"`; a backslash escape outside quotes keeps its escaped
+// char (command structure, never masked). Residual gap (documented in §68,
+// like FU-68's `bash <<EOF`): a guarded verb wrapped in bare escaped quotes
+// (`echo \"git reset --hard\"`) is rare and left to the harness.
+function stripQuotedLiterals(command) {
+  let out = "";
+  let i = 0;
+  const n = command.length;
+  while (i < n) {
+    const c = command[i];
+    if (c === "'") {
+      // single-quoted: everything literal until the next single quote
+      i++;
+      while (i < n && command[i] !== "'") i++;
+      i++; // consume the closing quote (unterminated → i runs past end, fine)
+      continue;
+    }
+    if (c === '"') {
+      // double-quoted: until the next UNescaped double quote
+      i++;
+      while (i < n && command[i] !== '"') {
+        if (command[i] === "\\" && i + 1 < n) i++; // skip the escaped char
+        i++;
+      }
+      i++; // consume the closing quote
+      continue;
+    }
+    if (c === "\\" && i + 1 < n) {
+      // backslash escape OUTSIDE quotes: keep the escaped char as literal
+      out += command[i + 1];
+      i += 2;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 function findMatch(command) {
-  const scannable = stripHeredocs(command);
+  const scannable = stripQuotedLiterals(stripHeredocs(command));
   for (const entry of BLOCKED_PATTERNS) {
     if (entry.regex.test(scannable)) {
       // ISSUE #140: a rule may carve out a legitimate, structurally-safe form
