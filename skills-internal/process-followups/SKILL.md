@@ -35,6 +35,9 @@ stable, implementation is no longer the default — evaluation is.
 - The FOLLOW-UPs monitor reports new `## FOLLOW-UP N` sections (N greater than
   `.planning/.fu-watch-state`).
 - A maintainer says "process the follow-ups" / "¿hay follow-ups nuevos?".
+- A maintainer runs a **bare `/process-followups`** (no batch arguments) → enter
+  **continuous self-driving mode** (Step 8): process anything already pending,
+  then arm the watcher and keep itself alive — no `/loop` wrapper needed.
 
 ## When NOT to invoke
 
@@ -172,6 +175,47 @@ All four must be green before any PR. Verify the test rc WITHOUT a pipe.
   Step 0's pull-first and by not opening two docs-handoff PRs that race the
   same file end.)
 
+### Step 8 — Continuous self-driving mode (bare invocation)
+
+When invoked with **no batch arguments**, this skill is self-sufficient: it sets
+up and sustains the watch-loop with no `/loop` wrapper. Run this tail AFTER
+Steps 0–7 (which process any already-pending batch):
+
+1. **Detect a live watcher with `pgrep -f`, NEVER `TaskList`.** `TaskList`
+   returns empty across `ScheduleWakeup` wake boundaries, so trusting it re-arms
+   a fresh Monitor every heartbeat — that is exactly the "110 accumulated
+   monitors" pileup. Guard:
+   ```bash
+   pgrep -f 'stormhelm-fu-issue-watch' >/dev/null && echo LIVE || echo ARM
+   ```
+2. **If ARM: arm exactly ONE persistent Monitor** (label it
+   `stormhelm-fu-issue-watch` so the pgrep guard above matches) watching all
+   three sources, with `persistent: true`:
+   - (a) a new `## FOLLOW-UP N` in `.planning/FOLLOW-UPS-HANDOFF.md` whose N >
+     `.planning/.fu-watch-state`;
+   - (b) a new or reopened issue in `yeison-gutierrez-simetrik/stormhelm`
+     (`gh issue list --state open`) whose number is not in
+     `.planning/.issues-watch-state`;
+   - (c) a new comment/review on any open PR since
+     `.planning/.pr-comments-watch-state`.
+   Its events arrive as `<task-notification>` and wake this skill immediately.
+3. **On a wake (event or fallback):**
+   - new FU batch → run Steps 0–7 on it; bump `.planning/.fu-watch-state`.
+   - new issue → run the SAME rubric (Steps 0–7) treating the issue body as the
+     FU; record the number in `.planning/.issues-watch-state`; comment the
+     verdict on the issue.
+   - new PR comment/review → iterate that PR (Step 7); re-baseline
+     `.planning/.pr-comments-watch-state`.
+4. **Then self-schedule.** As the LAST action of the turn call `ScheduleWakeup`
+   with the Monitor as the primary wake signal and a **fallback heartbeat of
+   1200–1800s** (idle ticks past the 5-min cache window are pure overhead),
+   `prompt: "/process-followups"` verbatim so the next firing re-enters this
+   skill. If woken by a `<task-notification>`, handle it then re-schedule the
+   same fallback — do not re-arm the Monitor (the pgrep guard already skips it).
+5. **Idempotent + single-writer:** never run two watchers; the pgrep guard makes
+   re-invocation safe. To STOP, omit the `ScheduleWakeup` and `TaskStop` the
+   Monitor (find it with `pgrep -f 'stormhelm-fu-issue-watch'`, not `TaskList`).
+
 ## Hard rules (the cross-cutting lessons)
 
 1. **Read each FU COMPLETE before the verdict** (FU-59 round-2).
@@ -182,11 +226,14 @@ All four must be green before any PR. Verify the test rc WITHOUT a pipe.
 6. **Shipped artifacts are English only.**
 7. **Never self-merge; relaxing a core invariant escalates to the maintainer.**
 8. **Deferral needs an explicit activation criterion.**
+9. **One watcher, guarded by `pgrep` not `TaskList`** (the 110-monitor pileup).
 
 ## Integration with the framework
 
 - **Input:** `.planning/FOLLOW-UPS-HANDOFF.md` (the tracked consumer-feedback
-  ledger); state in `.planning/.fu-watch-state`.
+  ledger); watch-state in `.planning/.fu-watch-state`,
+  `.planning/.issues-watch-state`, and `.planning/.pr-comments-watch-state`
+  (Step 8's three sources).
 - **Conventions consumed:** §67 (require human review / never self-merge), §123
   (cumulative-vs-stacked), §36 (closed sets), the INV-N invariants, ADR-0002
   (ceremony classification).
