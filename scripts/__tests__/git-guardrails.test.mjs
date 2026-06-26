@@ -88,3 +88,41 @@ test('FU-114: a quoted-literal mention does not mask a REAL command elsewhere', 
   const cmd = "printf 'note: never git reset --hard'\ngit reset --hard HEAD";
   assert.equal(guard(cmd), 2, 'the executable git after a quoted mention must still block');
 });
+
+// ── ISSUE #140 — branch-aware force-push policy ──────────────────────────
+// The documented GIT_GUARDRAILS_DISABLE=1 inline bypass is mechanically
+// unreachable (the hook is a sibling of the Bash command). The fix is a
+// structured policy: --force-with-lease to a NON-protected branch is allowed;
+// bare force, or any force to a protected branch, stays blocked.
+
+test('#140: --force-with-lease to an agent branch (explicit HEAD:branch) → allowed', () => {
+  assert.equal(guard('git push --force-with-lease origin HEAD:agent/issue-x'), 0, 'post-rebase update to an agent branch is the legitimate flow');
+  assert.equal(guard('git push --force-with-lease origin feature/x'), 0, 'a feature branch is non-protected');
+});
+
+test('#140: --force-with-lease to a PROTECTED branch → still blocked', () => {
+  assert.equal(guard('git push --force-with-lease origin main'), 2, 'main is protected');
+  assert.equal(guard('git push --force-with-lease origin HEAD:master'), 2, 'master is protected');
+  assert.equal(guard('git push --force-with-lease origin develop'), 2, 'develop is protected');
+});
+
+test('#140: BARE -f/--force is never auto-allowed, even to a non-protected branch', () => {
+  assert.equal(guard('git push -f origin agent/issue-x'), 2, 'bare -f must use --force-with-lease');
+  assert.equal(guard('git push --force origin feature/x'), 2, 'bare --force is not the safe form');
+});
+
+test('#140: an undeterminable target (no remote+refspec) stays blocked', () => {
+  assert.equal(guard('git push --force-with-lease'), 2, 'no target → block; specify origin HEAD:branch');
+  assert.equal(guard('git push --force-with-lease origin'), 2, 'remote only, no refspec → block');
+});
+
+test('#140: GIT_GUARDRAILS_PROTECTED_BRANCHES extends the protected set', () => {
+  const payload = JSON.stringify({ tool_input: { command: 'git push --force-with-lease origin release' } });
+  const r = spawnSync('node', [HOOK], { input: payload, encoding: 'utf8', env: { ...process.env, GIT_GUARDRAILS_PROTECTED_BRANCHES: 'release,staging' } });
+  assert.equal(r.status, 2, 'a configured protected branch is blocked');
+});
+
+test('#140: the core block is NOT weakened — force-push to main still blocks both forms', () => {
+  assert.equal(guard('git push --force origin main'), 2);
+  assert.equal(guard('git push -f origin main'), 2);
+});

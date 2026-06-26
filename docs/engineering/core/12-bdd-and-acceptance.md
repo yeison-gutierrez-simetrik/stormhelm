@@ -147,11 +147,30 @@ skill flips it. `scripts/preflight.mjs feature-approved <slug>` reads it, so
 `/run-acceptance`, `/tdd`, `/to-issues`, and Ralph fail fast on a non-approved
 feature instead of deep inside the pipeline.
 
+### Untouched ≠ compliant at close-out (FOLLOW-UP 116)
+
+§58's "no autonomous edits" is a **mid-flight** rule: while implementing, the
+agent must not self-edit the approved contract (a modification *by the agent*
+is the §58 violation). It is **not** a close-out compliance signal. At the
+acceptance / close-out gate the slice's claimed `@release` scenarios must
+**RUN** — which requires the feature at `# status: implemented` (§50). An
+**untouched** feature still at `# status: approved` makes those scns SKIP under
+`CUCUMBER_IMPLEMENTED_ONLY=1`, so "acceptance pass" is **skip-green, not
+run-green** — the 27b/38a false-green (live: belong slice-41b, a money slice).
+
+The `reviewer` agent therefore asserts on **run-evidence** (`ran == expected`
+for the slice's scns), never on ".feature untouched"; `/run-acceptance`
+forwards `ran`/`expected` + the `check-skipped-release-scn.mjs` (§130b) result
+into the reviewer prompt. `ran < expected` is a 🛑 skip-green finding. The
+one-line contract: **an untouched approved `.feature` at close-out is the
+false-green bug, not §58 compliance.**
+
 ### Enforcement
 
 - CI rule: PRs from `agent/*` branches that modify `features/**/*.feature` are blocked unless they also include label `human-approved`.
 - The `git-guardrails` hook blocks `git commit` on `*.feature` files from non-human commits.
 - Pre-flight: skills that consume approved scenarios call `scripts/preflight.mjs feature-approved <slug>` and refuse to run on `draft`/`clarifying` features.
+- Close-out: the `reviewer` asserts `ran == expected` on the slice's claimed `@release` scns (FU-116) and `check-skipped-release-scn.mjs` (§130b) blocks a claimed scn skipped under `IMPLEMENTED_ONLY` — "untouched" is never read as compliance at the close-out gate.
 
 ### Label-driven section taxonomy (ADR-0002 — amendment to §58, no new §N)
 
@@ -975,7 +994,33 @@ the §114 reviewer or by a production deploy. Pairs with the close-out
 approved→implemented flip discipline (§58), but the gate is the durable fix:
 it does not rely on the human remembering the flip.
 
+**A mid-file `# status:` is the silent-skip the status mechanism produces of
+itself (ISSUE #141).** `cucumber.mjs` `statusOf()` reads `# status:` ONLY from
+the header (it stops at the first `Feature`/`@` line), so a `# status:
+implemented` placed per-scenario / mid-file is **silently ignored** — the
+feature keeps its header status, is excluded under `IMPLEMENTED_ONLY`, and its
+`@release` scns never run while the gate stays green (bit belong PRs #350/#357).
+`check-skipped-release-scn.mjs` therefore also **lints for a `# status:` after
+the header block** and fails naming it: status is a header-only field, and the
+misuse must be loud, not silent. The script runs in two modes with a CI-safe
+exit contract (rc 0 clean · 1 a genuine risk · 2 only on a malformed call):
+`<features-dir>` alone = the issue-independent mid-file lint (wireable into a
+plain `pull_request` job); `<features-dir> <issue-file…>` = that plus the
+claimed-scn check above. A bare in-planning `@release` scn (an approved feature
+with no claim and no mid-file status) is correctly NOT flagged — only a
+claimed-done-but-skipped scn or a silently-ignored mid-file status is.
+
+**The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
+`/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's
+result into the reviewer prompt; the reviewer treats `ran < expected` (any
+claimed `@release` scn skipped — typically an untouched `# status: approved`
+feature) as a 🛑 **skip-green** finding. It must NOT read ".feature untouched"
+as §58 compliance at the close-out gate — that conflation nearly shipped a
+false-green money slice (belong slice-41b). The mechanical gate above is the
+durable backstop; the reviewer assertion catches the case the gate's inputs
+miss (e.g. a claimed scn not in the issue's `scenarios:` token).
+
 Enforcement: (a) is a `/run-acceptance` Step 3b contract (a stack-agnostic
 script can't run an arbitrary consumer's BDD runner); (b) is mechanical
-(`check-skipped-release-scn.mjs`, run at acceptance). Both make `outcome:green`
-mean what CI means.
+(`check-skipped-release-scn.mjs`, run at acceptance AND as a standalone
+`pull_request` gate). Both make `outcome:green` mean what CI means.

@@ -105,3 +105,79 @@ test('FU-108: compact scenarios:scn-565+566 form is parsed (566 still caught)', 
     assert.match(r.stdout, /scn-566/);
   });
 });
+
+// ── ISSUE #141 — mid-file `# status:` lint + CI mode + exit contract ───────
+// cucumber.mjs statusOf() reads `# status:` only from the header (breaks at the
+// first Feature/@), so a per-scenario/mid-file status is silently ignored → the
+// feature is skipped under IMPLEMENTED_ONLY and its @release scns never run, yet
+// the gate is green. The lint makes that misuse LOUD; the CI mode wires it into
+// a plain pull_request job (rc 0/1, never 2 on a bare call).
+
+function setupFeature(content) {
+  const dir = mkdtempSync(join(tmpdir(), 'midfile-'));
+  mkdirSync(join(dir, 'features', 'x'), { recursive: true });
+  writeFileSync(join(dir, 'features', 'x', 'x.feature'), content);
+  return dir;
+}
+const runCI = (dir, ...extra) => spawnSync('node', [GATE, join(dir, 'features'), ...extra], { cwd: dir, encoding: 'utf8' });
+
+test('#141: a mid-file `# status:` (after the header) trips the lint → FAIL exit 1', () => {
+  // line-1 header says approved; a per-scenario `# status: implemented` is IGNORED.
+  const dir = setupFeature([
+    '# status: approved',
+    'Feature: X',
+    '',
+    '  # status: implemented',   // mid-file — silently ignored by cucumber
+    '  @release @scn-701',
+    '  Scenario: a deliverable',
+    '    Given a precondition',
+    '    Then an outcome',
+    '',
+  ].join('\n'));
+  try {
+    const r = runCI(dir, join(dir, 'issue.md'));   // issue file absent — irrelevant; the lint always runs
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED-SCN GATE: FAIL/);
+    assert.match(r.stdout, /MID-FILE STATUS/);
+    assert.match(r.stdout, /x\.feature:4/);   // the mid-file line number
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#141: CI mode (features-dir ALONE) — clean feature → ok exit 0, never rc 2', () => {
+  const dir = setupFeature([
+    '# status: approved',
+    'Feature: X',
+    '',
+    '  @release @scn-702',
+    '  Scenario: in-planning is fine',
+    '    Given a precondition',
+    '    Then an outcome',
+    '',
+  ].join('\n'));
+  try {
+    const r = runCI(dir);   // no issue file → CI mode
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED-SCN GATE: ok/);
+    assert.match(r.stdout, /CI mode/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#141: CI mode catches a mid-file status with NO issue file → FAIL exit 1', () => {
+  const dir = setupFeature('# status: draft\nFeature: X\n\n  @scn-1\n  Scenario: s\n    Given g\n  # status: implemented\n');
+  try {
+    const r = runCI(dir);   // bare features-dir
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /MID-FILE STATUS/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NOT rc 2', () => {
+  const noArgs = spawnSync('node', [GATE], { encoding: 'utf8' });
+  assert.equal(noArgs.status, 2, 'no args is the only rc=2 case');
+  const dir = setupFeature('# status: implemented\nFeature: X\n\n  @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    const r = runCI(dir);
+    assert.notEqual(r.status, 2, 'a bare features-dir call must be wireable into CI (rc 0/1, never 2)');
+    assert.equal(r.status, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
