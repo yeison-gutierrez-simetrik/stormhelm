@@ -273,6 +273,36 @@ sanctioned pattern.
 - IDs are assigned by `/to-scenarios` skill, not chosen manually.
 - The ID lives in the tag, never in the scenario title (the title can change for readability).
 
+### Reserving new scn ids on direct-authoring paths (FU-121 / FU-124)
+
+Any path that authors new `@release` scenarios WITHOUT an upstream `/to-scenarios` → `/to-issues`
+run — a Ralph launched from a bare GitHub issue, a `/debug` regression scenario, a hotfix slice —
+must reserve its ids explicitly, because "check the repo max, then allocate" is a
+**check-then-reserve race**: with N branches in flight every branch sees the same max and
+allocates the same range. Live consumer evidence (belong 2026-07-16, issues #611/#624): three
+parallel slices collided on scn-891..895 — one of them had ALREADY dodged a first collision and
+landed on a second, and a third shipped its ids in scenario TITLES with no `@scn` tags, making
+the overlap invisible to `check-invariants.mjs` (which defines scns by tag).
+
+Protocol, executable via the preflight gate:
+
+```bash
+node scripts/preflight.mjs scn-fresh                    # 1. read current max + next free id
+node scripts/preflight.mjs scn-fresh scn-931..scn-936   # 2. verify YOUR ids are unclaimed
+```
+
+- `scn-fresh` counts every way an id can be spoken for: `@scn-NNN` tags, **title-embedded ids
+  without a tag** (the gate-invisible class — flagged with a fix-me), and `scenarios:` claims in
+  `issues/*.md` (compact and range forms).
+- Allocate **above the reported max** — never fill gaps (a gap may be a sibling branch's
+  reservation that hasn't merged yet).
+- Before opening the PR: write (or extend) the `issues/NNN-*.md` mirror with the
+  `scenarios:` label claiming the new ids — that is what `INV-5` reads — and tag every new
+  scenario `@scn-NNN`. A title that embeds an id must match the tag.
+- `scn-fresh` shrinks the race window; it cannot eliminate it (two branches can both pass and
+  still collide at merge). The invariant gate running **in CI** (FU-123) is the final arbiter:
+  the second PR to land goes red, which is the correct place to lose that race.
+
 ---
 
 ## §60. Tags `@release` gate merge; `@smoke` gate pre-push; `@manual` requires human
