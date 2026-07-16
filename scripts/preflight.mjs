@@ -14,6 +14,8 @@
 //   node scripts/preflight.mjs gh-auth
 //   node scripts/preflight.mjs feature-approved <feature-slug>
 //   node scripts/preflight.mjs slice-implemented <slug>
+//   node scripts/preflight.mjs scn-fresh                 # print current max + next free id
+//   node scripts/preflight.mjs scn-fresh scn-042..scn-045  # verify ids are unclaimed (§59)
 //
 // Zero external dependencies. Exit 0 = precondition met, 1 = blocked.
 
@@ -115,7 +117,64 @@ switch (check) {
     ok(`slice '${arg}' has implementation files.`);
     break;
   }
+  case 'scn-fresh': {
+    // §59 scn-id reservation gate (FU-121/FU-124): parallel slices racing the same range is a
+    // check-then-reserve TOCTOU — three belong slices collided live (2026-07-16) even FOLLOWING
+    // the "verify max before reserving" ritual. This gate makes the check executable at
+    // authoring time and counts every place an id can be spoken for:
+    //   1. `@scn-NNN` tags in features/**          — the §59 definition (what check-invariants reads)
+    //   2. `Scenario: scn-NNN …` TITLES            — name-only ids are gate-invisible drift
+    //      (FU-124's hidden-collision class) but a fresh allocation must not land on them
+    //   3. `scenarios:` labels in issues/*.md      — claims, incl. compact/range forms
+    // With no argument: prints the current max + the next free id (the allocation helper).
+    // With ids: exit 1 if ANY is already taken, naming the owner.
+    const taken = new Map(); // numeric id -> first owner (path)
+    const claim = (n, owner) => { if (!taken.has(n)) taken.set(n, owner); };
+    const walk = (root, fn) => {
+      if (!existsSync(root)) return;
+      const stack = [root];
+      while (stack.length) {
+        const d = stack.pop();
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+          const p = join(d, e.name);
+          if (e.isDirectory()) stack.push(p);
+          else fn(p);
+        }
+      }
+    };
+    walk('features', (p) => {
+      if (!p.endsWith('.feature')) return;
+      const t = readFileSync(p, 'utf8');
+      for (const m of t.matchAll(/@scn-(\d+)/g)) claim(Number(m[1]), p);
+      for (const m of t.matchAll(/^\s*Scenario(?: Outline)?:\s*scn-(\d+)\b/gim)) claim(Number(m[1]), `${p} (title-only, no @scn tag — fix per §59)`);
+    });
+    // issues/*.md `scenarios:` labels — same compact forms check-invariants expands:
+    // scn-A..scn-B / scn-A..B ranges, `+` and `,` joined singles.
+    const expandSegs = (expr) => expr.split(/[+,]/).flatMap((seg) => {
+      const r = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/);
+      if (r) { const [a, b] = [Number(r[1]), Number(r[2])]; return Array.from({ length: b - a + 1 }, (_, k) => a + k); }
+      const n = seg.match(/^(?:scn-)?(\d+)$/);
+      return n ? [Number(n[1])] : [];
+    });
+    walk('issues', (p) => {
+      if (!p.endsWith('.md')) return;
+      const t = readFileSync(p, 'utf8');
+      for (const m of t.matchAll(/scenarios:([\w.,+-]+)/g)) for (const n of expandSegs(m[1])) claim(n, p);
+    });
+    const max = taken.size ? Math.max(...taken.keys()) : 0;
+    if (!arg)
+      ok(`no ids requested — ${taken.size} scn id(s) taken, current max is scn-${max}; next free contiguous range starts at scn-${max + 1}.`);
+    const requested = expandSegs(arg);
+    if (!requested.length)
+      fail(`could not parse '${arg}' as scn id(s).`, "use scn-042, scn-042..scn-045, or scn-042+043 (the §59 compact forms).");
+    const clashes = requested.filter((n) => taken.has(n));
+    if (clashes.length)
+      fail(`scn id(s) already taken: ${clashes.map((n) => `scn-${n} (${taken.get(n)})`).join('; ')}.`,
+        `allocate ABOVE the current max: next free contiguous range starts at scn-${max + 1}. Re-run scn-fresh after re-allocating — a sibling branch may have claimed ids since (§59 reservation is racy across branches; the invariant gate in CI is the final arbiter).`);
+    ok(`${requested.length} scn id(s) fresh (${requested.map((n) => `scn-${n}`).join(', ')}); current max is scn-${max}.`);
+    break;
+  }
   default:
-    console.error('Usage: node scripts/preflight.mjs <git-repo|gh-auth|feature-approved|slice-implemented> [slug]');
+    console.error('Usage: node scripts/preflight.mjs <git-repo|gh-auth|feature-approved|slice-implemented|scn-fresh> [slug|scn-ids]');
     process.exit(2);
 }

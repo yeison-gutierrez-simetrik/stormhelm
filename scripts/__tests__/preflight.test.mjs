@@ -115,3 +115,67 @@ test('a same-spec file must not borrow approval from its siblings (regression: f
     assert.match(out, /extra\.feature/);
   });
 });
+
+// --- scn-fresh (§59 reservation gate, FU-121/FU-124) -------------------------
+// The three ways an id can be "taken" (tag, title-only, issues label) plus the
+// no-arg allocation helper. Live motivation: three belong slices raced the same
+// range (2026-07-16) even following the manual check-max ritual.
+
+const scnFeature = (body) => `# status: implemented\n\nFeature: X\n\n${body}`;
+
+test('scn-fresh with no args reports max + next free id', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'x.feature'),
+      scnFeature('  @scn-041 @release\n  Scenario: s\n    Given a\n'));
+    const { status, out } = run(dir, 'scn-fresh');
+    assert.equal(status, 0, out);
+    assert.match(out, /max is scn-41/);
+    assert.match(out, /starts at scn-42/);
+  });
+});
+
+test('scn-fresh fails on an id already TAGGED in a feature, naming the owner', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'x.feature'),
+      scnFeature('  @scn-042 @release\n  Scenario: s\n    Given a\n'));
+    const { status, out } = run(dir, 'scn-fresh', 'scn-042..scn-044');
+    assert.notEqual(status, 0);
+    assert.match(out, /scn-42/);
+    assert.match(out, /x\.feature/);
+  });
+});
+
+test('scn-fresh fails on a TITLE-ONLY id (no @scn tag — the gate-invisible class)', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'x.feature'),
+      scnFeature('  Scenario: scn-050 a name-only id\n    Given a\n'));
+    const { status, out } = run(dir, 'scn-fresh', 'scn-050');
+    assert.notEqual(status, 0);
+    assert.match(out, /title-only/);
+  });
+});
+
+test('scn-fresh fails on an id claimed by an issues/*.md scenarios: RANGE label', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'issues'), { recursive: true });
+    writeFileSync(join(dir, 'issues', '07-x.md'),
+      '# Issue\n\n**Labels:** `ralph-ready` `scenarios:scn-060..scn-063`\n');
+    const { status, out } = run(dir, 'scn-fresh', 'scn-061');
+    assert.notEqual(status, 0);
+    assert.match(out, /07-x\.md/);
+  });
+});
+
+test('scn-fresh passes on genuinely unclaimed ids', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'x.feature'),
+      scnFeature('  @scn-042 @release\n  Scenario: s\n    Given a\n'));
+    const { status, out } = run(dir, 'scn-fresh', 'scn-043+044');
+    assert.equal(status, 0, out);
+    assert.match(out, /2 scn id\(s\) fresh/);
+  });
+});

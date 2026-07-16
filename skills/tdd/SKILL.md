@@ -120,6 +120,21 @@ node scripts/preflight.mjs feature-approved <feature-slug>   # §58: implement o
 
 If any check exits non-zero, stop and report it — do not start the workflow.
 
+**Direct-authoring guard (FU-121).** If this invocation must AUTHOR new `@release` scenarios —
+no upstream `/to-scenarios` → `/to-issues` ran (the Ralph-from-a-bare-issue pattern, a `/debug`
+regression scenario) — then before writing any scenario:
+
+```bash
+node scripts/preflight.mjs scn-fresh                    # read the current max + next free id
+node scripts/preflight.mjs scn-fresh scn-<your-range>   # MUST pass before you write the ids
+```
+
+Allocate above the reported max (never fill gaps — a gap may be a sibling branch's unmerged
+reservation), tag every new scenario `@scn-NNN`, and write/extend the `issues/NNN-*.md` mirror
+with the `scenarios:` label claiming the ids (that is what `INV-5` reads). A collision reported
+by `scn-fresh` is a REFUSAL: re-allocate, never reuse. Full protocol: §59
+(`docs/engineering/core/12-bdd-and-acceptance.md`).
+
 ## Workflow
 
 ### Step 1 — Read the issue + plan + scenarios
