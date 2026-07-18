@@ -184,6 +184,30 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
       `scn id reused across feature files (each scn-NNN is global and defined in exactly ONE feature — /to-issues must reserve disjoint ranges per slice): ${collisions.join('; ')}`);
 }
 
+// CONFIG §59 companion (FU-124): a Scenario TITLE that embeds scn-NNN without the matching
+// @scn-NNN tag on that scenario is gate-invisible drift — the id reads as claimed to a human
+// (and to future range reservations) but defines nothing this checker can see. Live: a belong
+// slice shipped 6 scenarios titled scn-894..899 with ZERO tags; 894/895 silently overlapped a
+// sibling slice's APPROVED tag block and no invariant went red. §59 already rules "the ID lives
+// in the tag, never in the title" — this makes the rule executable. Tags accumulate across the
+// consecutive tag lines directly above the Scenario line (blank lines don't break the block).
+{
+  const mismatches = [];
+  for (const f of featureFiles) {
+    let pendingTags = [];
+    for (const line of read(f).split('\n')) {
+      if (/^\s*@/.test(line)) { pendingTags.push(...[...line.matchAll(/@scn-(\d+)/g)].map((m) => Number(m[1]))); continue; }
+      const title = line.match(/^\s*Scenario(?: Outline)?:\s*scn-(\d+)\b/i);
+      if (title && !pendingTags.includes(Number(title[1])))
+        mismatches.push(`scn-${title[1]} titled but not tagged (${f.split('/').slice(-2).join('/')})`);
+      if (/\S/.test(line)) pendingTags = [];
+    }
+  }
+  if (mismatches.length)
+    add('CONFIG', '§59', 'fail',
+      `Scenario title embeds a scn id with no matching @scn tag (the ID lives in the TAG — a title-only id is invisible to every invariant and to range reservation): ${mismatches.join('; ')}. Tag the scenario @scn-NNN (matching the title) or drop the id from the title.`);
+}
+
 // INV-1: multi-module ⇒ SAD exists
 if (!issues.some((i) => i.multiModule)) add('INV-1', '§107', 'na', 'no multi-module issue');
 else if (sads.length) add('INV-1', '§107', 'pass', `SAD present (${sads.length})`);

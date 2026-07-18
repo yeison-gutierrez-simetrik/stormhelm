@@ -366,3 +366,34 @@ test('FU-105: the clean fixture (disjoint scn ids per feature) has no collision'
   assert.equal(status, 0, out);
   assert.doesNotMatch(out, /reused across feature files/);
 });
+
+// --- CONFIG §59 companion: title-embedded scn id must match the scenario's @scn tag (FU-124) ---
+// Live class: a belong slice shipped 6 scenarios TITLED scn-894..899 with zero tags — invisible
+// to every invariant while silently overlapping a sibling's approved tag block.
+
+test('CONFIG §59 fails on a Scenario titled scn-NNN with no @scn tag (title-only id)', () => {
+  const { status, out } = runMutated((dir) => {
+    writeFileSync(join(dir, 'features', 'identity', 'rogue.feature'),
+      '# status: implemented\n\nFeature: Rogue\n\n  Scenario: scn-777 a name-only id\n    Given a\n    Then b\n');
+  });
+  assert.equal(status, 1, `a title-only scn id must fail the gate:\n${out}`);
+  assert.match(out, /titled but not tagged/);
+  assert.match(out, /scn-777/);
+});
+
+test('CONFIG §59 passes when the title id matches the scenario tag', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'features', 'identity', 'auth.feature');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('Scenario: a user signs in', 'Scenario: scn-001 a user signs in'));
+  });
+  assert.equal(status, 0, `a title id matching the tag is the house style elsewhere — must pass:\n${out}`);
+});
+
+test('CONFIG §59 fails when the title id and the scenario tag DISAGREE', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'features', 'identity', 'auth.feature');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('Scenario: a user signs in', 'Scenario: scn-999 a user signs in'));
+  });
+  assert.equal(status, 1, `a title/tag mismatch is drift, not style:\n${out}`);
+  assert.match(out, /scn-999 titled but not tagged/);
+});
