@@ -95,8 +95,9 @@ Each branch with uncertainty becomes a question.
 > **Autonomous (auto-pilot) mode — opt-in (FOLLOW-UP 80).** A consumer may run
 > the grilling self-answered (the agent picks each interpretation) instead of
 > interactively. This does NOT relax §58 — human approval stays the default;
-> auto-pilot is a documented per-consumer deviation whose only safety is the
-> compensating **decision log** (`docs/decisions/auto-clarify/<slice>-decisions.md`:
+> auto-pilot is the opt-in `/auto-pilot` campaign skill (`skills/auto-pilot/`)
+> whose compensating control is the
+> **decision log** (`docs/decisions/auto-clarify/<slice>-decisions.md`:
 > question · options · chosen + rationale · industry reference · confidence ·
 > reversibility · audit checkbox). See `core/13` Appendix "Autonomous planning".
 

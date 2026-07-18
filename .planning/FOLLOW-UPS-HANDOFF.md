@@ -1827,6 +1827,8 @@ without parentheticals; existing fixtures unchanged.
 
 ## FOLLOW-UP 80 — formalize an "autonomous planning (auto-pilot) mode": agent-answered grilling/clarify with a per-decision audit log (industry references + confidence/reversibility + human audit checkboxes), batch §58 post-hoc approval, and agent-merged docs-only planning PRs  ·  **Severity: decision (maintainer)**
 
+> ✅ **RESOLVED by #161 (promotion, 2026-07-18).** Decision landed as (b) first — core/13 appendix + opt-in notes in grill-me/clarify/to-scenarios — and the consumer-side skill then met the promotion criteria (campaigns 08+09, 12–15, 574a–c/QA; operator-audited, overrides concentrated in policy decisions the blocking rule escalates by design). #161 lifts it upstream as `skills/auto-pilot/` with the campaign-proven refinements baked in (§127 handoff trap, integration-branch PR base, @scn tags from first write, in-band money markers, no redundant self-review PRs). §58 unchanged: interactive rounds stay the default; the opt-in is per-slice. Kept below as the record.
+
 **Problem/opportunity.** The belong pilot ran the full pipeline for two slices with ZERO human
 checkpoints before draft PRs, under consumer-defined deviations: OD-1 (agent merges docs-only
 planning PRs at green CI), OD-2 (scenarios written `# status: approved` with §58 satisfied

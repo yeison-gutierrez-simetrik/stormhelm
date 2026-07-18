@@ -151,7 +151,8 @@ documented sub-pattern.
 
 > **Auto-pilot exception (FOLLOW-UP 80, opt-in).** §58's default is: write
 > scenarios `# status: draft` and flag for HUMAN approval. A consumer running
-> auto-pilot may instead write `# status: approved` and satisfy §58 **post-hoc**
+> auto-pilot (the opt-in `/auto-pilot` campaign skill, `skills/auto-pilot/`) may
+> instead write `# status: approved` and satisfy §58 **post-hoc**
 > via the decision log (`core/13` Appendix "Autonomous planning") — never
 > silently: the self-answered scope decisions must each appear in
 > `docs/decisions/auto-clarify/<slice>-decisions.md` with an industry reference
