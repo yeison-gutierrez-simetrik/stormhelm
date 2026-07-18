@@ -572,7 +572,12 @@ mkdir -p .github/workflows
 cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows/acceptance.yml
 # (tune the steps to the active stack — the template default is TS+pnpm;
 #  external-sandbox specs are gated by secret presence and self-skip
-#  visibly, so the workflow is green out-of-the-box.)
+#  visibly, so the workflow is green out-of-the-box. The template includes
+#  the invariant gate step (FU-123) — check-invariants.mjs is already in
+#  the consumer-runtime scripts this setup vendors, and it reads N/A-green
+#  on an empty tree, so no extra wiring is needed. Do NOT drop that step
+#  when tuning: without it INV-* red states merge silently and accumulate
+#  on the trunk until they block an innocent slice's /run-acceptance.)
 
 # 2. @smoke runs on every push → the pre-push hook (plain invocation —
 #    the test:smoke script owns the tag, see prerequisite 0):
