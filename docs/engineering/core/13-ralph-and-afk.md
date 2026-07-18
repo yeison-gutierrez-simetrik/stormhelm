@@ -872,6 +872,14 @@ self-answers the clarify/grilling rounds and writes scenarios — for slices
 where interactive 20-question rounds are not worth the latency. This is a
 **recognized, opt-in deviation**, not a relaxation of the framework's gates.
 
+**Executable form: the `/auto-pilot` skill (`skills/auto-pilot/SKILL.md`)** —
+promoted upstream 2026-07-18 after the consumer pilot met the FU-80 promotion
+criteria (three audited campaigns: slices 08+09, 12–15, and 574a–c/QA; operator
+post-hoc audit ratified; overrides concentrated in policy decisions, which the
+skill's blocking rule escalates by design). Promotion changed where the skill
+lives, not the posture: the opt-in stays per-slice and explicit, and §58's
+interactive round remains the framework default.
+
 **§58 is NOT relaxed.** Human approval of `.feature` files remains the
 framework **default** (§58, §87 threat-model ratification). Auto-pilot does
 not make agent-approved features a first-class capability; it is a deliberate
