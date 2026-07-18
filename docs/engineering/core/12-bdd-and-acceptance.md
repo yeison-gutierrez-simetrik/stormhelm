@@ -143,7 +143,17 @@ draft → clarifying → approved → implemented → retired
 
 `approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
 timestamp (which can be edited). The status is **never hand-edited**; the owning
-skill flips it. `scripts/preflight.mjs feature-approved <slug>` reads it, so
+skill flips it.
+
+> **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
+> `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file
+> `# status: approved` at authoring, with §58 satisfied **post-hoc** via the
+> per-decision audit log — the OD-2 deviation, never silent: the file header
+> carries a deviation line citing the skill + the log, and on
+> `require-human-review` slices the independent §58 ratification happens at the
+> implementation-PR review at the latest. See `core/13` Appendix "Autonomous
+> planning". A reviewer or gate encountering a born-as-`approved` feature file
+> WITH that deviation header treats it as this exception, not a §58 violation. `scripts/preflight.mjs feature-approved <slug>` reads it, so
 `/run-acceptance`, `/tdd`, `/to-issues`, and Ralph fail fast on a non-approved
 feature instead of deep inside the pipeline.
 

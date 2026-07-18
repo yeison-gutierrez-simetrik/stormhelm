@@ -10,7 +10,7 @@ The name combines two ideas: the **helm** — the wheel that keeps a ship on cou
 
 ## TL;DR — what you get
 
-- **32 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, `/auto-pilot`, …) that drive a disciplined workflow inside Claude Code. *(Plus one framework-self skill, `/verify-framework-consistency`, in `skills-internal/` — used to maintain Stormhelm itself, not shipped to adopting projects.)*
+- **32 invokable skills** (`/grill-me`, `/specify`, `/to-issues`, `/tdd`, `/run-acceptance`, `/gates`, `/debug`, `/optimize`, `/postmortem`, `/sad`, `/check-consistency`, `/auto-pilot`, …) that drive a disciplined workflow inside Claude Code. *(Plus two framework-self skills, `/verify-framework-consistency` and `/process-followups`, in `skills-internal/` — used to maintain Stormhelm itself, not shipped to adopting projects.)*
 - **130 numbered rules** (`§1 – §130`) that govern architecture, testing, security, supply chain, observability, and AFK operations. Skills load only the rules relevant to the task.
 - **A sub-agent** (`reviewer`) that audits diffs in a fresh context and cites rule numbers in its findings.
 - **Five Claude Code hooks** that cache `WebFetch`, monitor context size, route a graceful handoff before compaction, block destructive shell commands via `git-guardrails.cjs` (§68), and warn on closed-set/doc drift via `closed-set-check.cjs` (§36).

@@ -144,8 +144,9 @@ campaign never guesses through a one-way door it is unsure about.
 1. **Pre-flight:** slice doc exists; explicit operator opt-in confirmed; scn range reserved;
    no conflicting in-flight Ralph on the same files.
 2. **Orientation fan-out** (Answering contract §1) — both agents in background; read both reports.
-3. **Pipeline, each skill invoked normally but in auto-answer mode** (each skill's own SKILL.md
-   carries the FU-80 opt-in note): /grill-me → /domain-model → /specify → /clarify →
+3. **Pipeline, each skill invoked normally but in auto-answer mode** (/grill-me, /clarify and
+   /to-scenarios carry the FU-80 opt-in note in their own SKILL.md; core/12 §58 names the OD-2
+   exception): /grill-me → /domain-model → /specify → /clarify →
    /to-scenarios (written `# status: approved`, OD-2 — the deviation line in the file header cites
    this skill + the log) → /to-issues (detect-ceremony, FU-71 label fallback when >50 chars) →
    /plan (embedded in the issue body) → §87 threat model (deviation flagged in the log).
@@ -160,8 +161,10 @@ campaign never guesses through a one-way door it is unsure about.
 4. **Gates:** `node scripts/check-invariants.mjs` ALL GREEN (no leaning on other issues'
    overrides); preflight checks; planning PR → CI green → merge (OD-1: docs-only planning PRs are
    the ONLY thing this skill merges).
-5. **Ralph:** rotate `ralph-ready`, launch the Ralph runner (`ralph-local.sh`, or the consumer's
-   isolated-worktree wrapper) `[--base <chain>]` (FU-46a for chained slices), arm a watcher
+5. **Ralph:** rotate `ralph-ready`, launch the Ralph runner (`ralph-local.sh`, or the
+   isolated-worktree wrapper `templates/ralph-isolated.sh`) `[--base <chain>]` (FU-46a for
+   chained slices; a chain-leaf PR under auto-pilot gets the `require-§114-confirmation` label
+   applied at PR-open — only the §114 reviewer's CLEAN verdict removes it, §128a), arm a watcher
    (iterations, PR landing, session end). Budget per the heavy-slice multiplier (FU-75: new
    context / sensitive / >15 scns → ×150k, 400-500k buckets). On `budget_exceeded` with green
    work or `engine_failure`: just `--resume` (FU-77). **The handoff brief passed to Ralph names
@@ -191,6 +194,8 @@ campaign never guesses through a one-way door it is unsure about.
   is never gitignored.
 - The operator's audit (checkboxes) is the campaign's metric; a rising override rate drops the
   slice class back to interactive rounds.
+- Chain-leaf implementation PRs carry `require-§114-confirmation` until the §114 reviewer posts a
+  CLEAN verdict and removes it (§128a) — the train-merge gate refuses PRs still wearing it.
 
 ## Integration with the framework
 
