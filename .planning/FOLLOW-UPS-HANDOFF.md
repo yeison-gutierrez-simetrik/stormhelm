@@ -2504,3 +2504,143 @@ Recommend (b) + (c) now; (a) only as a coarse backstop.
 **Acceptance.** A fixture with a mock engine bin that hangs (sleeps, no output, no subprocess) is detected and recovered in `<< RALPH_CALL_TIMEOUT`; the session NDJSON carries a structured wedge/heartbeat signal a watcher can key on; a slow-but-working engine (emits heartbeats / has a live test subprocess) is NOT killed early (no false-positive). A Night Shift survives a hung engine call without human intervention.
 
 *(Both surfaced driving belong-marketplace campaign 28→39 tail — slices 36–39. Unrelated singles, filed individually per the retrospective convention.)*
+
+## FOLLOW-UP 125 — `labelLine`'s `^\*\*Labels:\*\*` anchor yields EMPTY for any other label placement, so `require-human-review` / `ralph-ready` / `feature:multi-module` go INVISIBLE and INV-1/INV-2/INV-3 fail OPEN  ·  **Severity: HIGH (a compliance gate that reports `na` — "no require-human-review issue" — for a repo full of them; measured: 15 sensitive mirrors invisible at once in belong)**
+
+**Problem.** `scripts/check-invariants.mjs:64`
+
+```js
+const labelLine = (t) => (t.match(/^\*\*Labels:\*\*(.*)$/m) || [, ''])[1];
+```
+
+Everything the invariants use to decide WHICH RULES APPLY to an issue is derived from that one
+line (`:91-93`):
+
+```js
+labelsPresent: lbl.trim().length > 0,
+ralphReady: /`ralph-ready`/.test(lbl), multiModule: /`feature:multi-module`/.test(lbl),
+sensitive: /`require-human-review`/.test(lbl), scns: [...new Set(scns)],
+```
+
+`scns` is different and that is the whole defect: it reads the WHOLE FILE (`t`), so an issue whose
+label sits anywhere else still OWNS its scenarios — INV-5 is satisfied and green. The flags beside
+it read `lbl` and silently become `false`. The file is simultaneously "known" and "not sensitive".
+
+The anchor is stricter than it looks. All four of these place a real label where it yields `''`:
+
+| shape | why it misses |
+|---|---|
+| `> Labels: …` (blockquote mirror header) | `^` does not match after `> ` |
+| `>   **Labels:** …` (indented inside a quote) | same |
+| `**Labels:** …` **wrapped** onto the next line | the regex is single-line; tokens on line 2 are unreachable |
+| `## Labels` heading with the tokens below | no `**Labels:**` literal at all |
+
+Blast radius, per invariant:
+
+- **INV-2 (§87)** — `sensitive` false ⇒ the issue does not demand a threat model. In a fresh
+  consumer whose first `require-human-review` issue uses a blockquote header, INV-2 prints
+  `na — no require-human-review issue` and **passes with no threat model in the repo at all**. A
+  compliance gate answering "not applicable" about the exact case it exists for.
+- **INV-3 (§63)** — `ralphReady` false ⇒ the issue's scns are never checked for `approved`. Ralph
+  can be pointed at non-approved scenarios and this auditor will not say so.
+- **INV-1 (§107)** — `multiModule` false ⇒ no SAD demanded.
+- `:148` `labelsPresent` — the "no labels at all" warning is repo-wide (`.some(...)`), so ONE
+  canonical file masks every other, which is why this never surfaces as a symptom.
+
+It fails OPEN in every direction: nothing goes red, nothing warns, and the coverage half stays
+green so the file looks fully accounted for.
+
+**Live evidence (belong, measured 2026-08-19 on the commit before the sweep, `8e16b403^`).** Of 17
+issue mirrors whose labels were not on the anchored line:
+
+- **15 carried `require-human-review` INVISIBLY to INV-2** — `1001`, `1056`, `1597-1599`, `1670`,
+  `1691`, `1692`, `2170`, `2460`, `27`, `652`, `745`, `751`, `936`, `937`, `955`.
+- **4 carried `ralph-ready` invisibly to INV-3** — `1056`, `27`, `745`, `751`.
+- **1 carried `feature:multi-module` invisibly to INV-1** — `1056`.
+
+Nine of those fifteen are MONEY slices (milestone funding/refund/termination, aggregate checkout,
+refund-without-application-fee). belong's INV-2 stayed green throughout only because *other*,
+canonically-labelled issues happened to be sensitive — the gate was answering about a different
+file than the one the reader would assume.
+
+The class also recurred four separate times before anyone named it: belong PR #1713 (review finding
+F1), then #1721, #1722, then the #1730 sweep. Every instance was found by a human or an agent
+reading carefully; none by a gate.
+
+**Verify.**
+
+```bash
+git -C <fw> fetch origin
+git -C <fw> show origin/main:scripts/check-invariants.mjs | sed -n '64p;88,95p'
+
+# a mirror whose label is blockquoted: sensitive is lost, scns survive
+mkdir -p /tmp/fu125/issues && cd /tmp/fu125
+printf '# x\n\n> Labels: `require-human-review` `ralph-ready` `scenarios:scn-901..scn-903`\n' \
+  > issues/901-x.md
+node - <<'JS'
+const t = require('fs').readFileSync('issues/901-x.md','utf8');
+const lbl = (t.match(/^\*\*Labels:\*\*(.*)$/m) || [, ''])[1];
+console.log('sensitive :', /`require-human-review`/.test(lbl));   // false  ← INV-2 skipped
+console.log('ralphReady:', /`ralph-ready`/.test(lbl));            // false  ← INV-3 skipped
+console.log('scns seen :', [...t.matchAll(/scenarios:([a-z0-9+,.-]+)/gi)].length); // 1 ← INV-5 green
+JS
+```
+
+**Fix.** Two halves. The ORDER of the recommendation is the finding, and it is empirical rather
+than stylistic — see the measurement below.
+
+1. **PRIMARY — say so when a claim is invisible.** Fail when a file carries a `scenarios:`,
+   `ralph-ready`, `require-human-review` or `feature:multi-module` token that `labelLine` did NOT
+   pick up. This converts an open failure into a closed one, which is the single property the whole
+   class lacks: today every miss is silent in all four directions (no red, no warn, coverage green).
+
+   *Why this one leads.* Any widened reader has an outside, and the outside is exactly where the
+   next unpredicted shape lands — silently again. That is not a hypothetical: writing this
+   follow-up, the first widened regex drafted for item 2 below covered **2 of the 4 shapes measured
+   in a real tree**, and its author believed it covered all four until it was run. A fix whose own
+   author cannot enumerate its blind spot should not be the only fix.
+
+2. **SECONDARY — widen the reader** so the real-world shapes work instead of merely being reported.
+   Tested against the four shapes plus the canonical one:
+
+   ```js
+   const labelLine = (t) => {
+     const m = t.match(/^[ \t>]*(?:\*\*)?Labels:?(?:\*\*)?[ \t]*(.*(?:\n(?![ \t>]*(?:#|$)).*)*)/m);
+     return m ? m[1].replace(/\n/g, ' ') : '';
+   };
+   ```
+
+   Measured coverage: canonical ✅, `> Labels:` ✅, `>   **Labels:**` ✅, wrapped continuation ✅,
+   `## Labels` heading ❌ (a heading with the tokens on a following line is genuinely a different
+   shape — item 1 is what catches it). No false positive on prose that merely mentions
+   `the Labels: convention` (returns `''`). It cannot turn a currently-green repo red: it only ever
+   sees MORE than the anchored form.
+
+   ⚠️ Whichever is taken, state the contract in EVERY artifact that emits or reads the line — the
+   FU-17 anti-drift lesson. `/to-issues` writes it, `ralph-lib.sh`'s `ralph_expand_scns` reads its
+   own copy, and the issue TEMPLATE shows it; if they disagree, this returns in a new shape.
+
+**Consumer-side work already validated, liftable verbatim.** belong shipped exactly item 1, scoped
+to the `scenarios:` token because that is the half its own (downstream-only) INV-9 overlap detector
+needed: `scripts/check-issue-parcel-visibility.mjs` +
+`src/infrastructure/__tests__/check-issue-parcel-visibility.guard.test.ts` (belong PR #1731,
+merged). It exits 1 naming the file, prints the canonical form as the remedy, and carries a declared
+exemption (`parcel-citation: <reason>`, the `skip-invariant:` idiom) for the two shapes that
+legitimately must NOT hold a claim — a breakdown whose sub-issues each own their slice, and a
+re-scope citing ids a sibling owns. Its self-test pins ONE fixture per real-world shape. Widening it
+from `scenarios:` to the three flag labels is most of item 1.
+
+⚠️ NOTE ON SCOPE: INV-9/`parcel` does not exist upstream — it is a belong-local invariant. This
+follow-up is deliberately NOT about it. The upstream defect is that `labelLine` feeds
+`sensitive`/`ralphReady`/`multiModule`, and those drive INV-1/INV-2/INV-3 in the shipped framework.
+
+One bug from writing that guard, worth carrying upstream: the first draft resolved `--scan` paths
+with `join(repoRoot, rel)`, so an ABSOLUTE argument made the guard THROW instead of exiting 1 — and
+a self-test that reads non-zero as "it fired" accepts a crash as proof. Use `path.resolve`, and
+assert the message, not just the exit code.
+
+**Acceptance.** A fixture repo whose only `require-human-review` issue carries a blockquoted label
+makes INV-2 demand a threat model (today it reports `na` and passes). Same fixture: `ralph-ready`
+under INV-3, `feature:multi-module` under INV-1. If item 2 is taken, a file whose label the reader
+cannot see fails loudly naming the file and the canonical form. `node --test scripts/__tests__/*.test.mjs`
+green; a fresh consumer's first blockquoted mirror can no longer be silently exempt from §87.
