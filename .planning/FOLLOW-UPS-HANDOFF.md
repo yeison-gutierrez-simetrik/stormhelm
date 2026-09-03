@@ -2504,3 +2504,186 @@ Recommend (b) + (c) now; (a) only as a coarse backstop.
 **Acceptance.** A fixture with a mock engine bin that hangs (sleeps, no output, no subprocess) is detected and recovered in `<< RALPH_CALL_TIMEOUT`; the session NDJSON carries a structured wedge/heartbeat signal a watcher can key on; a slow-but-working engine (emits heartbeats / has a live test subprocess) is NOT killed early (no false-positive). A Night Shift survives a hung engine call without human intervention.
 
 *(Both surfaced driving belong-marketplace campaign 28→39 tail — slices 36–39. Unrelated singles, filed individually per the retrospective convention.)*
+
+
+## FOLLOW-UP 126 — "Stacked-chain reconciliation" names the `main`-moved rebase but not the ordinary forward-merge conflict, so a per-FILE `git checkout --ours` silently reverted 3 landed Sonar fixes across a chain  ·  **Severity: HIGH (a defect a fix worker already closed came back on a downstream PR, and would have shipped to the release lane by merge if Sonar had not re-flagged it on the child)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/170
+
+**Problem.** `docs/engineering/core/13-ralph-and-afk.md`, section "Stacked-chain reconciliation when `main` moves (FOLLOW-UP 100)", only covers the case where an *unrelated* PR lands on `main` mid-chain (fix: rebase the whole chain as one unit onto `origin/main`). It says nothing about the far more common step in the same workflow: forward-merging one chain member's fix into the next member when both touched the same file. `git checkout --ours <file>` / `--theirs` are per-FILE operations — git has no per-hunk flag — so resolving a conflict this way on a file BOTH lanes touched keeps the whole file from one side and silently discards every non-conflicting hunk the other side had already contributed, not just the conflicting one.
+
+**Live evidence:** belong-marketplace ADR-0053 campaign, lane `e` fixed 3 Sonar findings in `propose-company-document-template.use-case.ts`; lane `f` (PR #1982) forward-merged `e` and resolved the single conflicting hunk with `checkout --ours`, which took `f`'s whole file and dropped `e`'s three fixes with it. Sonar re-reported them on `f`'s own PR:
+
+> `.planning/0053-bitacora.log:101`: "SONAR f | #1982 @8bc7914b 12/12 but 3 new issues (1120 for-of, 1185/1275 optional chain) = MY merge resolution (--ours took the whole file, dropping e's fixes); re-applied e's patch (3 hunks + loop hunk → f's helper) … LESSON: resolve per hunk, never checkout --ours on a file both sides changed"
+
+Recovery required a 3-way patch replay (`git diff <other-base> <other-head> -- <file> > p.patch && git apply --3way p.patch`) plus a manual grep of the merged file for the other lane's known `+` lines before re-committing — exactly the ad hoc recipe a structured contract should replace.
+
+**Verify:**
+```bash
+# against origin/main: confirm the gap in the named section
+git -C <fw> show origin/main:docs/engineering/core/13-ralph-and-afk.md | sed -n '444,455p'
+# the section covers the main-moved rebase only; no mention of checkout --ours/--theirs
+# or per-hunk resolution appears anywhere in the file:
+git -C <fw> show origin/main:docs/engineering/core/13-ralph-and-afk.md | grep -in "checkout --ours\|checkout --theirs\|per.hunk"
+```
+
+**Fix.** Add a subsection immediately after "Stacked-chain reconciliation when `main` moves" — "Forward-merging one chain member into the next" — that states the rule as a structured contract, not a warning: **never `git checkout --ours|--theirs <path>` on a file both the base and the incoming lane modified.** Prescribe the resolution recipe: resolve conflict markers hunk-by-hunk (editor or `git apply --3way` off a diff of the non-base side), then require two verification commands before committing the merge — `git diff --stat <incoming-branch-tip> <merged-branch>` must be empty for files that only the incoming side touched, and `git diff --cached HEAD --stat` must be empty (the staged merge tree must equal the child's own pre-merge tree plus the base's changes, nothing dropped). Name this in BOTH the `core/13` doc and the `auto-pilot` skill's stacked-chain guidance (the anti-drift lesson from FU-17: state the contract in every artifact that touches it) so a consumer following either finds it. Optionally add a `scripts/check-merge-hunk-loss.mjs` fixture-style check: for each file touched by both parents of a merge commit, assert every `+` line from EITHER parent's unique diff against the merge-base survives in the merge result (a cheap heuristic catches exactly this class).
+
+**Acceptance.** A `scripts/__tests__/*.test.mjs` fixture builds a synthetic 3-commit merge (base, lane-A adds a fix, lane-B conflicts on an adjacent line) and pins: (a) `checkout --ours` on the conflicted file is flagged as data-loss by the new check script; (b) the documented per-hunk recipe passes it clean. The two verification commands from the Fix appear verbatim in `core/13`'s new subsection and in the `auto-pilot` skill wherever stacked chains are launched.
+
+## FOLLOW-UP 127 — `scripts/sonar-sweep.mjs` has no fallback when the consumer's environment can reach `api.github.com` but not `sonarcloud.io` / has no `SONARQ_TOKEN`, forcing a hand-rolled `gh api .../check-runs/.../annotations` recipe rediscovered per campaign  ·  **Severity: MEDIUM (5 PRs in one campaign burned a round each on Sonar findings that a token-less read-out would have surfaced immediately after push, before iterating further)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/171
+
+**Problem.** `scripts/sonar-sweep.mjs` is the framework's own "standard read-out" for post-PR Sonar findings (FOLLOW-UP 65) — but it hard-requires `SONARQ_TOKEN` and exits 2 immediately if unset (`if (!token) { … process.exit(2); }`), with no alternative path. GitHub's Checks API (`GET /repos/{owner}/{repo}/check-runs/{id}/annotations`) already carries the same finding detail (file, line range, rule title) for any repo where the SonarCloud GitHub App posts a check run, and needs only `gh`'s own auth — no Sonar credential at all. The script does not offer this path, so a consumer without `SONARQ_TOKEN` wired (or one whose sandbox cannot reach `sonarcloud.io`) has no vendored way to read exact findings and must hand-curl `gh api` each time.
+
+**Live evidence:** belong-marketplace ADR-0053 campaign hit this 5 times in one 24h span, diagnosing each via the ad hoc recipe recorded afterward as a consumer memory note rather than a tool:
+> "`pnpm lint` is blind to most Sonar rules (void-use OFF, dashboard one-rule config, prefer-optional-chain, for-of, toHaveLength, String.raw, S3776 on apps/dashboard). Reproduce from ROOT with `pnpm exec eslint --no-ignore --rule '{...}' <file>`; read rule titles via the check-run annotations `.title`." (belong-marketplace consumer memory, `adr-0053-campaign-lessons.md`)
+
+Five distinct new-issue rounds show the pattern (`.planning/0053-bitacora.log`): line 15 (`S7778 doubles.ts:54`), line 89 (`S3735 void-use, S6582 optional-chain`), line 96 (`await-thenable×2, void-use, optional-chain×2, toHaveLength×4`), line 101 (the FU-126 incident, `for-of`, `optional chain`), line 102 (`DocumentFormatPage.tsx:45 S3776 18>15`), line 154 (`optional chain ×3, String.raw, toHaveLength ×4`) — each required either the eslint-per-rule reproduction or a manual `gh api` read before the fix worker could target the exact line.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:scripts/sonar-sweep.mjs | grep -n "SONARQ_TOKEN\|annotations\|check-run"
+# token is required unconditionally (process.exit(2) with no token); no "annotations" or
+# "check-run" string appears anywhere in the file — confirms no GH-annotations fallback exists
+```
+
+**Fix.** Add a `--via-gh` mode (or auto-fallback when `SONARQ_TOKEN` is unset but `gh` is authenticated) to `scripts/sonar-sweep.mjs`: resolve the PR's head SHA, list its check-runs (`gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq '.check_runs[] | select(.name|test("Sonar";"i")) | .id'`), then page the annotations (`gh api --paginate repos/{owner}/{repo}/check-runs/<id>/annotations`) and print the same `path:line [level] title` shape the token path already prints, clearly labeled as a QG-condition-blind, findings-only view (the annotation payload does not carry the Quality Gate condition/type the authenticated API gives — document that gap in the script's own `--help` output so a consumer doesn't mistake the fallback for a full read-out). Keep the authenticated path as the default/preferred one; the fallback exists for consumers who genuinely lack the token, not as a replacement.
+
+**Acceptance.** `node scripts/sonar-sweep.mjs <pr> --via-gh` with `SONARQ_TOKEN` unset and a `SONAR_API_FIXTURE_DIR`-style GH-annotations fixture prints the same per-finding lines (file:line, rule title) the token path would; the existing `scripts/__tests__/*.test.mjs` for `sonar-sweep` gains a case for the fallback. A fresh consumer without `SONARQ_TOKEN` gets exact Sonar findings on the first try, not a `process.exit(2)`.
+
+## FOLLOW-UP 128 — no framework artifact for supervising a MULTI-PR / stacked-chain campaign (cadence logging + per-PR merge-readiness verdict); every consumer reinvents it ad hoc  ·  **Severity: decision (maintainer) — adoption gap, not a bug: `/auto-pilot` explicitly scopes to one slice → one Ralph → one draft PR and never claims to cover this**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/172
+
+**Problem.** `/auto-pilot` (promoted framework skill, FU-80) drives exactly one slice's planning + one Ralph run to one draft PR. Nothing in the framework addresses the pattern this campaign (and others per the operator's own retrospective note) actually needed: N slices in a stacked chain, driven by a control session that must (a) log its own supervision cadence so the record is legible after the fact, and (b) compute one canonical merge-readiness verdict per open PR (CI battery complete + all-success, no unanswered reviewer comment, no CHANGES_REQUESTED, Sonar new-issues == 0) so "is this PR safe to flip to ready" is never eyeballed. Consumers currently build this twice: a belong-local `.claude/ops/pr-verdict.py` (a from-scratch verdict function, not vendored from anywhere) and an ad hoc "tick" bitácora convention with no schema.
+
+**Live evidence:** the operator's own retrospective note on THIS campaign already flags the gap as something to fix "next campaign," which is itself evidence no durable artifact exists yet:
+> "Log EVERY 40-min tick as its own dated line even when nothing changed, and never fold a tick into a same-minute event line — the cadence must be legible from the bitácora alone." / "Make the supervisor tick itself run `pr-verdict.py` on every open campaign PR and record the verdict per PR in the tick line, so the gate is visibly the monitor's output, not a manual step of the control session." (belong-marketplace consumer memory, `adr-0053-campaign-lessons.md`, "Supervision shape to change next campaign")
+
+Confirmed no vendored equivalent exists:
+```bash
+git -C <fw> ls-files | grep -i "supervisor\|verdict"   # empty
+grep -rn "supervisor\|tick" <fw>/skills/auto-pilot/SKILL.md   # no match
+```
+
+**Fix (two valid designs — present both, no pick).**
+(a) **Extend `/auto-pilot`** with an opt-in "campaign mode" for N related slices: a shared cadence-log convention (one dated line per tick, schema: `tick#N | <PR-verdict summary per open PR> | workers alive | blockers`) plus a vendored `scripts/pr-verdict.mjs` — the structured contract belong's Python script already validates in practice (battery-complete check via a `MIN_BATTERY` floor rather than "some checks passed," last-non-bot-comment-tag check rather than "any comment exists," Sonar new-issues count folded in via FU-127's read-out). Lift the validated logic verbatim per this skill's own convention.
+(b) **New standalone skill** (`campaign-supervisor` or similar) that composes with `/auto-pilot`/`/tdd`/Ralph rather than extending either, since a multi-PR campaign is a distinct unit of work from a single slice's planning.
+Recommend (a): the cadence/verdict need is specific to the exact autonomous-campaign shape `/auto-pilot` already owns: many draft PRs converging on one merge train.
+
+**Acceptance.** A campaign run using the new artifact produces a bitácora whose tick lines are individually dated (no folding into event lines) and whose per-PR verdict line matches what an independent run of the vendored verdict script would print for the same PR at the same instant — a fixture PR JSON fixture (battery incomplete, unanswered comment, Sonar N>0) each maps to the documented HOLD reason string, and a fully green one maps to SAFE-TO-MERGE.
+
+## FOLLOW-UP 129 — `/to-issues` and `/plan` never require `gh issue view N` to match the slice before a worker writes `issues/N-*.md` or cites `#N` in commits, so a slice's parcel can silently cite an unrelated closed issue  ·  **Severity: MEDIUM (the mis-citation propagated into commit messages and the local issue-file mirror before a downstream tick caught it by inspection, not by a gate)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/173
+
+**Problem.** The issue-decomposition contract (`/to-issues` writes `issues/N-*.md` mirroring a GitHub issue's Labels-line per §30/§59) and `/plan`/Ralph's own issue-body reads both trust the issue number a worker or a prior step supplies. Neither skill's documented steps call for a cross-check that `gh issue view N` actually returns the issue the slice believes it is (title/body/labels matching the slice's own identity) before that number is baked into a file name, a branch name, or a commit's `Closes #N` / narrative reference.
+
+**Live evidence:**
+> `.planning/0053-bitacora.log:133`: "tick#27 + FLIP | … slice h DONE locally (03c2ff2c red → aa7ffc1e green → 9dadffa5; 8 scns 3063-3070 green, 1957/1957, gates 0) BUT parcel/commits cite #1973 = an unrelated CLOSED issue → renumber worker (fold into #1971 as scope amendment, msg rewrite on unpushed commits, absorb g@04eeb9ff)"
+
+Recovery required a dedicated "renumber worker" to rewrite unpushed commit messages and the parcel before push — caught because a supervision tick happened to inspect the commits, not because any gate flagged the mismatch structurally.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:skills/to-issues/SKILL.md | grep -in "gh issue view\|verify.*issue"
+git -C <fw> show origin/main:skills/plan/SKILL.md | grep -in "gh issue view\|verify.*issue"
+# neither documents a pre-write existence/identity check against the live issue
+```
+
+**Fix.** `/to-issues`, immediately before writing `issues/N-*.md` (and again in `/plan`/Ralph before a worker's first commit references `#N`), run `gh issue view N --json title,labels,body` and assert the title/labels are consistent with the slice under decomposition (e.g. the slice's own working title appears in the issue title, or the issue's `scenarios:scn-*` label range overlaps the slice's reserved scn block). Mismatch or a `CLOSED` state with no matching label → hard-fail with the mismatched issue's title printed, rather than silently trusting the number. This converts "a human happened to notice" into a structural pre-check, mirroring the pattern already used elsewhere in the framework (e.g. `ralph-isolated`'s §63 pre-flight against the issue body).
+
+**Acceptance.** A fixture (mock `gh` binary returning a closed, unrelated issue's JSON for a given number) makes the pre-check fail loudly before any file is written or any commit is made; a matching issue passes silently. A fresh consumer's slice worker cannot bake a wrong `#N` into a parcel or a commit without an explicit override.
+
+## FOLLOW-UP 130 — §92 ("regression test fails-first") is enforced by convention only for review-remediation commits; a §114 SHOULD-FIX fix landed as a single commit with no gate checking a preceding red state  ·  **Severity: MEDIUM (no test currently distinguishes "the new test would have failed against the pre-fix tree" from "the fix and its test were written together," which is exactly the failure mode §92 exists to prevent)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/174
+
+**Problem.** `docs/engineering/AGENTS.md:189` states "§92 Regression test fails-first; the test is written before the fix" as a rule, and `/tdd`'s red→green cadence is the vendored MECHANISM for the initial implementation — but nothing in the gate chain (`scripts/check-*.mjs`, `run-acceptance`) inspects a PR's commit range to confirm that a POST-REVIEW remediation commit (a §114 SHOULD-FIX/BLOCKING fix, applied after the initial PR is already open) was preceded by its own red state. The discipline holds only as long as the worker chooses to split red and green into two commits; nothing catches it when they don't.
+
+**Live evidence:**
+> `.planning/0053-bitacora.log:152`: "PR h | #1985 opened DRAFT base develop (head 0a3da1ed; 12 scns 3063-3074; §114 SHOULD-FIX closed; addendum commit is one commit, stated in body)"
+
+The PR body itself records the remediation as a single commit — i.e., the worker's own report names the deviation from §92's two-step cadence, but no gate reads that report or the commit range to flag it.
+
+**Verify:**
+```bash
+git -C <fw> ls-files scripts/ | grep -i "red\|green\|tdd-discipline\|fail-first"   # empty — no such check exists
+grep -n "§92" <fw-checkout>/docs/engineering/AGENTS.md   # rule exists in prose only
+```
+
+**Fix.** Add a `scripts/check-fail-first-commits.mjs` gate, run as part of `/run-acceptance` or the pre-ready flip: for each commit in the PR's range tagged as remediation (convention: a commit message prefixed `fix(review):` or referencing a §114 finding id), require that the immediately preceding commit either (a) is a separate commit touching only the new/updated test file(s) with no corresponding production-code change, or (b) the PR body carries an explicit, named exception (e.g. "single-commit remediation: <reason>") — mirroring how `/tdd`'s own §92 discipline is already asserted for the FIRST implementation pass. Absent either, the gate fails with a message naming the offending commit and the missing red-state proof, not a generic lint error.
+
+**Acceptance.** A fixture PR (mock git log: one commit both adding a test and changing production code, tagged `fix(review):`) fails the new gate with a message identifying the commit; a PR with a preceding test-only commit, or an explicit body exception, passes. `/run-acceptance`'s Step 10 result JSON gains a `fail_first_commits` gate entry alongside the existing ones.
+
+## FOLLOW-UP 131 — `ralph_call_claude_with_retry` retries ONLY on HTTP 429; a 5xx (`529 overloaded_error` / `500`) propagates immediately and kills the worker outright, no backoff  ·  **Severity: HIGH (killed 3 separate autonomous workers in under 30 minutes in one campaign, each requiring manual detection + a fresh relaunch)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/175
+
+**Problem.** `templates/ralph-lib.sh`'s `ralph_call_claude_with_retry` classifies engine-call failures into exactly three buckets: a per-call wall-clock timeout (code 126), a 0-token engine no-op (code 125), and HTTP 429 (retried with exponential backoff, 7 attempts). Every other error — including the Anthropic API's own transient `529 overloaded_error` and bare `500` responses — falls through to the final `# Non-429 error — propagate immediately` branch and returns the raw exit code with no retry at all. A transient API overload during a busy multi-worker campaign therefore kills the entire `claude -p` invocation on the first occurrence, ending that worker's session rather than pausing and resuming.
+
+**Live evidence:** belong-marketplace ADR-0053 campaign, three independent kills inside a ~25-minute window (`.planning/0053-bitacora.log`):
+> line 136: "agent-plane check-language fix worker died twice (API 500 on opus-5) → relaunched fresh on sonnet"
+> line 137: "h renumber worker died (API 500 opus-5) AFTER renumber d82af314 + g merge 46b22082, before verification … API 500s ×3 in 10 min on opus-5 — using sonnet for the small tasks"
+> line 147: "h implementer (opus) died ×2 on 529 before committing the addenda (tree clean at 20e738c0, only scn-3070 present) → fresh addenda worker on sonnet"
+
+Each recovery was manual: detect the dead process, inspect what it had already committed, and relaunch fresh on a different model — exactly the kind of host-side workaround this skill's Quality bar says should become a structured contract.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:templates/ralph-lib.sh | grep -n "429\|Non-429 error\|529\|overloaded"
+# only "429|rate.?limit|too.?many.?requests" is matched for retry; 529/500 are not mentioned at all
+```
+
+**Fix.** Extend the stderr classification alongside the existing 429 branch: match `5\d\d|overloaded_error|internal_server_error|Internal Server Error` as a distinct **transient-server-error** class, retried with its own backoff schedule (the same exponential ladder is reasonable, or a shorter one since a 5xx is often already-service-side and clears faster than a rate-limit window) up to its own attempt cap, logged as `ralph.api.server_error_retried` (parallel to the existing `ralph.api.rate_limited` event) so the NDJSON distinguishes the two causes. After the retry budget is exhausted, return a new distinct exit code (not the bucket the 0-token no-op or timeout already own) so callers — including a supervising campaign per FU-128 — can apply the escalation the campaign already proved out by hand: resume the same session first (preserves context), and only after N consecutive exhaustions relaunch fresh on a different model with a self-contained brief, checking first what the dead worker had already committed.
+
+**Acceptance.** A fixture mock `claude` binary that returns a `529` (or `500`) body on its first K calls and succeeds after is retried transparently by `ralph_call_claude_with_retry`, logging `ralph.api.server_error_retried` per attempt; a binary that always returns 5xx exhausts the budget and returns the new distinct exit code rather than the raw non-zero. `docs/engineering/core/13-ralph-and-afk.md`'s AFK-recovery guidance names the resume-first / relaunch-after-N-failures escalation as the documented response to that exit code.
+
+## FOLLOW-UP 132 — `/feature` Step 13 (post-merge close-out) names no convention for a committed live-validation evidence artifact, so every campaign touching a production-critical path invents its own filename/shape  ·  **Severity: LOW / decision (maintainer) — a paper-cut, not a defect: the step's existing action list (traceability, issue metadata, spec status, events registry, incidents, deploy trigger) has no live-evidence action at all**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/176
+
+**Problem.** `skills/feature/SKILL.md`'s Step 13 close-out enumerates 7 mandatory actions (traceability re-run, issue metadata, spec status, events registry, incidents log, deploy trigger note, session-log event) — none of them names committing evidence that the DEPLOYED system actually behaves as the merged code claims. For slices on a sensitive path (money, auth, an external provider integration), consumers repeatedly reinvent this evidence as an ad hoc script + a timestamped result file, which works but has no framework-named home, no required naming convention, and is invisible to any gate.
+
+**Live evidence:** belong-marketplace ADR-0053 close-out committed exactly this kind of artifact without any framework prompt to do so:
+> `.planning/0053-bitacora.log:174`: "CLOSE-OUT | live evidence 4c772a45 pushed to #1986 (e2e live script + load probe + post-deploy-verification-20260903-0053.txt)"
+
+The convention (`e2e/post-deploy-verification-<date>-<slug>.txt`) recurs across multiple belong campaigns per the consumer's own history, always as a locally-invented name, never referenced by `/feature`'s own step list.
+
+**Verify:**
+```bash
+git -C <fw> show origin/main:skills/feature/SKILL.md | sed -n '/Step 13/,/What this step does NOT do/p' | grep -in "live\|deploy.*verif\|evidence"
+# no match — the 7-item action list never mentions live/deployed evidence
+```
+
+**Fix (decision — two shapes, pick one).** (a) Add an 8th Step-13 action, conditional on the slice touching a path the constitution/threat-model flags as sensitive: "commit a live-validation record (`e2e/post-deploy-verification-<date>-<slug>.txt` or the consumer's equivalent) exercising the deployed surface, referenced from the close-out PR body." (b) Leave it a documented-but-optional convention in `core/13` rather than a Step-13 MANDATORY action (since not every feature deploys to a shared environment the framework controls). Recommend (a) scoped to `require-human-review` / sensitive-path slices only, so it doesn't over-apply to every feature.
+
+**Acceptance.** A sensitive-path slice's Step-13 run either produces the named artifact or the close-out PR states why it was skipped (e.g. no shared post-merge environment exists); INV-8-style tooling can grep for the convention's filename pattern in a close-out PR's diff to confirm the action ran, the same way it already confirms the traceability matrix landed.
+
+## FOLLOW-UP 133 — no canonical wording/marker for "the operator's own chat comment counts as the §58/§87 human ratification" — the reviewer's contract requires a first-person acceptance, but its accepted shape is undocumented and hand-crafted per campaign  ·  **Severity: LOW / decision (maintainer)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/177
+
+**Problem.** The §114 reviewer, on a `require-human-review` PR whose threat model reserves a residual-risk decision to the operator, will not merge until the operator has posted what the consumer's own campaign notes call a "FIRST-PERSON acceptance" — but no framework doc defines what marks a comment as that acceptance (a tag like `[operator]`? a specific phrase? an anchored comment id cited elsewhere in the PR/threat-model?). Each campaign currently improvises the marker and then improvises how to "give the paste-ready text" to the operator, rather than following one documented schema the reviewer, the threat-model template, and the operator all recognize the same way.
+
+**Live evidence:**
+> belong-marketplace consumer memory, `adr-0053-campaign-lessons.md`: "Reviewer will not merge a `require-human-review` PR whose threat model reserves the residual table to the operator until the operator posts a FIRST-PERSON acceptance; give them a paste-ready text."
+
+And the pattern that DID work this campaign, cited by its GitHub comment id as an anchor across multiple downstream artifacts (ceiling file, NOTE blocks, threat models):
+> `.planning/0053-bitacora.log:25`: "OPERATOR COMMENT on #1976 (id 5518641580, [operator], first-person): marker 125 + §58 pins + §87 addenda + merge delegation → transcribe into ceiling file / NOTE blocks / threat models when impl-0053 frees"
+
+That the working pattern (an `[operator]`-tagged, first-person PR comment, cited by its numeric comment id) is legible enough to reconstruct after the fact is itself evidence it is close to a de facto standard already — it just isn't written down anywhere the reviewer's own contract or `/security-hardening`'s §87 documentation points to.
+
+**Verify:**
+```bash
+grep -rin "first-person\|\[operator\]" <fw>/skills/security-hardening/SKILL.md <fw>/agents/reviewer* 2>/dev/null
+# no canonical marker/schema documented for what the reviewer accepts as operator ratification
+```
+
+**Fix.** Document, in `/security-hardening` (§87) and the `reviewer` agent's own instructions, the canonical shape a §58/§87 human-ratification comment must have to be recognized: an `[operator]`-tagged (or equivalent role marker) comment, written in the first person, naming the specific residual/decision it accepts, left directly on the PR or the linked issue; the reviewer cites its comment id (not a paraphrase) wherever it treats the ratification as satisfied. Provide the "paste-ready text" as a template the reviewer or the campaign tooling generates FOR the operator to review-and-post, rather than free-text improvised per campaign.
+
+**Acceptance.** A fixture reviewer run against a PR carrying a comment matching the documented shape treats §58/§87 as ratified and cites the comment id in its verdict; a PR with only an untagged or third-person comment does not. The security-hardening skill's own examples include one such comment verbatim so a consumer can pattern-match without re-deriving the shape.
+
+*(All eight items above surfaced during belong-marketplace's ADR-0053 company-document-templates campaign, 2026-09-02/03 — 12 PRs across 4 repos, 9 squashes on develop, a 7-slice stacked chain (a→b→d→c→e→f→g) plus an eval lane and a close-out. Filed together per the retrospective convention; each stands alone.)*
