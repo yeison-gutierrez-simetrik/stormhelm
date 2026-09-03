@@ -2508,6 +2508,8 @@ Recommend (b) + (c) now; (a) only as a coarse backstop.
 
 ## FOLLOW-UP 126 — "Stacked-chain reconciliation" names the `main`-moved rebase but not the ordinary forward-merge conflict, so a per-FILE `git checkout --ours` silently reverted 3 landed Sonar fixes across a chain  ·  **Severity: HIGH (a defect a fix worker already closed came back on a downstream PR, and would have shipped to the release lane by merge if Sonar had not re-flagged it on the child)**
 
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/170
+
 **Problem.** `docs/engineering/core/13-ralph-and-afk.md`, section "Stacked-chain reconciliation when `main` moves (FOLLOW-UP 100)", only covers the case where an *unrelated* PR lands on `main` mid-chain (fix: rebase the whole chain as one unit onto `origin/main`). It says nothing about the far more common step in the same workflow: forward-merging one chain member's fix into the next member when both touched the same file. `git checkout --ours <file>` / `--theirs` are per-FILE operations — git has no per-hunk flag — so resolving a conflict this way on a file BOTH lanes touched keeps the whole file from one side and silently discards every non-conflicting hunk the other side had already contributed, not just the conflicting one.
 
 **Live evidence:** belong-marketplace ADR-0053 campaign, lane `e` fixed 3 Sonar findings in `propose-company-document-template.use-case.ts`; lane `f` (PR #1982) forward-merged `e` and resolved the single conflicting hunk with `checkout --ours`, which took `f`'s whole file and dropped `e`'s three fixes with it. Sonar re-reported them on `f`'s own PR:
@@ -2531,6 +2533,8 @@ git -C <fw> show origin/main:docs/engineering/core/13-ralph-and-afk.md | grep -i
 
 ## FOLLOW-UP 127 — `scripts/sonar-sweep.mjs` has no fallback when the consumer's environment can reach `api.github.com` but not `sonarcloud.io` / has no `SONARQ_TOKEN`, forcing a hand-rolled `gh api .../check-runs/.../annotations` recipe rediscovered per campaign  ·  **Severity: MEDIUM (5 PRs in one campaign burned a round each on Sonar findings that a token-less read-out would have surfaced immediately after push, before iterating further)**
 
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/171
+
 **Problem.** `scripts/sonar-sweep.mjs` is the framework's own "standard read-out" for post-PR Sonar findings (FOLLOW-UP 65) — but it hard-requires `SONARQ_TOKEN` and exits 2 immediately if unset (`if (!token) { … process.exit(2); }`), with no alternative path. GitHub's Checks API (`GET /repos/{owner}/{repo}/check-runs/{id}/annotations`) already carries the same finding detail (file, line range, rule title) for any repo where the SonarCloud GitHub App posts a check run, and needs only `gh`'s own auth — no Sonar credential at all. The script does not offer this path, so a consumer without `SONARQ_TOKEN` wired (or one whose sandbox cannot reach `sonarcloud.io`) has no vendored way to read exact findings and must hand-curl `gh api` each time.
 
 **Live evidence:** belong-marketplace ADR-0053 campaign hit this 5 times in one 24h span, diagnosing each via the ad hoc recipe recorded afterward as a consumer memory note rather than a tool:
@@ -2550,6 +2554,8 @@ git -C <fw> show origin/main:scripts/sonar-sweep.mjs | grep -n "SONARQ_TOKEN\|an
 **Acceptance.** `node scripts/sonar-sweep.mjs <pr> --via-gh` with `SONARQ_TOKEN` unset and a `SONAR_API_FIXTURE_DIR`-style GH-annotations fixture prints the same per-finding lines (file:line, rule title) the token path would; the existing `scripts/__tests__/*.test.mjs` for `sonar-sweep` gains a case for the fallback. A fresh consumer without `SONARQ_TOKEN` gets exact Sonar findings on the first try, not a `process.exit(2)`.
 
 ## FOLLOW-UP 128 — no framework artifact for supervising a MULTI-PR / stacked-chain campaign (cadence logging + per-PR merge-readiness verdict); every consumer reinvents it ad hoc  ·  **Severity: decision (maintainer) — adoption gap, not a bug: `/auto-pilot` explicitly scopes to one slice → one Ralph → one draft PR and never claims to cover this**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/172
 
 **Problem.** `/auto-pilot` (promoted framework skill, FU-80) drives exactly one slice's planning + one Ralph run to one draft PR. Nothing in the framework addresses the pattern this campaign (and others per the operator's own retrospective note) actually needed: N slices in a stacked chain, driven by a control session that must (a) log its own supervision cadence so the record is legible after the fact, and (b) compute one canonical merge-readiness verdict per open PR (CI battery complete + all-success, no unanswered reviewer comment, no CHANGES_REQUESTED, Sonar new-issues == 0) so "is this PR safe to flip to ready" is never eyeballed. Consumers currently build this twice: a belong-local `.claude/ops/pr-verdict.py` (a from-scratch verdict function, not vendored from anywhere) and an ad hoc "tick" bitácora convention with no schema.
 
@@ -2571,6 +2577,8 @@ Recommend (a): the cadence/verdict need is specific to the exact autonomous-camp
 
 ## FOLLOW-UP 129 — `/to-issues` and `/plan` never require `gh issue view N` to match the slice before a worker writes `issues/N-*.md` or cites `#N` in commits, so a slice's parcel can silently cite an unrelated closed issue  ·  **Severity: MEDIUM (the mis-citation propagated into commit messages and the local issue-file mirror before a downstream tick caught it by inspection, not by a gate)**
 
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/173
+
 **Problem.** The issue-decomposition contract (`/to-issues` writes `issues/N-*.md` mirroring a GitHub issue's Labels-line per §30/§59) and `/plan`/Ralph's own issue-body reads both trust the issue number a worker or a prior step supplies. Neither skill's documented steps call for a cross-check that `gh issue view N` actually returns the issue the slice believes it is (title/body/labels matching the slice's own identity) before that number is baked into a file name, a branch name, or a commit's `Closes #N` / narrative reference.
 
 **Live evidence:**
@@ -2591,6 +2599,8 @@ git -C <fw> show origin/main:skills/plan/SKILL.md | grep -in "gh issue view\|ver
 
 ## FOLLOW-UP 130 — §92 ("regression test fails-first") is enforced by convention only for review-remediation commits; a §114 SHOULD-FIX fix landed as a single commit with no gate checking a preceding red state  ·  **Severity: MEDIUM (no test currently distinguishes "the new test would have failed against the pre-fix tree" from "the fix and its test were written together," which is exactly the failure mode §92 exists to prevent)**
 
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/174
+
 **Problem.** `docs/engineering/AGENTS.md:189` states "§92 Regression test fails-first; the test is written before the fix" as a rule, and `/tdd`'s red→green cadence is the vendored MECHANISM for the initial implementation — but nothing in the gate chain (`scripts/check-*.mjs`, `run-acceptance`) inspects a PR's commit range to confirm that a POST-REVIEW remediation commit (a §114 SHOULD-FIX/BLOCKING fix, applied after the initial PR is already open) was preceded by its own red state. The discipline holds only as long as the worker chooses to split red and green into two commits; nothing catches it when they don't.
 
 **Live evidence:**
@@ -2609,6 +2619,8 @@ grep -n "§92" <fw-checkout>/docs/engineering/AGENTS.md   # rule exists in prose
 **Acceptance.** A fixture PR (mock git log: one commit both adding a test and changing production code, tagged `fix(review):`) fails the new gate with a message identifying the commit; a PR with a preceding test-only commit, or an explicit body exception, passes. `/run-acceptance`'s Step 10 result JSON gains a `fail_first_commits` gate entry alongside the existing ones.
 
 ## FOLLOW-UP 131 — `ralph_call_claude_with_retry` retries ONLY on HTTP 429; a 5xx (`529 overloaded_error` / `500`) propagates immediately and kills the worker outright, no backoff  ·  **Severity: HIGH (killed 3 separate autonomous workers in under 30 minutes in one campaign, each requiring manual detection + a fresh relaunch)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/175
 
 **Problem.** `templates/ralph-lib.sh`'s `ralph_call_claude_with_retry` classifies engine-call failures into exactly three buckets: a per-call wall-clock timeout (code 126), a 0-token engine no-op (code 125), and HTTP 429 (retried with exponential backoff, 7 attempts). Every other error — including the Anthropic API's own transient `529 overloaded_error` and bare `500` responses — falls through to the final `# Non-429 error — propagate immediately` branch and returns the raw exit code with no retry at all. A transient API overload during a busy multi-worker campaign therefore kills the entire `claude -p` invocation on the first occurrence, ending that worker's session rather than pausing and resuming.
 
@@ -2631,6 +2643,8 @@ git -C <fw> show origin/main:templates/ralph-lib.sh | grep -n "429\|Non-429 erro
 
 ## FOLLOW-UP 132 — `/feature` Step 13 (post-merge close-out) names no convention for a committed live-validation evidence artifact, so every campaign touching a production-critical path invents its own filename/shape  ·  **Severity: LOW / decision (maintainer) — a paper-cut, not a defect: the step's existing action list (traceability, issue metadata, spec status, events registry, incidents, deploy trigger) has no live-evidence action at all**
 
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/176
+
 **Problem.** `skills/feature/SKILL.md`'s Step 13 close-out enumerates 7 mandatory actions (traceability re-run, issue metadata, spec status, events registry, incidents log, deploy trigger note, session-log event) — none of them names committing evidence that the DEPLOYED system actually behaves as the merged code claims. For slices on a sensitive path (money, auth, an external provider integration), consumers repeatedly reinvent this evidence as an ad hoc script + a timestamped result file, which works but has no framework-named home, no required naming convention, and is invisible to any gate.
 
 **Live evidence:** belong-marketplace ADR-0053 close-out committed exactly this kind of artifact without any framework prompt to do so:
@@ -2649,6 +2663,8 @@ git -C <fw> show origin/main:skills/feature/SKILL.md | sed -n '/Step 13/,/What t
 **Acceptance.** A sensitive-path slice's Step-13 run either produces the named artifact or the close-out PR states why it was skipped (e.g. no shared post-merge environment exists); INV-8-style tooling can grep for the convention's filename pattern in a close-out PR's diff to confirm the action ran, the same way it already confirms the traceability matrix landed.
 
 ## FOLLOW-UP 133 — no canonical wording/marker for "the operator's own chat comment counts as the §58/§87 human ratification" — the reviewer's contract requires a first-person acceptance, but its accepted shape is undocumented and hand-crafted per campaign  ·  **Severity: LOW / decision (maintainer)**
+
+Issue: https://github.com/yeison-gutierrez-simetrik/stormhelm/issues/177
 
 **Problem.** The §114 reviewer, on a `require-human-review` PR whose threat model reserves a residual-risk decision to the operator, will not merge until the operator has posted what the consumer's own campaign notes call a "FIRST-PERSON acceptance" — but no framework doc defines what marks a comment as that acceptance (a tag like `[operator]`? a specific phrase? an anchored comment id cited elsewhere in the PR/threat-model?). Each campaign currently improvises the marker and then improvises how to "give the paste-ready text" to the operator, rather than following one documented schema the reviewer, the threat-model template, and the operator all recognize the same way.
 
