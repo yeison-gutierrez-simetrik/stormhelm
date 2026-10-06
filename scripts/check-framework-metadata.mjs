@@ -203,22 +203,29 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
 // --- English only (the maintainer's rule) --------------------------------------
 // Everything the framework ships or keeps is English — its own text AND what it
 // asks of consumers (English Gherkin, the ADR `Date:` field). A manual sweep missed
-// Spanish twice, so the rule is executable: Spanish markers (accented letters,
-// inverted punctuation, common Spanish words) in any tracked text file fail here,
-// named file:line. A line carrying `lang-ok` (say why) is exempt; proper names are
-// allowed. Not shipped to consumers: this checks the framework repo itself.
+// Spanish twice, so the rule is executable: Spanish markers in any tracked text
+// file fail here, named file:line — an accented letter or inverted punctuation,
+// or TWO different common Spanish words on one line (lower-case, whole words: one
+// alone collides with English — "make hay", "para. 3"). A line carrying `lang-ok`
+// (say why) is exempt; proper names are allowed. Not shipped to consumers: this
+// checks the framework repo itself.
 {
-  const SPANISH = /[áéíóúñ¿¡]|\b(?:que|para|los|las|unas?|unos|por|pero|cuando|como|estos?|estas?|hay|nuevos?|nuevas?|internos?|archivos?|reglas|agentes?|tiene|según|además|también)\b/i; // lang-ok: the detector's own word list
+  const SPANISH_CHARS = /[áéíóúñ¿¡]/; // lang-ok: the detector's own character list
+  const SPANISH_WORDS = /\b(?:que|para|los|las|unas?|unos|por|pero|cuando|como|estos?|estas?|hay|nuevos?|nuevas?|internos?|archivos?|reglas|agentes?|tiene|además|también)\b/g; // lang-ok: the detector's own word list
   const NAMES = /Gutiérrez/g; // lang-ok: proper names
   const BINARY = /\.(png|jpe?g|gif|ico|pdf|zip|gz|woff2?)$/i;
   let tracked = [];
-  try { tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean); } catch { /* not a git checkout */ }
+  // -z: without it git quotes a path with non-ASCII bytes ("an\303\241lisis.md"),
+  // and that file — the likeliest to be Spanish — would never be scanned.
+  try { tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean); } catch { /* not a git checkout */ }
   for (const f of tracked) {
     if (BINARY.test(f) || !existsSync(f) || !statSync(f).isFile()) continue;   // a tracked symlink may point at a directory
     readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
       if (line.includes('lang-ok')) return;
-      const m = line.replace(NAMES, '').match(SPANISH);
-      if (m) block.push(`${f}:${i + 1}  [english-only] Spanish text ("${m[0]}") — the framework is English only; translate it, or mark a deliberate exception with \`lang-ok\` and the reason`);
+      const text = line.replace(NAMES, '');
+      const words = [...new Set(text.match(SPANISH_WORDS) ?? [])];
+      const hit = text.match(SPANISH_CHARS)?.[0] ?? (words.length >= 2 ? words.join(' ') : null);
+      if (hit) block.push(`${f}:${i + 1}  [english-only] Spanish text ("${hit}") — the framework is English only; translate it, or mark a deliberate exception with \`lang-ok\` and the reason`);
     });
   }
 }

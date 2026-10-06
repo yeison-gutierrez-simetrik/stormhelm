@@ -227,6 +227,23 @@ test('INV-4: an empty Date field is not a date', () => {
   assert.match(out, /❌ INV-4/);
 });
 
+// Review round 5: a Nygard-style ADR (`## Status` heading, the value on the next
+// line) or a `## Status: Accepted` heading was no longer read as Accepted, so an
+// undated Accepted ADR passed. Both shapes are read now; a qualified date field
+// (`**Decision date:**`) still counts as the date.
+test('INV-4 reads a Nygard-style `## Status` section and a `## Status:` heading; a qualified date field counts', () => {
+  const withAdr = (text) => runMutated((dir) => writeFileSync(join(dir, 'docs/adr/0001-auth-approach.md'), text));
+  for (const text of ['# ADR 0001\n\n## Status\n\nAccepted\n\n## Context\nx\n', '# ADR 0001\n\n## Status: Accepted\n\n## Context\nx\n']) {
+    const { status, out } = withAdr(text);
+    assert.equal(status, 1, out);
+    assert.match(out, /❌ INV-4 .*0001-auth-approach\.md/, JSON.stringify(text));
+  }
+  for (const text of ['# ADR 0001\n\n## Status\n\nAccepted\n\n## Date\n\n2026-06-02\n', '**Status:** Accepted\n**Decision date:** 2026-06-02\n']) {
+    const { out } = withAdr(text);
+    assert.match(out, /✅ INV-4/, JSON.stringify(text));
+  }
+});
+
 // --- INV-6 (ADR-0002 PR-N): classification stable across the diff ---
 
 const escalateTo3Contexts = (dir) => {
