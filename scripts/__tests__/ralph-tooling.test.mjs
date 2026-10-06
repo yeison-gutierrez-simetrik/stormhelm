@@ -389,10 +389,12 @@ test('watch --queue: a CHILD session.ended is informational, never terminal for 
 // config paths — a wrapper file-list is a silent no-op, hit live).
 const importCucumberCfg = async (dir, env) => {
   copyFileSync(join(TEMPLATES, 'cucumber.mjs.tmpl'), join(dir, 'cucumber.mjs'));
+  // The flag is cleared unless a test sets it: an exported CUCUMBER_IMPLEMENTED_ONLY
+  // in the runner's env must not turn a "local" load into a CI one.
   const r = spawnSync('node', ['-e', `
     import(${JSON.stringify('file://' + join(dir, 'cucumber.mjs'))})
       .then((m) => console.log(JSON.stringify(m.default.paths)));
-  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, CUCUMBER_IMPLEMENTED_ONLY: '', ...env } });
   // A config that throws at load (FU-134 fail-closed) exits non-zero with no paths.
   return { paths: r.status === 0 ? JSON.parse(r.stdout.trim()) : null, stderr: r.stderr, status: r.status };
 };
