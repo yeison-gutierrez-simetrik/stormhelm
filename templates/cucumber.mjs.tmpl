@@ -25,7 +25,8 @@
 //
 // A `# status:` THIS CONFIG CANNOT HONOR FAILS CLOSED (ISSUE #141, FOLLOW-UPs
 // 134-135): one after the header, an extra one in it, a header value that is not
-// a §58 state word, a transition written into the line, or an empty status line.
+// exactly one §58 state word (punctuation, a flip written into the line, a note —
+// notes go on a '# status-note:' line), or an empty status line.
 // The mid-file case first (ISSUE #141, FOLLOW-UP 134): status is read
 // from the header only — the file's leading comment block — so a
 // `# status: implemented` placed per-scenario under an approved header is

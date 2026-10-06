@@ -97,7 +97,7 @@ const issues = issueFiles.map((f) => {
 
 // Each feature parsed ONCE through the runner's reader (FU-135) and shared by the
 // CONFIG §58 check, INV-3, INV-5 and INV-8. A feature whose HEADER status the
-// runner cannot honor (an extra / invalid / transition / empty status line) is
+// runner cannot honor (an extra / invalid / empty status line) is
 // the CONFIG §58 failure below, and only that: INV-3, INV-5 and INV-8 all leave it
 // out, so one broken header is reported once, under its real cause, instead of as
 // "non-approved scns", an orphan, or an uncertified release.
@@ -105,15 +105,28 @@ const parsedFeature = new Map(featureFiles.map((f) => [f, parseFeatureStatus(rea
 const statusOf = (f) => parsedFeature.get(f).status;
 const headerBroken = (f) => parsedFeature.get(f).problems.some((p) => HEADER_STATUS_KINDS.includes(p.kind));
 const brokenScns = new Set();   // scns defined in a header-broken feature (INV-3 defers them)
+// Each feature's scn ids as the RUNNER selects them (FU-135 review round 5): from
+// each scenario's EFFECTIVE tags — Feature / Rule tags inherited, an Examples
+// block's own — never a raw-text match, which counted an `@scn-` in a docstring
+// or a comment and missed a Feature- or Rule-level @release (INV-5 said "no
+// @release scenarios" for a Feature tagged @release). A feature the reader
+// cannot index (not English — CONFIG §58 names it) falls back to its tag lines,
+// so its ids are still known.
+const scnIdsOf = (f, { releaseOnly = false } = {}) => {
+  const { scenarios, problems } = parsedFeature.get(f);
+  const ids = problems.some((p) => p.kind === 'language')
+    ? read(f).split('\n').filter((l) => /^\s*@/.test(l) && (!releaseOnly || /@release\b/.test(l))).flatMap((l) => [...l.matchAll(/@(scn-\d+)/g)].map((m) => m[1]))
+    : scenarios.filter(({ tags }) => !releaseOnly || tags.includes('@release')).flatMap(({ tags }) => tags.map((t) => /^@(scn-\d+)$/.exec(t)?.[1]).filter(Boolean));
+  return [...new Set(ids)];
+};
 
 // scn → approved? (from .feature # status, PR-B/§58)
 const scnApproved = {};
 const definedScns = new Set();
 const scnFiles = new Map();   // FOLLOW-UP 105: scn id → set of feature files defining it
 for (const f of featureFiles) {
-  const t = read(f);
   const status = statusOf(f);
-  for (const m of new Set([...t.matchAll(/@(scn-\d+)/g)].map((x) => x[1]))) {
+  for (const m of scnIdsOf(f)) {
     if (!scnFiles.has(m)) scnFiles.set(m, new Set());
     scnFiles.get(m).add(f.split('/').slice(-2).join('/'));
   }
@@ -123,15 +136,14 @@ for (const f of featureFiles) {
   // features to it. The old strict equality made INV-3 and INV-8 contradict
   // each other: a correct close-out flagged every shipped scenario as
   // "non-approved" (live: all 18 of slice-02). draft/clarifying still reject.
-  for (const m of t.matchAll(/@(scn-\d+)/g)) {
-    definedScns.add(m[1]);
-    if (headerBroken(f)) brokenScns.add(m[1]);
-    else scnApproved[m[1]] = status === 'approved' || status === 'implemented';
+  for (const id of scnIdsOf(f)) {
+    definedScns.add(id);
+    if (headerBroken(f)) brokenScns.add(id);
+    else scnApproved[id] = status === 'approved' || status === 'implemented';
   }
 }
 const releaseScns = new Set();
 for (const f of featureFiles) {
-  const t = read(f);
   // FOLLOW-UP 57: the same status discrimination INV-3 got in FOLLOW-UP 39 —
   // the §58 lifecycle GUARANTEES a window where @release scns exist with no
   // issues (between /to-scenarios writing '# status: draft' and /to-issues
@@ -146,8 +158,8 @@ for (const f of featureFiles) {
   if (headerBroken(f)) continue;
   const status = statusOf(f);
   if (status === 'draft' || status === 'clarifying') continue;
-  // a scn is @release if its tag line contains @release
-  for (const line of t.split('\n')) { const m = line.match(/@(scn-\d+)/); if (m && /@release/.test(line)) releaseScns.add(m[1]); }
+  // a scn is @release if the runner's @release selection picks it (effective tags)
+  for (const id of scnIdsOf(f, { releaseOnly: true })) releaseScns.add(id);
 }
 const issueScns = new Set(issues.flatMap((i) => i.scns));
 
@@ -233,15 +245,22 @@ if (unlistable.length)
 }
 
 // CONFIG §58 (FU-135): every `# status:` line must be one the runner can honor —
-// one header line, starting with a §58 state word, and none after the header.
-// The CI config refuses to load otherwise, so release certification (INV-8,
+// one header line, a §58 state word alone, and none after the header. The CI
+// config refuses to load otherwise, so release certification (INV-8,
 // /traceability-matrix) must not pass on such a tree either. The skipped-release
-// lint prints each explanation.
+// lint prints each explanation. A non-English feature is reported apart: its
+// fix is the language, not a status line.
 {
-  const broken = featureFiles.flatMap((f) => parsedFeature.get(f).problems.map((p) => `${f.split('/').slice(-2).join('/')}:${p.line} (${p.kind})`));
-  if (broken.length)
+  const at = (f, p) => `${f.split('/').slice(-2).join('/')}:${p.line} (${p.kind})`;
+  const found = (keep) => featureFiles.flatMap((f) => parsedFeature.get(f).problems.filter(keep).map((p) => at(f, p)));
+  const statusLines = found((p) => p.kind !== 'language');
+  const nonEnglish = found((p) => p.kind === 'language');
+  if (statusLines.length)
     add('CONFIG', '§58', 'fail',
-      `'# status:' line(s) the runner cannot honor: ${broken.join('; ')}. Run \`node scripts/check-skipped-release-scn.mjs features\` for the explanation of each; keep exactly one '# status:' line in the header, starting with a §58 state word.`);
+      `'# status:' line(s) the runner cannot honor: ${statusLines.join('; ')}. Run \`node scripts/check-skipped-release-scn.mjs features\` for the explanation of each; keep exactly one '# status:' line in the header, a §58 state word alone (a note goes on its own '# status-note:' line — \`node scripts/migrate-status-notes.mjs features\` moves existing ones).`);
+  if (nonEnglish.length)
+    add('CONFIG', '§58', 'fail',
+      `non-English feature file(s): ${nonEnglish.join('; ')}. Feature files are English Gherkin — the readers know English keywords only, so these scenarios are not indexed by the gates; write them in English (\`# language: en\`, or no \`# language:\` line).`);
 }
 
 // INV-1: multi-module ⇒ SAD exists
@@ -341,7 +360,7 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
     add('INV-8', '§58', 'na', 'no implemented features');
   } else {
     const finalText = walk('docs/audit', /^traceability-.*-final\.md$/).map(read).join('\n');
-    const scnsOf = (f) => [...read(f).matchAll(/@(scn-\d+)/g)].map((m) => m[1]);
+    const scnsOf = (f) => scnIdsOf(f);
     const uncovered = implementedFeatures.filter((f) => {
       const scns = scnsOf(f);
       // a feature with no scenario tags can't be pinned to a matrix row → treat as uncovered

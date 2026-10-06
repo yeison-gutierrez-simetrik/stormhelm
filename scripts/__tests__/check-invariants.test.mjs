@@ -178,8 +178,8 @@ test('FU-135: a header-broken feature is CONFIG §58 only — INV-3 and INV-8 le
       `# Traceability v1.0.0 (final)\n${scns.map((s) => `- ${s}: shipped`).join('\n')}\n`);
   });
   assert.equal(arrow.status, 1, arrow.out);
-  assert.match(arrow.out, /❌ CONFIG §58: .*\(transition\)/);
-  assert.match(arrow.out, /INV-8 §58: no implemented features/, 'a transition line is never a certified release');
+  assert.match(arrow.out, /❌ CONFIG §58: .*\(invalid\)/);
+  assert.match(arrow.out, /INV-8 §58: no implemented features/, 'a flip written into the line is never a certified release');
 });
 
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
@@ -511,4 +511,34 @@ test('FU-134: a dangling feature symlink is a named CONFIG failure, not a crash'
   assert.match(out, /❌ CONFIG §58: feature file\(s\) that cannot be read: .*gone\.feature \(ENOENT\)/);
   assert.match(out, /INV-1/, 'the other invariants still ran');
   assert.doesNotMatch(out, /at .*check-invariants\.mjs:\d+/, 'no stack trace');
+});
+
+// FU-135 review round 5: INV-5 read @release off the raw tag line, so a Feature-
+// level @release (inherited by every scenario under it) was invisible and an
+// orphan went unreported; INV-3 counted an `@scn-` written in a docstring. The
+// invariants now take scn ids from the reader's EFFECTIVE tags, as the runner does.
+test('FU-135: INV-5 sees a Feature-level @release; an @scn- inside a docstring defines nothing', () => {
+  const orphan = runMutated((dir) => {
+    writeFileSync(join(dir, 'features', 'identity', 'export.feature'),
+      '# status: approved\n@release\nFeature: Export\n\n  @scn-050\n  Scenario: a user exports a list\n    Given a list\n');
+  });
+  assert.equal(orphan.status, 1, orphan.out);
+  assert.match(orphan.out, /❌ INV-5 .*scn-050/, 'the inherited @release scenario is an orphan (no issue claims it)');
+  const docstring = runMutated((dir) => {
+    const p = join(dir, 'features', 'identity', 'list.feature');
+    writeFileSync(p, readFileSync(p, 'utf8') + '\n  Scenario: a note\n    Given a payload\n      """\n      @scn-060 @release\n      """\n');
+  });
+  assert.doesNotMatch(docstring.out, /scn-060/, 'docstring content is data, not a tag');
+});
+
+// FU-135 review round 5: a non-English feature failed CONFIG §58 under the
+// status-line message and its fix; it has its own message now.
+test('FU-135: a non-English feature fails CONFIG §58 with its own message, not the status-line one', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'features', 'identity', 'auth.feature');
+    writeFileSync(p, '# language: es\n' + readFileSync(p, 'utf8'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ CONFIG §58: non-English feature file\(s\): identity\/auth\.feature:1 \(language\)\. Feature files are English Gherkin/);
+  assert.doesNotMatch(out, /cannot honor: identity\/auth\.feature:1 \(language\)/);
 });

@@ -291,7 +291,7 @@
         "scn-1": true
       }
     },
-    "prose after the state that mentions another state is legal": {
+    "a note after the state is invalid, even with no state in it": {
       "statusComments": [
         1
       ],
@@ -299,7 +299,7 @@
         "scn-1": true
       }
     },
-    "a dash before prose that names a state is legal (implemented — approved by ops)": {
+    "a dash note is invalid (implemented — approved by ops)": {
       "statusComments": [
         1
       ],
@@ -307,15 +307,16 @@
         "scn-1": true
       }
     },
-    "a bracketed note that names a state is legal (implemented [approved in #12])": {
+    "flips the arrow heuristic missed are invalid (approved -- implemented, draft | approved)": {
       "statusComments": [
-        1
+        1,
+        2
       ],
       "release": {
         "scn-1": true
       }
     },
-    "prose that starts with a state-like word is legal (approved Draft-era scns removed)": {
+    "the note on its own `# status-note:` line is legal": {
       "statusComments": [
         1
       ],

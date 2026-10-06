@@ -137,8 +137,8 @@ draft → clarifying → approved → implemented → retired
 |---|---|---|
 | (new) → `draft` | `/to-scenarios` | Writes the draft with `# status: draft`. |
 | `draft → clarifying` | `/clarify` | Flips status; the agent may still edit while clarifying. |
-| `clarifying → approved` | `/feature` Step 7 — HUMAN CHECKPOINT 1 | **Only after** the human confirms in chat. The skill writes `approved_at/by/in_commit`. From here the file is read-only to the agent. |
-| `approved → implemented` | `/feature` Step 13 (post-merge close-out) | Per `.feature` file: once **every** `@release` scenario in it is delivered (all the slices that claim them merged) and green on the default branch. A file whose scenarios a later slice still owes stays `approved`. |
+| `clarifying → approved` | `/feature` Step 7 — HUMAN CHECKPOINT 1 | **Only after** the human confirms in chat. The skill writes `approved_at/by/in_commit`. From here the file is read-only to the agent — except for the one flip in the next row. |
+| `approved → implemented` | The slice that **completes** the file's `@release` scenarios — its close-out (`/run-acceptance` Step 3b), **in its own PR**; `/feature` Step 13 verifies after the merge and makes any flip still missing | Per `.feature` file: when the slice delivers the last of the file's `@release` scenarios and they pass, it edits the status line to `implemented` in its branch, so CI runs them **before** the merge; the human reviews the flip at HUMAN CHECKPOINT 2. It is the only edit an agent makes to an approved `.feature`. A file whose scenarios another slice still owes stays `approved` (§130b reports those claims as in flight). |
 | `implemented → retired` | `/check-consistency` Step 7 | When a scenario is intentionally retired. |
 
 `approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
@@ -158,14 +158,17 @@ INV-3/INV-5/INV-8 and `preflight` — `scripts/parse-feature-status.mjs`, which 
 `cucumber.mjs` template imports (FOLLOW-UPs 134-135); it is checked against the
 real Gherkin parser's output in the test suite.
 
-**Exactly one `# status:` line, in the header block, whose value starts with one
-word of the state machine above; a flip edits that line in place** — never adds
-a second one, never writes the transition into it (the old state, then an arrow
-or `to`/`then`, then the new one — in any notation — is read as the old state).
-Prose may follow the state word, and may even name another state, as long as no
-arrow leads to one (`# status: implemented (scn-042 delivered — approved by
-ops)`). An extra header status, a value that is not a state word, a written-in
-transition, an empty status (FOLLOW-UP 135) or a status after the header (ISSUE
+**Exactly one `# status:` line, in the header block, holding one word of the
+state machine above and nothing else; a flip edits that line in place** — never
+adds a second one, never writes the transition into it. A note about the status
+goes on its own line, `# status-note: …` (another key, so it is never read as a
+status); `scripts/migrate-status-notes.mjs` moves the notes of existing files.
+The rule is strict on purpose (FOLLOW-UP 135): the runner reads only the first
+word, and every rule that let a note follow it — arrow and separator lists —
+either missed a flip written into the line (`approved -- implemented`,
+`draft | approved`, `approved (now implemented)`, all read as the old state) or
+flagged a legal note. An extra header status, a value that is not exactly a
+state word, an empty status (FOLLOW-UP 135) or a status after the header (ISSUE
 #141) fails CI and the invariant gate (CONFIG §58; see §130b below). A feature
 whose header status is broken is reported there and only there: INV-3, INV-5
 and INV-8 leave it out rather than act on a status its author did not mean.
@@ -193,6 +196,12 @@ acceptance / close-out gate the slice's claimed `@release` scenarios must
 `CUCUMBER_IMPLEMENTED_ONLY=1`, so "acceptance pass" is **skip-green, not
 run-green** — the 27b/38a false-green (live: belong slice-41b, a money slice).
 
+**Who flips it (FOLLOW-UP 135):** the slice that completes the file's
+`@release` scenarios, at its close-out, in its own PR (§58's transition table) —
+so CI runs them before the merge. While another slice still owes scenarios to
+the file, it stays `approved` and the per-slice run's `ran == expected` is the
+evidence until the completing slice flips it.
+
 The `reviewer` agent therefore asserts on **run-evidence** (`ran == expected`
 for the slice's scns), never on ".feature untouched"; `/run-acceptance`
 forwards `ran`/`expected` + the `check-skipped-release-scn.mjs` (§130b) result
@@ -202,10 +211,10 @@ false-green bug, not §58 compliance.**
 
 ### Enforcement
 
-- CI rule: PRs from `agent/*` branches that modify `features/**/*.feature` are blocked unless they also include label `human-approved`.
+- CI rule: PRs from `agent/*` branches that modify `features/**/*.feature` are blocked unless they also include label `human-approved` — the close-out flip of a file's `# status:` line (the table above) is that one sanctioned change, reviewed by the human at HUMAN CHECKPOINT 2; any other edit to an approved `.feature` is the §58 violation.
 - The `git-guardrails` hook blocks `git commit` on `*.feature` files from non-human commits.
 - Pre-flight: skills that consume approved scenarios call `scripts/preflight.mjs feature-approved <slug>` and refuse to run on `draft`/`clarifying` features.
-- Close-out: the `reviewer` asserts `ran == expected` on the slice's claimed `@release` scns (FU-116) and `check-skipped-release-scn.mjs` (§130b) blocks a claimed scn skipped under `IMPLEMENTED_ONLY` — "untouched" is never read as compliance at the close-out gate.
+- Close-out: the `reviewer` asserts `ran == expected` on the slice's claimed `@release` scns (FU-116) and `check-skipped-release-scn.mjs` (§130b) blocks a claimed scn skipped under `IMPLEMENTED_ONLY` when the slice completes its file (the remedy: the close-out flip, in the slice's PR) — "untouched" is never read as compliance at the close-out gate.
 
 ### Label-driven section taxonomy (ADR-0002 — amendment to §58, no new §N)
 
@@ -1057,9 +1066,17 @@ whose feature the runner skips under `IMPLEMENTED_ONLY` (a header status other
 than `implemented`; a header-less legacy feature runs, so it is not flagged) — the
 claimed scn's tags are read as cucumber reads them (Feature/Rule tags inherited,
 an `Examples` block's own tags, `Example:` / `Scenario Template:`) — so the skip is observable in `/tdd`, not discovered by
-the §114 reviewer or by a production deploy. Pairs with the close-out
-approved→implemented flip discipline (§58), but the gate is the durable fix:
-it does not rely on the human remembering the flip.
+the §114 reviewer or by a production deploy. **Who fixes it (FOLLOW-UP 135, the
+maintainer's decision):** the slice that *completes* a file's `@release`
+scenarios flips that file to `implemented` in its own PR, at close-out (§58's
+transition table), so CI runs them before the merge. The gate therefore fails
+when this issue claims **every** `@release` scn of an approved file and the file
+is still approved (the remedy is that flip), and when a claimed scn sits in a
+draft / clarifying / retired file (it is not deliverable); a claim in a file
+that still holds `@release` scns this issue does not claim is reported **in
+flight** — the slice that completes the file flips it, and until then the
+per-slice run (`ran == expected`) is the evidence. The gate does not rely on
+anyone remembering the flip.
 
 **A mid-file `# status:` is the silent-skip the status mechanism produces of
 itself (ISSUE #141).** `cucumber.mjs` reads `# status:` ONLY from the header
@@ -1075,7 +1092,9 @@ exit contract (rc 0 clean · 1 a genuine risk · 2 only on a malformed call):
 plain `pull_request` job); `<features-dir> <issue-file…>` = that plus the
 claimed-scn check above. A bare in-planning `@release` scn (an approved feature
 with no claim and no mid-file status) is correctly NOT flagged — only a
-claimed-done-but-skipped scn or a silently-ignored mid-file status is.
+claimed-done-but-skipped scn (whose slice completes its file), a claim in an
+unapproved file, or a silently-ignored status line is. A missing issue file is
+rc 2 (a malformed call), never "no claims".
 
 **Wired from a consumer's first PR (FOLLOW-UP 134).** The `/setup`
 acceptance template runs the CI mode as a `pull_request` step (after the
@@ -1101,15 +1120,13 @@ same-value one is the next flip's trap), anchored on the line the runner reads.
 The header **value** gets the same treatment: the readers used to take `\S+` /
 `\w+` / `[a-zA-Z]+` / an `implemented` prefix, so `# status: implemented.` was
 skipped by cucumber yet `implemented` to every other gate. With one reader, the
-rule is that the first word must be a §58 state (`implemented.`, `in-progress`,
-a quoted value are flagged; a flip written into the line — an arrow of any
-shape leading to a state word, `to`/`then` + a state, or a bare second state
-word — is read as its first word and flagged, while prose that merely mentions a
-state with no arrow to it stays legal; an empty `# status:` is not read at all,
-so it is flagged too). INV-3, INV-5, INV-8 and `preflight` read the status
-through the same module, and the invariant gate fails CONFIG §58 on any such
-line — the one place a broken header is reported (INV-3/5/8 leave the feature
-out) — so no invariant can certify a status the runner reads differently.
+rule is that the value is exactly one §58 state word (`implemented.`,
+`in-progress`, a quoted value, a flip written into the line in any notation, and
+a note after the word are all flagged — notes go on a `# status-note:` line; an
+empty `# status:` is not read at all, so it is flagged too). INV-3, INV-5, INV-8
+and `preflight` read the status — and each scenario's effective tags — through
+the same module, and the invariant gate fails CONFIG §58 on any such line — the
+one place a broken header is reported (INV-3/5/8 leave the feature out) — so no invariant can certify a status the runner reads differently.
 
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
 `/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's

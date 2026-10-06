@@ -148,6 +148,35 @@ test('FU-135: a status problem in a draft feature routes to /clarify, not to a h
   }
 });
 
+// Review round 5: `draft` + an extra `approved` line was routed as an editable
+// draft — the agent could delete the `draft` line and approve the feature
+// without HUMAN CHECKPOINT 1. An extra (or empty) status line always escalates.
+test('FU-135: a draft header with an extra approved line escalates instead of "fix while editable"', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'f.feature'),
+      '# language: en\n# spec: docs/specs/f.md\n# status: draft\n# status: approved\n\nFeature: X\n\n  @release @scn-001\n  Scenario: s\n    Given a\n');
+    const { status, out } = run(dir, 'feature-approved', 'f');
+    assert.notEqual(status, 0, out);
+    assert.match(out, /escalate to a human/);
+    assert.doesNotMatch(out, /fix while editable/);
+  });
+});
+
+// Review round 5: the slice that completes a file flips it to `implemented` in its
+// own PR, so a later slice of the same feature finds that file implemented —
+// post-approval by definition (FOLLOW-UP 39), never "non-approved".
+test('FU-135: an implemented file counts as approved for a later slice of the same feature', () => {
+  withConsumer((dir) => {
+    mkdirSync(join(dir, 'features', 'a'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'a', 'one.feature'), feature({ spec: 'docs/specs/f.md', status: 'implemented' }));
+    writeFileSync(join(dir, 'features', 'a', 'two.feature'), feature({ spec: 'docs/specs/f.md', status: 'approved' }));
+    const { status, out } = run(dir, 'feature-approved', 'f');
+    assert.equal(status, 0, out);
+    assert.match(out, /one\.feature \(implemented\)/);
+  });
+});
+
 test('FU-135: subcommands that read no status run without parse-feature-status.mjs', () => {
   withConsumer((dir) => {
     spawnSync('git', ['init', '-q'], { cwd: dir });

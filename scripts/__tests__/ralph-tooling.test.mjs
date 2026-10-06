@@ -585,14 +585,14 @@ test('FU-135: a header status value outside the §58 states FAILS CLOSED under t
   const dir = mkdtempSync(join(tmpdir(), 'ralph-fu135v-'));
   try {
     mkdirSync(join(dir, 'features'), { recursive: true });
-    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented (close-out of issue 9)\nFeature: Done\n');
+    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented\n# status-note: close-out of issue 9\nFeature: Done\n');
     writeFileSync(join(dir, 'features', 'punct.feature'), '# status: implemented.\nFeature: Punct\n  @release @scn-7\n  Scenario: s\n    Given g\n');
     const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
     assert.notEqual(on.status, 0, `config load must throw on the CI surface:\n${on.stderr}`);
     assert.ok(on.stderr.includes('features/punct.feature:1 (invalid'), on.stderr);
     assert.match(on.stderr, /reads the status as 'implemented\.'/, 'names the word the runner reads');
     assert.match(on.stderr, /draft \| clarifying \| approved \| implemented \| retired/, 'lists the §58 states');
-    assert.doesNotMatch(on.stderr, /done\.feature:\d/, 'trailing prose after a valid state is legal');
+    assert.doesNotMatch(on.stderr, /done\.feature:\d/, 'a note on its own # status-note: line is legal');
     const off = loadCucumberConfig(dir, {});
     assert.equal(off.status, 0, off.stderr);
     assert.match(off.stderr, /warning/i);

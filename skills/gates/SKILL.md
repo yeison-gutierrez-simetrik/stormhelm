@@ -44,7 +44,7 @@ description: |
 3. **`/security-hardening`** *(only if the slice touches sensitive paths per §64, or the issue has `require-human-review`)*. Otherwise skip — the reviewer already covered §27 etc.
 4. **`/traceability-matrix`** — writes the **`-draft`** matrix (pre-merge; not anchored to a merged commit yet).
 5. **⛔ Human merge** (HUMAN CHECKPOINT 2). Run the §67 merge-safety asserts (`scripts/check-merge-safety.mjs <pr> pre`). `/gates` does **not** merge.
-6. **Post-merge close-out** (`/feature --close <issue>` or manually): `check-merge-safety <pr> post`, flip to `implemented`, in place, each `.feature` file whose `@release` scenarios are all delivered, and verify it (the CI-mode skipped-release lint + the acceptance suite, before committing — FOLLOW-UP 135), then re-run `/traceability-matrix` to produce the **`-final`** matrix anchored to the merged commit, and close the issue(s) — see `/feature` Step 13.
+6. **Post-merge close-out** (`/feature --close <issue>` or manually): `check-merge-safety <pr> post`, verify the implementation flip (the slice that completes a file's `@release` scenarios flips it in its own PR; a file whose scenarios are all delivered but still `approved` is flipped here, verified with the CI-mode skipped-release lint + the acceptance suite before committing — FOLLOW-UP 135), then re-run `/traceability-matrix` to produce the **`-final`** matrix anchored to the merged commit, and close the issue(s) — see `/feature` Step 13.
 
 ## De-duplication rules `/gates` enforces
 

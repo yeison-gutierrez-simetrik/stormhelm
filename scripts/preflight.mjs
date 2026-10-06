@@ -108,17 +108,24 @@ switch (check) {
     // a status the reader cannot place — the file is read-only to the agent (§58)
     // and choosing which status line survives IS the approval decision: escalate.
     // `draft.` counts as draft here: its leading word decides who owns the fix.
-    const editable = (r) => ['draft', 'clarifying'].includes((r.status ?? '').match(/^[a-z]+/)?.[0]);
+    // An extra or empty status line always escalates (review round 5): with
+    // `draft` + `approved` in one header, deleting the `draft` line would approve
+    // the feature without HUMAN CHECKPOINT 1.
+    const editable = (r) => ['draft', 'clarifying'].includes((r.status ?? '').match(/^[a-z]+/)?.[0])
+      && !r.problems.some((p) => p.kind === 'duplicate' || p.kind === 'empty');
     const locked = read.filter(([, r]) => r.problems.length && !editable(r));
     if (locked.length)
       fail(`feature '${arg}' has \`# status:\` line(s) the runner cannot honor in ${locked.length} file(s): ${locked.map(([f, r]) => `${f} (${listProblems(r)})`).join('; ')}.`,
-        'stop and escalate to a human: the file is not agent-editable (§58). The header must hold exactly one `# status:` line starting with a §58 state word, and no `# status:` may follow it; `node scripts/check-skipped-release-scn.mjs features` explains each problem (FU-135).');
+        'stop and escalate to a human: the file is not agent-editable, or fixing it would decide its approval (§58). The header must hold exactly one `# status:` line, a §58 state word alone, and no `# status:` may follow it; `node scripts/check-skipped-release-scn.mjs features` explains each problem (FU-135).');
     // A multi-context feature is approved only when EVERY one of its files is.
-    const offenders = read.filter(([, r]) => r.status !== 'approved');
+    // `implemented` is post-approval by definition (FOLLOW-UP 39, like INV-3):
+    // the slice that completes a file flips it in its own PR (FU-135), so a later
+    // slice of the same feature finds that file implemented — still approved.
+    const offenders = read.filter(([, r]) => r.status !== 'approved' && r.status !== 'implemented');
     if (offenders.length)
       fail(`feature '${arg}' has ${offenders.length} non-approved file(s): ${offenders.map(([f, r]) => `${f} ('${r.status ?? 'unmarked'}'${r.problems.length ? `; fix while editable: ${listProblems(r)}` : ''})`).join(', ')}.`,
         'complete /clarify and HUMAN CHECKPOINT 1 of /feature; the skill flips `# status:` to approved (§58).');
-    ok(`feature '${arg}' is approved (${files.length} file(s): ${files.join(', ')}).`);
+    ok(`feature '${arg}' is approved (${files.length} file(s): ${read.map(([f, r]) => (r.status === 'implemented' ? `${f} (implemented)` : f)).join(', ')}).`);
     break;
   }
   case 'slice-implemented': {

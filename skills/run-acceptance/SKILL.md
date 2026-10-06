@@ -195,13 +195,23 @@ definition of done**, before declaring green / opening the PR:
 # (a) FU-108 / §130b: a @release scn this issue CLAIMS that still lives in a
 # `# status: approved` feature is SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI
 # green having never run it. Make the skip a gate failure, not a silent skip.
-node scripts/check-skipped-release-scn.mjs features "$ISSUE_FILE"   # FAIL → BLOCK
+node scripts/check-skipped-release-scn.mjs features "$ISSUE_FILE"   # FAIL → see below
 
 # (b) FU-107 / §130a: run the full @release suite — the same definition of done
 # CI uses — NOT the slice tag-subset. This is the gate that decides green.
 $BDD_RUNNER --tags "@release and not @manual"                       # any red → BLOCK
 ```
 
+- **SKIPPED CLAIM in (a) → the close-out flip (§58, FOLLOW-UP 135).** It means
+  this slice delivers the LAST `@release` scenarios of that file. Once they pass
+  (Steps 2–3), edit the file's `# status:` line from `approved` to
+  `implemented` — in place, the state word alone — in this branch, commit it
+  with the slice, and re-run (a) and (b): (b) now includes the file, so CI runs
+  its scenarios before the merge. That status line is the only edit an agent
+  makes to an approved `.feature`; the human reviews it at HUMAN CHECKPOINT 2.
+  A claim reported **in flight** (another slice still owes scenarios to the
+  file) is not a failure: the slice that completes the file flips it. Any other
+  FAIL in (a) — an UNAPPROVED CLAIM, a status-line problem — is a BLOCK.
 - Per-iteration cost control is legitimate: iterations MAY stay scoped (Steps
   2–3); the **final pre-PR gate** (this step, on the green iteration) is the one
   that must be full-@release. If running full `@release` every iteration is

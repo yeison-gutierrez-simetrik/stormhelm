@@ -1227,11 +1227,10 @@ Triggered automatically by the merge (via GitHub webhook or manual invocation).
 ✓ Step 13 — Post-merge close-out for #003
 
 1. features/reviews/provider-review.feature: every @release scn in the file
-   is claimed by a merged issue (this one closes the last) → its header line
-   `# status: approved` edited in place to `# status: implemented`
-   (never a second line)
+   is claimed by a merged issue (this one delivered the last), and its header
+   reads `# status: implemented` — flipped in PR-200 by the slice's close-out
+   (/run-acceptance Step 3b), reviewed at HITL #3 → nothing to flip here
    → check-skipped-release-scn: SKIPPED-SCN GATE: ok
-   → acceptance suite (now including this file): green
 2. Re-running /traceability-matrix on merged commit a3b9f12 (after the flip)
    → docs/audit/traceability-v0.3.0-reviews-final.md written with the final
      commit hash (INV-8 reads `traceability-*-final.md`)

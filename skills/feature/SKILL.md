@@ -65,12 +65,12 @@ Internally, `/feature` invokes the same skills that are callable individually. I
 
 ## Status transitions (§58)
 
-This orchestrator owns two `.feature` status flips:
+This orchestrator owns the approval flip and verifies the implementation flip:
 
-- **Step 7 — HUMAN CHECKPOINT 1:** after the human confirms in chat, flip the `# status:` line's word from `clarifying` to `approved` (in place) and write `approved_at`, `approved_by`, `approved_in_commit` (the checkpoint commit SHA). From here the file is read-only to the agent.
-- **Step 13 — post-merge close-out:** edit the `# status:` line's word from `approved` to `implemented` (in place), per `.feature` file, once **every** `@release` scenario in that file is delivered and green on the default branch.
+- **Step 7 — HUMAN CHECKPOINT 1:** after the human confirms in chat, flip the `# status:` line's word from `clarifying` to `approved` (in place) and write `approved_at`, `approved_by`, `approved_in_commit` (the checkpoint commit SHA). From here the file is read-only to the agent — except for the close-out flip below.
+- **The implementation flip** (`approved` to `implemented`) is made per `.feature` file by the slice that **completes** the file's `@release` scenarios, at its close-out (`/run-acceptance` Step 3b), **in its own PR** — so CI runs them before the merge, and the human reviews the flip at HUMAN CHECKPOINT 2. **Step 13** verifies it after the merge and makes any flip still missing.
 
-A flip **edits the existing `# status:` line in place** — never adds a second one — and leaves the state word first: `# status: implemented`, optionally followed by prose (`# status: implemented (scn-042 delivered — …)`), never `implemented.`, a quoted value, or the transition itself (old and new state together, in any notation). The runner reads one header status line and its first word: a second line, a non-state word, a written-in transition (FOLLOW-UP 135) or a line below the header (ISSUE #141) leaves the feature skipped under `IMPLEMENTED_ONLY`, and CI fails on it (`check-skipped-release-scn.mjs` + the `cucumber.mjs` config).
+A flip **edits the existing `# status:` line in place** — never adds a second one — and leaves the state word **alone**: `# status: implemented`, never `implemented.`, a quoted value, the transition itself (old and new state together, in any notation), or a note. A note goes on its own `# status-note: …` line. The runner reads one header status line and its first word: a second line, a value that is not exactly a state word (FOLLOW-UP 135) or a line below the header (ISSUE #141) leaves the feature skipped under `IMPLEMENTED_ONLY`, and CI fails on it (`check-skipped-release-scn.mjs` + the `cucumber.mjs` config).
 
 ## Workflow — 13 steps with 2 human checkpoints
 
@@ -262,7 +262,12 @@ The script refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN` 
 
    The script compares the merge commit's 2nd parent against the head GitHub recorded for the PR. If they differ, a commit was lost (the failure mode §67's pre-merge assert guards against). Investigate before proceeding with steps 1-8 below.
 
-1. **Flip to `implemented` each `.feature` file whose `@release` scenarios are ALL delivered — only those — in place, verified before committing (§58, FOLLOW-UP 135).** Step 13 runs once per merged PR, and a feature is often split across several slices. For each of the feature's `.feature` files, list its `@release` scn ids and check that every one is claimed by a merged issue (the `scenarios:` tokens of the merged issues, this PR's included). A file with any `@release` scn that a later slice still owes stays `approved`: flipping it would put undelivered scenarios — their steps still undefined — on the CI surface and turn the trunk red. In each file that qualifies, edit the existing header line's word to `implemented`; never add a second line, never write the transition into it. The flip is what puts the file's `@release` scenarios on the CI surface, so before committing it run both the CI-mode lint and the project's acceptance suite over the tree the flip lands in:
+1. **Verify the implementation flip — and make any that is still missing (§58, FOLLOW-UP 135).** The flip normally landed in this PR: the slice that completes a file's `@release` scenarios flips it at its close-out (`/run-acceptance` Step 3b), and the human reviewed it at HUMAN CHECKPOINT 2. For each of the feature's `.feature` files, list its `@release` scn ids and check whether every one is claimed by a merged issue (the `scenarios:` tokens of the merged issues, this PR's included):
+   - **all delivered, file `implemented`** → nothing to do;
+   - **all delivered, file still `approved`** (e.g. the file's scenarios were delivered across several slices and none claimed them all) → flip it now: edit the existing header line's word to `implemented`, alone, never a second line;
+   - **any still owed by a later slice** → the file stays `approved`; flipping it would put undelivered scenarios — their steps still undefined — on the CI surface and turn the trunk red.
+
+   A flip made here puts the file's `@release` scenarios on the CI surface, so before committing it run both the CI-mode lint and the project's acceptance suite over the tree it lands in:
 
    ```bash
    node scripts/check-skipped-release-scn.mjs features   # must print SKIPPED-SCN GATE: ok

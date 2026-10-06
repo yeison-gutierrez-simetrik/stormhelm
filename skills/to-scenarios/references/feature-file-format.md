@@ -55,7 +55,7 @@ Feature: <Short feature title from the spec>
 - **`scn-NNN` IDs are stable across versions.** Renaming or renumbering breaks `/traceability-matrix`.
 - **One observable behavior per scenario.** If a scenario has multiple `When` lines or multiple distinct `Then` outcomes, split it.
 - **Vocabulary matches `CONTEXT.md`.** No invented domain terms in `Given/When/Then` lines.
-- **Drafts require human approval before they are authoritative.** `/to-scenarios` writes `# status: draft`; after the human approves the scenarios (HUMAN CHECKPOINT 1), the owning skill edits that one line's word in place to `approved` (§58). The header holds exactly one `# status:` line whose value starts with a single state word — `draft`, never `draft | approved` or a transition — or CI fails on it (FOLLOW-UP 135). Ralph never modifies an approved `.feature` file.
+- **Drafts require human approval before they are authoritative.** `/to-scenarios` writes `# status: draft`; after the human approves the scenarios (HUMAN CHECKPOINT 1), the owning skill edits that one line's word in place to `approved` (§58). The header holds exactly one `# status:` line whose value is a single state word and nothing else — `draft`, never `draft | approved`, a transition or a note (a note goes on its own `# status-note:` line) — or CI fails on it (FOLLOW-UP 135). Ralph never modifies an approved `.feature` file.
 - **Scenarios are the AFK gate.** Ralph (`shift:afk`) only consumes issues that carry `scenarios:scn-NNN` labels (§63).
 
 ## Workflow position

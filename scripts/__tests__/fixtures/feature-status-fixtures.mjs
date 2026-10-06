@@ -43,7 +43,7 @@ export const PARITY = [
   // docstring (the review: an unbalanced ``` in a description hid everything after it).
   { name: 'a fence in the Feature description is text, not a docstring', expect: [4], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
+  { name: 'prose after the state word in the header', expect: [1], reads: 'implemented',
     body: ['# status: implemented (scn-042 delivered — issue #12)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'indented header status is read', expect: [], reads: 'approved',
     body: ['  # status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
@@ -103,16 +103,18 @@ export const PARITY = [
     body: ['# status: approved to implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { fu: 'FU-135', name: 'a bare second state word (approved implemented)', expect: [1], reads: 'approved',
     body: ['# status: approved implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // Prose after the state word stays legal, even when it names another state, as
-  // long as no arrow leads to one (the review: each of these was a false failure).
-  { fu: 'FU-135', name: 'prose after the state that mentions another state is legal', expect: [], reads: 'implemented',
+  // The status line holds the state word ALONE (the maintainer's decision, review
+  // round 5): every heuristic that let a note follow the word missed flips or
+  // flagged legal notes, so any note after the word is invalid — it goes on its
+  // own `# status-note:` line.
+  { fu: 'FU-135', name: 'a note after the state is invalid, even with no state in it', expect: [1], reads: 'implemented',
     body: ['# status: implemented (approved by the operator, §58 ratified)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { fu: 'FU-135', name: 'a dash before prose that names a state is legal (implemented — approved by ops)', expect: [], reads: 'implemented',
+  { fu: 'FU-135', name: 'a dash note is invalid (implemented — approved by ops)', expect: [1], reads: 'implemented',
     body: ['# status: implemented — approved by ops', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { fu: 'FU-135', name: 'a bracketed note that names a state is legal (implemented [approved in #12])', expect: [], reads: 'implemented',
-    body: ['# status: implemented [approved in #12]', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { fu: 'FU-135', name: 'prose that starts with a state-like word is legal (approved Draft-era scns removed)', expect: [], reads: 'approved',
-    body: ['# status: approved Draft-era scns removed', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'flips the arrow heuristic missed are invalid (approved -- implemented, draft | approved)', expect: [1, 2], reads: 'approved',
+    body: ['# status: approved -- implemented', '# status: draft | approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'the note on its own `# status-note:` line is legal', expect: [], reads: 'implemented',
+    body: ['# status: implemented', '# status-note: approved by ops — ratified in #12', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   // FU-135 — the header VALUE. The status is the first token of the line; the
   // readers agree only when it is exactly a §58 state word, so anything else is
   // flagged.

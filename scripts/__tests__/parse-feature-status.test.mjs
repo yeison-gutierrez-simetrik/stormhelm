@@ -39,7 +39,7 @@ test('FU-134: reader contract — status, the line it came from, and where the h
   assert.equal(r.status, 'implemented', 'first token, lower-cased; prose after it is ignored');
   assert.equal(r.statusLine, 2);
   assert.equal(r.headerEnd, 3, 'header = leading comment/blank block; ends before the first other line');
-  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.problems.map((p) => p.kind), ['invalid'], 'FU-135: a note after the word is invalid — it goes on its own # status-note: line');
   const none = parseFeatureStatus('Feature: Legacy\n');
   assert.equal(none.status, null, 'no header status → null (legacy = implemented for the runner)');
   assert.equal(none.statusLine, 0);
@@ -125,7 +125,7 @@ test('FU-135: a second header status declaration is a duplicate anchored on the 
 test('FU-135: a read value outside the §58 states is invalid; an empty one is not read', async () => {
   const { parseFeatureStatus, STATES, HEADER_STATUS_KINDS } = await load();
   assert.deepEqual(STATES, ['draft', 'clarifying', 'approved', 'implemented', 'retired']);
-  assert.deepEqual(HEADER_STATUS_KINDS, ['duplicate', 'invalid', 'transition', 'empty']);
+  assert.deepEqual(HEADER_STATUS_KINDS, ['duplicate', 'invalid', 'empty']);
   const bad = parseFeatureStatus('# status: implemented.\nFeature: X\n');
   assert.equal(bad.status, 'implemented.');
   assert.deepEqual(bad.problems.map(({ message, ...rest }) => rest),
@@ -142,29 +142,32 @@ test('FU-135 review: an extra header line counts whatever it says; a written-in 
   assert.deepEqual(prose.problems.map((p) => [p.line, p.kind]), [[1, 'invalid'], [2, 'duplicate']]);
   const arrow = parseFeatureStatus('# status: approved → implemented\nFeature: X\n');
   assert.equal(arrow.status, 'approved');
-  assert.deepEqual(arrow.problems.map((p) => [p.line, p.kind, p.value]), [[1, 'transition', 'approved']]);
+  assert.deepEqual(arrow.problems.map((p) => [p.line, p.kind, p.value]), [[1, 'invalid', 'approved']]);
 });
 
-// Review round 4: the transition rule is "an arrow (any shape) leading to a state
-// word, `to`/`then` + a state, or a bare second state word". The first version
-// matched any separator after the state (a false failure on legal prose) and
-// missed an arrow with a word or a bracket before the new state (a false green).
-test('FU-135 review: a transition is caught in any notation, with words or brackets before the new state', async () => {
+// Review round 5 (the maintainer's decision): the status line holds the state
+// word ALONE. Two rounds of arrow/separator heuristics each missed flips
+// (`approved -- implemented`, `draft | approved`, `approved (now implemented)`)
+// or flagged legal notes (a `>` in a URL), so anything after the word is invalid.
+test('FU-135 review: anything after the state word is invalid — every flip notation, every note', async () => {
   const { parseFeatureStatus } = await load();
-  for (const v of ['approved → implemented', 'approved --> implemented', 'approved ⇒ implemented', 'approved > implemented',
-    'approved → now implemented', 'approved → → implemented', 'approved (→ implemented)', 'approved -> (implemented)',
-    'approved to implemented', 'approved then implemented', 'approved implemented', 'approved implemented # flipped']) {
+  for (const v of ['approved → implemented', 'approved --> implemented', 'approved -- implemented', 'approved / implemented',
+    'approved (now implemented)', 'approved implemented — all scns delivered', 'approved to implemented',
+    'implemented — approved by ops', 'implemented [approved in #12]', 'implemented (see <https://x>, approved by ops)']) {
     const r = parseFeatureStatus(`# status: ${v}\nFeature: X\n`);
-    assert.equal(r.status, 'approved', v);
-    assert.deepEqual(r.problems.map((p) => p.kind), ['transition'], v);
+    assert.equal(r.status, v.split(' ')[0], v);
+    assert.deepEqual(r.problems.map((p) => p.kind), ['invalid'], v);
+    assert.match(r.problems[0].detail, /more than the state word/, v);
   }
+  assert.deepEqual(parseFeatureStatus('# status: draft | approved\nFeature: X\n').problems.map((p) => p.kind), ['invalid']);
 });
 
-test('FU-135 review: prose after the state stays legal, even when it names another state', async () => {
+test('FU-135 review: the state word alone is legal, in any case; a note on its own # status-note: line is legal', async () => {
   const { parseFeatureStatus } = await load();
-  for (const v of ['implemented (scn-1 — approved by ops)', 'implemented (approved by operator, §58 ratified)',
-    'implemented — approved by ops', 'implemented - approved by ops', 'implemented [approved in #12]',
-    "implemented 'approved by ops'", 'approved Draft-era scns removed', 'approved by the operator on 2026-10-01']) {
+  for (const v of ['implemented', 'Implemented', 'retired', '  approved  ']) {
     assert.deepEqual(parseFeatureStatus(`# status: ${v}\nFeature: X\n`).problems, [], v);
   }
+  const noted = parseFeatureStatus('# status: implemented\n# status-note: approved by ops (see <https://x>) — ratified in #12\nFeature: X\n');
+  assert.equal(noted.status, 'implemented');
+  assert.deepEqual(noted.problems, []);
 });
