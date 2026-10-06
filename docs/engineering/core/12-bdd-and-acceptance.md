@@ -149,12 +149,15 @@ Feature files are written in **English Gherkin** (`# language: en`, as
 `/to-scenarios` writes them). The **header** is the file's leading comment block —
 it ends at the first line that is not a comment or blank (a tag line or the
 `Feature:` line) — and its `# status:` line is the only one the runner reads.
-The `# status:` key is **reserved** for that line: any other `# status:` comment
-is reported, whatever it says (prose uses another word, e.g. `# Note:`), and
-near-miss spellings (`## status:`, `# status :`) are the same key. One
-module does the reading for the runner and the skipped-release lint —
+The `# status:` key is **reserved** for that line: any `# status:` comment after
+the header is reported, whatever it says (prose uses another word, e.g.
+`# Note:`), and near-miss spellings (`## status:`, `# status :`) are the same key
+(a second status line *inside* the header is FOLLOW-UP 135). A `# language:` other
+than `en` is reported too: the readers know English keywords only. One module
+does the reading for the runner and the skipped-release lint —
 `scripts/parse-feature-status.mjs`, which the `cucumber.mjs` template imports
-(FOLLOW-UP 134).
+(FOLLOW-UP 134); it is checked against the real Gherkin parser's output in the
+test suite.
 
 > **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
 > `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file

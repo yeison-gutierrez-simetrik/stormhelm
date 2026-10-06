@@ -90,3 +90,24 @@ test('FU-134 review: any `# status:` line after the header is reported, whatever
   const r = parseFeatureStatus('# status: approved\nFeature: X\n  # Status: flaky on CI\n  # status: done\n');
   assert.deepEqual(r.problems.map((p) => p.line), [3, 4]);
 });
+
+// Review round 4: a symlinked directory that aliases another one (or points at an
+// ancestor) was walked again — double-counted features, or ELOOP.
+test('FU-134: featureFiles visits each real directory once (aliases, loops)', async () => {
+  const { featureFiles } = await load();
+  const dir = mkdtempSync(join(tmpdir(), 'pfs-alias-'));
+  try {
+    mkdirSync(join(dir, 'v2'), { recursive: true });
+    writeFileSync(join(dir, 'v2', 'p.feature'), 'Feature: P\n');
+    symlinkSync(join(dir, 'v2'), join(dir, 'current'));          // an alias
+    symlinkSync(dir, join(dir, 'v2', 'up'));                        // a loop to an ancestor
+    const found = featureFiles(dir);
+    assert.equal(found.length, 1, `listed once: ${found.join(', ')}`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134: a `# language:` other than en is reported; en is not', async () => {
+  const { parseFeatureStatus } = await load();
+  assert.deepEqual(parseFeatureStatus('# language: de\n# status: approved\nFunktionalität: X\n').problems.map((p) => [p.line, p.kind]), [[1, 'language']]);
+  assert.deepEqual(parseFeatureStatus('# language: en\n# status: approved\nFeature: X\n').problems, []);
+});

@@ -11,11 +11,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, chmodSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadCucumberConfig } from './load-cucumber-config.mjs';
+import { PARITY, INDEX } from './fixtures/feature-status-fixtures.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GATE = join(here, '..', 'check-skipped-release-scn.mjs');
@@ -194,63 +195,6 @@ test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NO
 // from the runner (the FU-134 review's oracle gap).
 
 const PARSER = pathToFileURL(join(here, '..', 'parse-feature-status.mjs')).href;
-const notes = Array.from({ length: 10 }, (_, i) => `# note ${i + 1}`);
-const PARITY = [
-  { name: 'header-only status', expect: [], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'status after Feature:', expect: [4], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'status after a tag line', expect: [3], reads: 'approved',
-    body: ['# status: approved', '@release', '# status: implemented', 'Feature: X', '  @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'no status at all (legacy = implemented)', expect: [], reads: null,
-    body: ['Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // The header is the leading comment block, however long: a status on line 11
-  // is still THE header status and is read (the old 10-line read window left
-  // it unread, so the feature ran as legacy — FU-134 review).
-  { name: 'status on line 11, still in the leading comment block', expect: [], reads: 'approved',
-    body: [...notes, '# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // FU-134 review: the header ends at the first non-comment line, whatever the
-  // keyword (`Ability:` / `Business Need:` are English synonyms of `Feature:`).
-  { name: 'Ability: keyword ends the header like Feature:', expect: [3], reads: 'approved',
-    body: ['# status: approved', 'Ability: X', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'status trailing a tag line', expect: [3], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '  @release @scn-1 # status: implemented', '  Scenario: s', '    Given g'] },
-  // A docstring (a fence right under a step) is data: a `# status:` inside one
-  // is never a declaration.
-  { name: 'docstring content is data, not a status', expect: [], reads: 'implemented',
-    body: ['# status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given a payload',
-      '      """', '      # status: approved', '      """', '    And a json payload', '      ```json', '      # status: draft', '      ```'] },
-  // The `# status:` key is reserved for the header's status line: any other
-  // `# status:` comment is reported, whatever it says (the FU-134 review: a
-  // state-word filter let `# status: done` through, which main flagged).
-  // Prose uses another word (`# Note: flaky on CI`).
-  { name: 'a `# Status:` comment after the header is reported, whatever it says', expect: [3], reads: 'implemented',
-    body: ['# status: implemented', 'Feature: X', '  # Status: flaky on CI, see #12', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'mid-file `# status: done` (not a state word) is still reported', expect: [4], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '', '  # status: done', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // A fence in a description is plain text — only a fence under a step opens a
-  // docstring (the review: an unbalanced ``` in a description hid everything after it).
-  { name: 'a fence in the Feature description is text, not a docstring', expect: [4], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
-    body: ['# status: implemented (scn-042 delivered — issue #12)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'indented header status is read', expect: [], reads: 'approved',
-    body: ['  # status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'a UTF-8 BOM before the header status', expect: [], reads: 'approved',
-    body: ['﻿# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // Review round 3: a Feature/Rule description line may start with a step word
-  // ("But only within 30 days:") — it is prose there, so a fence after it is
-  // text, not a docstring that would hide everything below it.
-  { name: 'a step-like description line does not open a docstring', expect: [5], reads: 'approved',
-    body: ['# status: approved', 'Feature: Refunds', '  But only within 30 days, e.g.:', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // Review round 3: near-miss spellings of the key are status lines too.
-  { name: 'near-miss keys after the header (`##`, `# status :`) are reported', expect: [3, 4], reads: 'approved',
-    body: ['# status: approved', 'Feature: X', '  ## status: implemented', '  # Status : implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'a near-miss key in the header is read as the status', expect: [], reads: 'approved',
-    body: ['## status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'CRLF line endings', expect: [4], reads: 'approved', eol: '\r\n',
-    body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-];
 
 function parityRepo(body, eol = '\n') {
   const dir = mkdtempSync(join(tmpdir(), 'parity-'));
@@ -259,15 +203,14 @@ function parityRepo(body, eol = '\n') {
   return dir;
 }
 const lines = (text) => [...text.matchAll(/features\/f\.feature:(\d+)/g)].map((m) => +m[1]);
-const loadConfig = loadCucumberConfig;   // stages cucumber.mjs + scripts/parse-feature-status.mjs
 
 for (const fx of PARITY) {
-  test(`${fx.fu ?? 'FU-134'} parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
+  test(`FU-134 parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
     const dir = parityRepo(fx.body, fx.eol);
     try {
       const lint = spawnSync('node', [GATE, 'features'], { cwd: dir, encoding: 'utf8' });
-      const local = loadConfig(dir);
-      const ci = loadConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+      const local = loadCucumberConfig(dir);
+      const ci = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
       assert.deepEqual(lines(lint.stdout), fx.expect, `lint:\n${lint.stdout}${lint.stderr}`);
       assert.deepEqual(lines(local.stderr), fx.expect, `cucumber.mjs (local warn):\n${local.stderr}`);
       assert.equal(lint.status, fx.expect.length ? 1 : 0, 'lint rc tracks the finding');
@@ -415,4 +358,80 @@ test('FU-134: an unreadable non-dotfile feature fails loudly instead of vanishin
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /UNREADABLE .*shared\.feature/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── The reader against the REAL Gherkin parser (review round 4) ─────────────
+// The lint and the config import the same reader, so their parity alone cannot
+// catch the reader disagreeing with cucumber. gherkin-oracle.json is what
+// @cucumber/gherkin (the parser cucumber-js runs) sees in the same fixtures —
+// regenerate it with fixtures/gen-gherkin-oracle.mjs after changing a fixture.
+const ORACLE = JSON.parse(readFileSync(join(here, 'fixtures', 'gherkin-oracle.json'), 'utf8'));
+const releaseOf = (scenarios) => {
+  const out = {};
+  for (const { tags } of scenarios) for (const t of tags) {
+    const m = t.match(/^@scn-(\d+)$/);
+    if (m) out[`scn-${m[1]}`] = (out[`scn-${m[1]}`] ?? false) || tags.includes('@release');
+  }
+  return out;
+};
+for (const [set, fixtures] of [['parity', PARITY], ['index', INDEX]]) {
+  for (const fx of fixtures) {
+    test(`FU-134 oracle (${set}): ${fx.name} — the reader matches @cucumber/gherkin`, async () => {
+      const golden = ORACLE[set][fx.name];
+      assert.ok(golden, `no golden for "${fx.name}" — run fixtures/gen-gherkin-oracle.mjs`);
+      assert.equal(golden.parseError, undefined, golden.parseError);
+      const { parseFeatureStatus } = await import(PARSER);
+      const r = parseFeatureStatus(fx.body.join(fx.eol ?? '\n') + (fx.eol ?? '\n'));
+      assert.deepEqual(r.statusComments, golden.statusComments, 'the `# status:` comment lines cucumber parses');
+      // A non-English feature is reported (and not indexed — the readers know English keywords only).
+      if (!r.problems.some((p) => p.kind === 'language')) assert.deepEqual(releaseOf(r.scenarios), golden.release, '@release selection per scn');
+    });
+  }
+}
+
+// Review round 4: a claim that matches no scenario was skipped silently, and the
+// ok line still said every claimed @release scn is implemented.
+test('FU-134: a claimed scn found in no feature is named as unverified, not counted as implemented', () => {
+  const dir = setupFeature('# status: implemented\nFeature: X\n\n  @release @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'scenarios:scn-1+scn-9\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /1 claimed scn\(s\) not found in features\/ \(scn-9\)/);
+    assert.doesNotMatch(r.stdout, /2 claimed scn\(s\), all @release ones implemented/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 4: a feature that passes stat but cannot be read crashed the lint
+// with a stack trace instead of the documented FAIL, named.
+test('FU-134: a feature that cannot be read fails as UNREADABLE, named', { skip: process.getuid?.() === 0 && 'root reads everything' }, () => {
+  const dir = setupFeature('# status: implemented\nFeature: X\n');
+  try {
+    chmodSync(join(dir, 'features', 'x', 'x.feature'), 0o000);
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /UNREADABLE .*x\.feature/);
+  } finally { chmodSync(join(dir, 'features', 'x', 'x.feature'), 0o644); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 4: the explanation is printed once per kind, not once per line.
+test('FU-134: the explanation is printed once per kind, however many lines it covers', () => {
+  const dir = setupFeature('# status: approved\nFeature: X\n  # status: implemented\n  # status: implemented\n  # status: implemented\n  @release @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal((r.stdout.match(/MID-FILE STATUS .*x\.feature:\d/g) ?? []).length, 3);
+    assert.equal((r.stdout.match(/is IGNORED/g) ?? []).length, 1, r.stdout);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 4: the lint and check-invariants read `scenarios:` through ONE
+// expander (scripts/scenario-claims.mjs) — prose after `Scenarios:` is not a
+// claim to either, and a trailing period does not swallow the last id.
+test('FU-134: scenario claims — prose is not a claim, a trailing period is not part of the id', async () => {
+  const { expandScenarioClaims } = await import(pathToFileURL(join(here, '..', 'scenario-claims.mjs')).href);
+  assert.deepEqual(expandScenarioClaims('Scenarios: scn-7 is deferred to slice 9'), []);
+  assert.deepEqual(expandScenarioClaims('Delivers scenarios:scn-7.'), ['scn-7']);
+  assert.deepEqual(expandScenarioClaims('scenarios:scn-001..scn-003'), ['scn-001', 'scn-002', 'scn-003']);
+  assert.deepEqual(expandScenarioClaims('scenarios:021+022,scn-030'), ['scn-021', 'scn-022', 'scn-030']);
 });

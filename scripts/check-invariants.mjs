@@ -40,15 +40,14 @@ import { detectCeremony } from './detect-ceremony.mjs';
 // The features the runner sees, listed the way the runner lists them (FU-134):
 // symlinked directories followed, dotfiles skipped, a broken feature loud.
 import { featureFiles as listFeatureFiles } from './parse-feature-status.mjs';
+import { expandScenarioClaims } from './scenario-claims.mjs';
 
 const walk = (dir, re, acc = []) => {
   if (!existsSync(dir)) return acc;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walk(p, re, acc); }
-    // A dangling symlink (an editor lock file like Emacs' `.#x.feature`) is not a
-    // file to read — skip it rather than crash the whole gate with ENOENT.
-    else if (re.test(e.name) && (!e.isSymbolicLink() || existsSync(p))) acc.push(p);
+    else if (re.test(e.name)) acc.push(p);
   }
   return acc;
 };
@@ -76,21 +75,10 @@ const issues = issueFiles.map((f) => {
   // `scn-A..scn-B` (FU-96 — the only single-label shape that fits a >8-scn
   // slice). This MUST agree with ralph-lib.sh `ralph_expand_scns`: the engine
   // and this offline auditor must read a label identically, or a slice that
-  // launches green is flagged orphan here (or vice-versa). The char class now
-  // includes `.` so `scenarios:scn-409..scn-412` is captured whole, not cut at
-  // the first dot (which silently expanded to ZERO — the old near-miss).
-  const scns = [...t.matchAll(/scenarios:([a-z0-9+,.-]+)/gi)].flatMap((m) =>
-    m[1].split(/[+,]/).flatMap((seg) => {
-      const range = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/);
-      if (range) {
-        const [a, b, w] = [+range[1], +range[2], range[1].length];
-        if (a > b) return [];   // backwards range → nothing (matches the expander)
-        return Array.from({ length: b - a + 1 }, (_, k) => `scn-${String(a + k).padStart(w, '0')}`);
-      }
-      const n = seg.match(/^(?:scn-)?(\d+)$/);
-      return n ? [`scn-${n[1]}`] : [];
-    }),
-  );
+  // launches green is flagged orphan here (or vice-versa). The expander lives in
+  // scripts/scenario-claims.mjs, shared with the §130b skipped-release check, so
+  // the two gates can never read a claim differently (FU-134).
+  const scns = expandScenarioClaims(t);
   return {
     f, hasLabel: (l) => new RegExp('`' + l + '`').test(lbl),
     labelsPresent: lbl.trim().length > 0,

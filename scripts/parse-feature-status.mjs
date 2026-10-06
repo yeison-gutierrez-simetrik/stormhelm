@@ -15,7 +15,11 @@
 // and every difference was a way for a feature to be skipped while a gate said
 // green. One reader removes the class instead of patching each case.
 //
-// The contract it reads (core/12 §58; feature files are English Gherkin):
+// The contract it reads (core/12 §58):
+//   - feature files are ENGLISH Gherkin — the readers know English keywords
+//     only, so a header `# language:` other than `en` is reported (a non-English
+//     feature would otherwise be read without its scenarios, and the §130b
+//     claimed-scn check would pass it unindexed);
 //   - the HEADER is the file's leading block of comment / blank lines; it ends at
 //     the first other line (a tag line or the Feature keyword line);
 //   - the STATUS is the first word of the header's first non-empty `# status:`
@@ -31,11 +35,16 @@
 //     Rule description a line like "But only within 30 days:" is prose, and a
 //     fence after it is plain text.
 //
+// It also returns `statusComments` — every `# status:` line it reads as a comment
+// (header or body; docstring content excluded, a comment trailing a tag line
+// excluded) — which the test suite checks against the real Gherkin parser's
+// golden output (scripts/__tests__/fixtures/gherkin-oracle.json).
+//
 // The same line scan yields each scenario's EFFECTIVE tags (Feature and Rule tags
 // inherited, an Examples block adding its own), which the §130b claimed-scn check
 // in check-skipped-release-scn.mjs reads — one scanner for both.
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const STATUS_COMMENT = /^\s*#+\s*status\s*:\s*(.*)$/i;
@@ -45,20 +54,26 @@ const KEYWORD = /^\s*(Feature|Business Need|Ability|Rule|Background|Scenario Out
 const STEP = /^\s*(Given|When|Then|And|But|\*)\s/;
 const tagsOf = (line) => line.replace(/\s+#.*$/, '').trim().split(/\s+/).filter((t) => t.startsWith('@'));
 
+const LANGUAGE = "feature files are English Gherkin: the framework's readers know English keywords only, so a feature in another language is read without its scenarios and the §130b claimed-scn check would pass it unindexed. Write the feature in English (`# language: en`, or no `# language:` line).";
 const MIDFILE = "a '# status:' after the header block (the leading comment block) is IGNORED — the runner reads the header's status only, so the feature keeps that status and its @release scenarios can be skipped while the run reports green (ISSUE #141). Move the status into the header block, or split the feature so each file carries one header status.";
 
 // Every .feature under `dir`, the way cucumber's `features/**/*.feature` glob sees
 // them: dotfiles and dot-directories are skipped (editor lock files such as
-// `.#x.feature` live there). Anything else that cannot be read throws — a broken
+// `.#x.feature` live there), and each REAL directory is walked once — a symlink
+// that aliases another directory, or points back at an ancestor, neither lists a
+// feature twice nor loops. Anything else that cannot be read throws — a broken
 // feature must fail loudly, never silently leave the CI surface. A missing dir
 // is empty.
-export function featureFiles(dir, acc = []) {
+export function featureFiles(dir, acc = [], seen = new Set()) {
   if (!existsSync(dir)) return acc;
+  const real = realpathSync(dir);
+  if (seen.has(real)) return acc;
+  seen.add(real);
   for (const e of readdirSync(dir)) {
     if (e.startsWith('.')) continue;
     const p = join(dir, e);
     const st = statSync(p);
-    if (st.isDirectory()) featureFiles(p, acc);
+    if (st.isDirectory()) featureFiles(p, acc, seen);
     else if (e.endsWith('.feature')) acc.push(p);
   }
   return acc;
@@ -70,13 +85,17 @@ export function parseFeatureStatus(text) {
   while (headerEnd < lines.length && /^\s*(#.*)?$/.test(lines[headerEnd])) headerEnd++;
   let status = null;
   let statusLine = 0;
-  for (let i = 0; i < headerEnd && !statusLine; i++) {
+  const problems = [];
+  const statusComments = [];
+  for (let i = 0; i < headerEnd; i++) {
     const m = STATUS_COMMENT.exec(lines[i]);
+    if (m) statusComments.push(i + 1);
     const word = m ? m[1].trim().split(/\s+/)[0] : '';
-    if (word) { status = word.toLowerCase(); statusLine = i + 1; }
+    if (word && !statusLine) { status = word.toLowerCase(); statusLine = i + 1; }
+    const lang = /^\s*#\s*language\s*:\s*(\S+)/i.exec(lines[i]);
+    if (lang && lang[1].toLowerCase() !== 'en') problems.push({ line: i + 1, kind: 'language', text: lines[i].trim(), message: LANGUAGE });
   }
 
-  const problems = [];
   const scenarios = [];
   let level = null;               // what the last keyword opened: feature | rule | scenario | examples
   let pending = [];               // tags waiting for the next keyword
@@ -89,7 +108,7 @@ export function parseFeatureStatus(text) {
     if (fence) { if (t.startsWith(fence)) fence = null; continue; }
     if (!t) continue;                                   // blank lines keep a tag block / step open
     if (t.startsWith('#')) {                            // comments never break a tag block either
-      if (STATUS_COMMENT.test(line)) problems.push({ line: i + 1, kind: 'mid-file', text: t, message: MIDFILE });
+      if (STATUS_COMMENT.test(line)) { statusComments.push(i + 1); problems.push({ line: i + 1, kind: 'mid-file', text: t, message: MIDFILE }); }
       continue;
     }
     if (t.startsWith('@')) {
@@ -122,5 +141,5 @@ export function parseFeatureStatus(text) {
     underStep = level === 'scenario' && STEP.test(line);
     pending = [];
   }
-  return { status, statusLine, headerEnd, problems, scenarios };
+  return { status, statusLine, headerEnd, problems, scenarios, statusComments };
 }

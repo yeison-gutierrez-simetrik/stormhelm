@@ -47,6 +47,7 @@
 
 import { readFileSync, statSync, existsSync } from 'node:fs';
 import { featureFiles, parseFeatureStatus } from './parse-feature-status.mjs';
+import { expandScenarioClaims } from './scenario-claims.mjs';
 
 // ISSUE #141: a sane exit contract so this wires plainly into a `pull_request`
 // CI job. rc 0 = clean · rc 1 = a genuine false-green risk · rc 2 ONLY on a
@@ -74,31 +75,14 @@ if (!existsSync(featuresDir) || !statSync(featuresDir).isDirectory()) {
 const scnKey = (digits) => `scn-${parseInt(digits, 10)}`;
 
 // --- claimed scns from the issue/spec `scenarios:` tokens -------------------
-// The grammar check-invariants and ralph_expand_scns read (they must agree): an
-// optional `scn-` prefix on every element, `+`/`,` lists, and `A..B` ranges whose
-// expansion keeps the start's zero padding (scn-001..scn-003 → scn-001, scn-002,
-// scn-003 — the FU-134 review found scn-1.. here, which never matched @scn-001).
-// Whitespace after `scenarios:` is tolerated only before an explicit `scn-`, so
-// "scenarios: 2 slices" is prose, not a claim. Returns the Set of claimed keys.
+// Read with scripts/scenario-claims.mjs — the same expander check-invariants uses
+// (FU-134 review), so the two can never read a claim differently. Returns
+// Map<key, id as claimed>.
 function claimedScns(files) {
-  const scns = new Set();
+  const scns = new Map();
   for (const f of files) {
     if (!existsSync(f)) continue;
-    const text = readFileSync(f, 'utf8');
-    for (const m of text.matchAll(/scenarios:(?:\s*(?=scn-))?((?:scn-)?\d+(?:(?:[,+]|\.\.)(?:scn-)?\d+)*)/gi)) {
-      for (const seg of m[1].split(/[,+]/)) {
-        const range = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/i);
-        if (range) {
-          const [a, b, w] = [+range[1], +range[2], range[1].length];
-          if (b >= a && b - a < 1000) {
-            for (let n = a; n <= b; n++) scns.add(scnKey(String(n).padStart(w, '0')));
-          }
-          continue;
-        }
-        const one = seg.match(/^(?:scn-)?(\d+)$/i);
-        if (one) scns.add(scnKey(one[1]));
-      }
-    }
+    for (const id of expandScenarioClaims(readFileSync(f, 'utf8'))) scns.set(scnKey(id.slice(4)), id);
   }
   return scns;
 }
@@ -137,8 +121,9 @@ function indexScenarios(parsed) {
 // header-only contract; a declaration after the header is the misuse that must
 // be loud, not silent. FU-134: the detection — and each problem's explanation —
 // live in parse-feature-status.mjs, the one reader the cucumber.mjs template
-// also imports.
-const LABEL = { 'mid-file': 'MID-FILE STATUS' };
+// also imports. The explanation is printed once per kind, after the list.
+const LABEL = { 'mid-file': 'MID-FILE STATUS', language: 'NON-ENGLISH FEATURE', unreadable: 'UNREADABLE' };
+const label = (kind) => LABEL[kind] ?? kind.toUpperCase();
 
 let features;
 try {
@@ -148,15 +133,17 @@ try {
   console.log(`  ✗ UNREADABLE ${e.path ?? featuresDir} — ${e.code ?? e.message}: a feature the runner should see cannot be read (a symlink whose target is missing?). Fix or remove it; it must never drop off the CI surface silently.`);
   process.exit(1);
 }
-const parsed = new Map(features.map((f) => {
-  const { status, problems: found, scenarios } = parseFeatureStatus(readFileSync(f, 'utf8'));
-  return [f, { status, problems: found, scenarios }];
-}));
-const problems = [];
-
-// (1) Status-line lint — ALWAYS (issue-independent; the silent-skip cause).
-for (const [file, { problems: found }] of parsed) {
-  for (const p of found) problems.push(`${LABEL[p.kind] ?? p.kind.toUpperCase()} ${file}:${p.line} \`${p.text}\` — ${p.message}`);
+const parsed = new Map();
+const problems = [];   // [{ file, line, kind, text, message }]
+for (const f of features) {
+  let text;
+  try { text = readFileSync(f, 'utf8'); } catch (e) {
+    problems.push({ file: f, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: 'a feature the runner should see cannot be read (permissions?) — fix it; it must never drop off the CI surface silently.' });
+    continue;
+  }
+  const { status, problems: found, scenarios } = parseFeatureStatus(text);
+  parsed.set(f, { status, scenarios });
+  for (const p of found) problems.push({ file: f, ...p });
 }
 
 // (2) §130b claimed-@release-scn check — only when issue files are given
@@ -164,35 +151,46 @@ for (const [file, { problems: found }] of parsed) {
 // @release scn (an approved feature with no claim) from a claimed-done-but-
 // skipped one (the issue claims it via scenarios: yet the runner skips its
 // feature — any header status but `implemented`; no status = legacy, it runs).
+// A claim that matches no scenario is named as unverified — it is Step 3's
+// count check's to judge, but it must never read as "implemented" here.
+const skippedClaims = [];
+const unresolved = [];
 let claimedCount = 0;
 if (issueFiles.length) {
   const claimed = claimedScns(issueFiles);
   claimedCount = claimed.size;
   if (claimed.size) {
     const idx = indexScenarios(parsed);
-    for (const key of claimed) {
+    for (const [key, id] of claimed) {
       const info = idx.get(key);
-      if (!info) continue;            // not found / not in features — Step-3 count check owns that
+      if (!info) { unresolved.push(id); continue; }
       if (!info.release) continue;    // only @release scns gate CI's definition of done
       if (info.status !== null && info.status !== 'implemented') {
-        problems.push(`${info.id} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
+        skippedClaims.push(`${info.id} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
       }
     }
   }
 }
+const unverified = unresolved.length ? `; ${unresolved.length} claimed scn(s) not found in features/ (${unresolved.join(', ')}) — not verified here, Step 3's count check owns them` : '';
 
-if (problems.length) {
+if (problems.length || skippedClaims.length) {
   console.log('SKIPPED-SCN GATE: FAIL');
-  for (const p of problems) console.log('  ✗ ' + p);
-  console.log('\nFix: keep `# status:` in the feature\'s FIRST comment block, and flip it to');
-  console.log('`# status: implemented` at close-out (§58). A deliverable @release scenario that');
-  console.log('does not actually run can never pass the acceptance gate silently (§130b, ISSUE #141).');
+  for (const p of problems) console.log(`  ✗ ${label(p.kind)} ${p.file}${p.line ? `:${p.line}` : ''} \`${p.text}\``);
+  for (const c of skippedClaims) console.log(`  ✗ ${c}`);
+  const kinds = [...new Map(problems.map((p) => [p.kind, p.message])).entries()];
+  if (kinds.length) console.log('');
+  for (const [kind, message] of kinds) console.log(`Why (${label(kind)}): ${message}`);
+  if (unverified) console.log(`\nNote${unverified.slice(1)}.`);
+  console.log('\nThe contract: exactly ONE `# status:` line, in the feature\'s FIRST comment block (§58). A');
+  console.log('deliverable @release scenario that does not actually run can never pass the acceptance gate');
+  console.log('silently (§130b, ISSUE #141).');
   process.exit(1);
 }
 
 if (issueFiles.length && claimedCount === 0) {
   console.log('SKIPPED-SCN GATE: na (no scenarios: tokens in the issue/spec; no mid-file status)');
 } else {
-  console.log(`SKIPPED-SCN GATE: ok (${features.length} feature(s) scanned; no mid-file status${issueFiles.length ? `; ${claimedCount} claimed scn(s), all @release ones implemented` : ', CI mode'})`);
+  const verified = claimedCount - unresolved.length;
+  console.log(`SKIPPED-SCN GATE: ok (${features.length} feature(s) scanned; no mid-file status${issueFiles.length ? `; ${verified} claimed scn(s) found, all @release ones implemented${unverified}` : ', CI mode'})`);
 }
 process.exit(0);

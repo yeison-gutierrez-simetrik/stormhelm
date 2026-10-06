@@ -43,18 +43,27 @@
 // import when adapting, and export nothing but the default: a named export here is
 // read by cucumber as a profile.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { featureFiles, parseFeatureStatus } from './scripts/parse-feature-status.mjs';
 
+// No features/ directory on the CI surface is a broken setup, not an empty one:
+// the run would select 0 scenarios and pass. (A fresh /setup has features/.keep.)
+if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1' && !existsSync('features')) {
+  throw new Error("[cucumber.mjs] no features/ directory — the CI surface would run 0 scenarios and pass. Create features/ (a fresh /setup adds features/.keep), or point this config's 'features' paths at where the project keeps them.");
+}
+
 // One read per feature: the status the runner honors + every `# status:` line it
-// cannot, each with the reader's own explanation.
+// cannot. Each offending line is listed; each kind's explanation — from the
+// reader — is printed once.
 const features = featureFiles('features').map((f) => ({ f, ...parseFeatureStatus(readFileSync(f, 'utf8')) }));
-const unread = features.flatMap(({ f, problems }) => problems.map((p) => `${f}:${p.line} (${p.kind}: ${p.text}) — ${p.message}`));
-if (unread.length) {
+const found = features.flatMap(({ f, problems }) => problems.map((p) => ({ f, ...p })));
+if (found.length) {
+  const why = [...new Map(found.map((p) => [p.kind, p.message])).entries()];
   const msg =
-    `[cucumber.mjs] ${unread.length} '# status:' problem(s) — this config reads ONE status per feature, from its ` +
+    `[cucumber.mjs] ${found.length} '# status:' problem(s) — this config reads ONE status per feature, from its ` +
     `header block, so each of these can skip @release scenarios while the run reports green (ISSUE #141 / ` +
-    `FOLLOW-UP 134):\n` + unread.map((s) => `  - ${s}`).join('\n');
+    `FOLLOW-UP 134):\n` + found.map((p) => `  - ${p.f}:${p.line} (${p.kind}: ${p.text})`).join('\n') + '\n' +
+    why.map(([kind, message]) => `Why (${kind}): ${message}`).join('\n');
   if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
   console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);
 }
