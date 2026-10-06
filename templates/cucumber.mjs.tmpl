@@ -22,6 +22,18 @@
 // rejected: it duplicates the `# status:` header into a second channel that
 // must rotate per-scenario at close-out (the FOLLOW-UP 49 label↔body fork
 // class). One source of truth, already enforced by INV-3/INV-8.
+//
+// MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is
+// read from the header block only, so a `# status: implemented` placed
+// per-scenario under an approved header is IGNORED — the whole feature is
+// skipped and the run reports green having never executed it (belong PRs
+// #350/#357). On the CI surface (CUCUMBER_IMPLEMENTED_ONLY=1, i.e.
+// test:acceptance / test:smoke) the config THROWS at load naming every
+// file:line; locally it warns on stderr and continues. This holds even if the
+// workflow's check-skipped-release-scn.mjs step is dropped. midFileStatus()
+// mirrors that script's break point on purpose (a parity test pins them); it
+// is duplicated, not imported, because this file is copied to the consumer
+// root and must stay self-contained.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -48,9 +60,36 @@ function statusOf(file) {
   return null; // no header → treated as implemented (legacy features)
 }
 
+function midFileStatus(file) {
+  // Line numbers of every `# status:` AFTER the header block — the same break
+  // point as statusOf() (the first Feature/@ line) and as
+  // check-skipped-release-scn.mjs findMidFileStatus(). A status that precedes
+  // that line, even past statusOf()'s 10-line read window, is still header.
+  const hits = [];
+  let pastHeader = false;
+  readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+    if (!pastHeader && /^\s*(Feature|@)/.test(line)) pastHeader = true;
+    else if (pastHeader && /^\s*#\s*status:\s*\w+/i.test(line)) hits.push(i + 1);
+  });
+  return hits;
+}
+
+const all = featureFiles('features');
+const midFile = all.flatMap((f) => midFileStatus(f).map((n) => `${f}:${n}`));
+if (midFile.length) {
+  const msg =
+    `[cucumber.mjs] ${midFile.length} mid-file '# status:' line(s) — status is read from the header block only, ` +
+    `so these are IGNORED and their feature keeps its header status (its @release scenarios can be skipped ` +
+    `while the run reports green — ISSUE #141 / FOLLOW-UP 134):\n` +
+    midFile.map((s) => `  - ${s}`).join('\n') +
+    `\nMove the status to the feature's header block (before its first Feature/@ line), ` +
+    `or split the feature so each file carries one header status.`;
+  if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
+  console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);
+}
+
 let paths = ['features/**/*.feature'];
 if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') {
-  const all = featureFiles('features');
   const implemented = [];
   const skipped = [];
   for (const f of all) {

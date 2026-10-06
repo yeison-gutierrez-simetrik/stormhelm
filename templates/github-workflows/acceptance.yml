@@ -64,6 +64,15 @@ jobs:
       - name: Invariant gate (§59/§63/§87)
         run: node scripts/check-invariants.mjs
 
+      # Skipped-release gate (FU-134, ISSUE #141): a `# status:` line after the
+      # header block is ignored by cucumber.mjs, so an approved feature with a
+      # per-scenario `implemented` is skipped while the suite reports green.
+      # CI mode (features dir alone) lints every feature; rc 1 names each
+      # offender as file:line. Green on an empty tree (features/.keep).
+      # Quoted: unquoted, YAML would read ` #141 …` as a comment.
+      - name: "Skipped-release gate (§130b, ISSUE #141 — CI mode)"
+        run: node scripts/check-skipped-release-scn.mjs features
+
       - name: Unit + integration tests
         run: pnpm test
 

@@ -1050,6 +1050,14 @@ claimed-scn check above. A bare in-planning `@release` scn (an approved feature
 with no claim and no mid-file status) is correctly NOT flagged — only a
 claimed-done-but-skipped scn or a silently-ignored mid-file status is.
 
+**Wired from a consumer's first PR (FOLLOW-UP 134).** The `/setup`
+acceptance template runs the CI mode as a `pull_request` step (after the
+invariant gate, before `@release`), and the shipped `cucumber.mjs` **fails
+closed at load** on a mid-file `# status:` under `IMPLEMENTED_ONLY` (it warns
+and continues locally) — so the false-green cannot ship even if the workflow
+step is dropped while tuning. Both parsers end the header block at the first
+`Feature`/`@` line; a parity test pins that they flag the same `file:line`s.
+
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
 `/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's
 result into the reviewer prompt; the reviewer treats `ran < expected` (any
@@ -1063,4 +1071,5 @@ miss (e.g. a claimed scn not in the issue's `scenarios:` token).
 Enforcement: (a) is a `/run-acceptance` Step 3b contract (a stack-agnostic
 script can't run an arbitrary consumer's BDD runner); (b) is mechanical
 (`check-skipped-release-scn.mjs`, run at acceptance AND as a standalone
-`pull_request` gate). Both make `outcome:green` mean what CI means.
+`pull_request` gate — the `/setup` template step — backed by `cucumber.mjs`'s
+fail-closed load, FU-134). Both make `outcome:green` mean what CI means.

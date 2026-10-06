@@ -141,6 +141,9 @@ function indexScenarios(files) {
 // false-green produced BY the §58-status mechanism itself (bit belong PRs
 // #350/#357). The status is a header-only contract; a `# status:` after the
 // header break is the misuse that must be loud, not silent.
+// FU-134: templates/cucumber.mjs.tmpl midFileStatus() duplicates this break
+// point + status regex (the template must stay self-contained) so the config
+// fails closed too; a parity test in __tests__/ pins both — change them together.
 function findMidFileStatus(files) {
   const offenders = [];
   for (const file of files) {

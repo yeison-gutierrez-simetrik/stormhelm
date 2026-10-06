@@ -11,8 +11,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -179,5 +179,75 @@ test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NO
     const r = runCI(dir);
     assert.notEqual(r.status, 2, 'a bare features-dir call must be wireable into CI (rc 0/1, never 2)');
     assert.equal(r.status, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── FOLLOW-UP 134 — lint ⇆ cucumber.mjs parity on "header block" ──────────
+// Two parsers now define where the header block ends: this lint
+// (findMidFileStatus) and the shipped cucumber.mjs template (midFileStatus,
+// duplicated because the template is copied to the consumer root and must stay
+// self-contained). Black-box parity: the same fixture goes through the real
+// lint (CI mode) and the real template config (local mode → warning list), and
+// both must name exactly the same file:line set.
+
+const TEMPLATE = join(here, '..', '..', 'templates', 'cucumber.mjs.tmpl');
+const notes = Array.from({ length: 10 }, (_, i) => `# note ${i + 1}`);
+const PARITY = [
+  { name: 'header-only status', expect: [],
+    body: ['# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'status after Feature:', expect: [4],
+    body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'status after a tag line', expect: [3],
+    body: ['# status: approved', '@release', '# status: implemented', 'Feature: X', '  @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'no status at all (legacy = implemented)', expect: [],
+    body: ['Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // Pinned as the lint behaves today: the break point is the first Feature/@
+  // line, NOT the 10-line read window — a status on line 11 still sits in the
+  // header block, so neither parser flags it. (statusOf() does not READ it
+  // either — the feature runs as legacy/implemented, where strict mode makes an
+  // unimplemented one loud, not a silent skip; asserted below.)
+  { name: 'status on line 11, no Feature/@ before it', expect: [],
+    body: [...notes, '# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+];
+
+function parityRepo(body) {
+  const dir = mkdtempSync(join(tmpdir(), 'parity-'));
+  mkdirSync(join(dir, 'features'), { recursive: true });
+  writeFileSync(join(dir, 'features', 'f.feature'), body.join('\n') + '\n');
+  copyFileSync(TEMPLATE, join(dir, 'cucumber.mjs'));
+  return dir;
+}
+const lines = (text) => [...text.matchAll(/features\/f\.feature:(\d+)/g)].map((m) => +m[1]);
+const loadConfig = (dir, env = {}) => {
+  const r = spawnSync('node', ['-e', `
+    import(${JSON.stringify(pathToFileURL(join(dir, 'cucumber.mjs')).href)})
+      .then((m) => console.log(JSON.stringify(m.default.paths)));
+  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, CUCUMBER_IMPLEMENTED_ONLY: '', ...env } });
+  return { status: r.status, stderr: r.stderr, paths: r.status === 0 ? JSON.parse(r.stdout) : null };
+};
+
+for (const fx of PARITY) {
+  test(`FU-134 parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, () => {
+    const dir = parityRepo(fx.body);
+    try {
+      const lint = spawnSync('node', [GATE, 'features'], { cwd: dir, encoding: 'utf8' });
+      const local = loadConfig(dir);
+      const ci = loadConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+      assert.deepEqual(lines(lint.stdout), fx.expect, `lint:\n${lint.stdout}`);
+      assert.deepEqual(lines(local.stderr), fx.expect, `cucumber.mjs (local warn):\n${local.stderr}`);
+      assert.deepEqual(lines(local.stderr), lines(lint.stdout), 'the two parsers agree');
+      assert.equal(lint.status, fx.expect.length ? 1 : 0, 'lint rc tracks the finding');
+      assert.equal(local.status, 0, 'local load never throws');
+      assert.equal(ci.status === 0, fx.expect.length === 0, `CI load throws iff there is a finding:\n${ci.stderr}`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
+test('FU-134 parity: a line-11 status is not READ by statusOf() — the feature runs as legacy/implemented', () => {
+  const dir = parityRepo(PARITY.at(-1).body);
+  try {
+    const ci = loadConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.equal(ci.status, 0, ci.stderr);
+    assert.deepEqual(ci.paths, ['features/f.feature'], 'on the CI surface (strict) — loud if unimplemented, never a silent skip');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -564,7 +564,8 @@ jq '.packageManager //= "pnpm@9.15.0"
 #     `# status: implemented` features and LOGS what it skips. The filter
 #     must live INSIDE the config (cucumber-js v12 MERGES config paths with
 #     CLI paths — a file-list wrapper is a silent no-op; see the template
-#     header).
+#     header). It also FAILS CLOSED at load on a mid-file `# status:` under
+#     the flag (FU-134, ISSUE #141) — keep that block when adapting.
 cp "$STORMHELM_PATH/templates/cucumber.mjs.tmpl" cucumber.mjs   # adapt if a config exists
 
 # 1. @release runs in CI before merge → the acceptance workflow:
@@ -577,7 +578,11 @@ cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows
 #  the consumer-runtime scripts this setup vendors, and it reads N/A-green
 #  on an empty tree, so no extra wiring is needed. Do NOT drop that step
 #  when tuning: without it INV-* red states merge silently and accumulate
-#  on the trunk until they block an innocent slice's /run-acceptance.)
+#  on the trunk until they block an innocent slice's /run-acceptance.
+#  The template also includes the skipped-release gate (FU-134, ISSUE
+#  #141: `node scripts/check-skipped-release-scn.mjs features`, CI mode,
+#  green on an empty tree) — do not drop it when tuning either: a mid-file
+#  `# status:` otherwise skips a feature's @release scns while CI is green.)
 
 # 2. @smoke runs on every push → the pre-push hook (plain invocation —
 #    the test:smoke script owns the tag, see prerequisite 0):
@@ -620,7 +625,7 @@ After generation, the skill runs a self-check:
    This gates on exit 0, so it also catches the next wiring-breakage class for free (a lost exec bit, a bad shebang, a future path-scheme change) — not just the quoting. If it is non-zero, the destructive-git guard is silently absent, exactly the failure §68 forbids.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
-8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44).
+8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44). AND the tuned workflow still carries the skipped-release gate (FU-134, ISSUE #141): `grep -q "check-skipped-release-scn.mjs features" .github/workflows/acceptance.yml` — a tuning pass that drops it lets a mid-file `# status:` skip a feature's `@release` scns while CI is green.
 9. Print a summary:
 
 ```
@@ -669,6 +674,7 @@ The framework is adopted by **copying** files (README Phase 0 + the copy step ab
    - `.claude/skills/`, `.claude/agents/`, `.claude/hooks/` (+ `hooks/README.md`)
    - the consumer-runtime `scripts/` set (the `for s in …` list above) — re-stamped automatically
    - `docs/engineering/` (the `§N` rules), then re-run the AGENTS.md generation (it prompts before overwriting your personalized index).
+   - **Template-installed, consumer-tuned** — `.github/workflows/acceptance.yml` and `cucumber.mjs` are *not* overwritten (they carry your stack tuning), so a re-sync never delivers new gates in them by itself. Diff each against `$STORMHELM_PATH/templates/` and port the framework gates you are missing — today: the invariant-gate step (FU-123), the skipped-release-gate step `node scripts/check-skipped-release-scn.mjs features` (FU-134), and the mid-file-`# status:` fail-closed block in `cucumber.mjs` (FU-134). Validation step 8 checks the skipped-release step.
 3. **Never touch product-owned artifacts** — these are yours, the framework does not own them:
    `docs/constitution.md`, `docs/CONTEXT.md`, `docs/slos.md`, `docs/specs/`, `docs/adr/`, `docs/decisions/`, `docs/audit/`, `features/`, `issues/`, `src/`, and your `.claude/settings.json` customizations.
 4. **Verify:** `node scripts/check-invariants.mjs` + your test suite still pass; the stamps now show the new `<sha>`.
