@@ -174,7 +174,7 @@ test('#141: CI mode catches a mid-file status with NO issue file → FAIL exit 1
 
 test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NOT rc 2', () => {
   const noArgs = spawnSync('node', [GATE], { encoding: 'utf8' });
-  assert.equal(noArgs.status, 2, 'no args is the only rc=2 case');
+  assert.equal(noArgs.status, 2, 'no args → rc 2 (usage)');
   const dir = setupFeature('# status: implemented\nFeature: X\n\n  @scn-1\n  Scenario: s\n    Given g\n');
   try {
     const r = runCI(dir);
@@ -233,11 +233,21 @@ const PARITY = [
   { name: 'a fence in the Feature description is text, not a docstring', expect: [4], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
-    body: ['# status: implemented (scn-835 delivered — issue #551)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+    body: ['# status: implemented (scn-042 delivered — issue #12)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'indented header status is read', expect: [], reads: 'approved',
     body: ['  # status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'a UTF-8 BOM before the header status', expect: [], reads: 'approved',
     body: ['﻿# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // Review round 3: a Feature/Rule description line may start with a step word
+  // ("But only within 30 days:") — it is prose there, so a fence after it is
+  // text, not a docstring that would hide everything below it.
+  { name: 'a step-like description line does not open a docstring', expect: [5], reads: 'approved',
+    body: ['# status: approved', 'Feature: Refunds', '  But only within 30 days, e.g.:', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // Review round 3: near-miss spellings of the key are status lines too.
+  { name: 'near-miss keys after the header (`##`, `# status :`) are reported', expect: [3, 4], reads: 'approved',
+    body: ['# status: approved', 'Feature: X', '  ## status: implemented', '  # Status : implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'a near-miss key in the header is read as the status', expect: [], reads: 'approved',
+    body: ['## status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'CRLF line endings', expect: [4], reads: 'approved', eol: '\r\n',
     body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
 ];
@@ -368,4 +378,41 @@ test('FU-134: §130b reads zero-padded ranges and the bare-number form', () => {
       assert.match(r.stdout, /scn-002 — @release/, claim);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+// Review round 3: the index kept the first entry per scn id, so a scn tagged on
+// a Scenario Outline lost the `@release` that only its Examples block carried.
+test('FU-134: §130b sees @release that only an Examples block carries', () => {
+  const dir = setupFeature([
+    '# status: approved', 'Feature: X', '',
+    '  @scn-003',
+    '  Scenario Outline: refund <n>',
+    '    Given <n>',
+    '',
+    '    @release',
+    '    Examples:',
+    '      | n |',
+    '      | 1 |',
+    '',
+  ].join('\n'));
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'scenarios:scn-003\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /scn-003 — @release but its feature is "# status: approved"/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 3: the walk skipped EVERY unreadable entry, so a feature behind a
+// broken symlink silently left the CI surface. Only dotfiles are skipped (as
+// cucumber's own glob does — editor lock files like `.#x.feature` live there);
+// anything else unreadable fails loudly.
+test('FU-134: an unreadable non-dotfile feature fails loudly instead of vanishing', () => {
+  const dir = setupFeature('# status: implemented\nFeature: X\n\n  @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'shared.feature'));
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /UNREADABLE .*shared\.feature/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -7,13 +7,14 @@
 // `# status: approved` feature files. The documented practice writes scns
 // `approved` first and flips to `implemented` only at close-out — so a @release
 // scn an issue CLAIMS to deliver (its `scenarios:` token) that still lives in an
-// approved feature is SKIPPED by CI, and CI goes green having never run it
-// (live: slice-40b D-11 scn-566). A referenced-but-not-executed scenario is a
+// approved feature is SKIPPED by CI, and CI goes green having never run it (a
+// consumer shipped exactly that). A referenced-but-not-executed scenario is a
 // gate failure, not a silent skip.
 //
 // This gate, run AT ACCEPTANCE: given the issue's `scenarios:` tokens and the
 // features dir, it FAILS naming any claimed @release scn whose feature would be
-// skipped under IMPLEMENTED_ONLY (its `# status:` header is not `implemented`) —
+// skipped under IMPLEMENTED_ONLY (it has a header status, and that status is not
+// `implemented`; a header-less legacy feature runs, so it is not flagged) —
 // so the skip is observable in /tdd, not discovered by the §114 reviewer or a
 // production deploy. Pairs with the §58 approved→implemented close-out flip, but
 // is the durable fix: it does not rely on the human remembering the flip.
@@ -34,10 +35,13 @@
 //     AFTER the header block (the leading comment block — read by the shared
 //     parse-feature-status.mjs, the same reader cucumber.mjs uses) → FAIL, named.
 //   - <features-dir> ALONE  → CI mode: just the lint (issue-independent backstop).
+//   - A features dir that does not exist → rc 2. A feature that cannot be read
+//     (not a dotfile — a symlink whose target is missing) → FAIL, named.
 //   - <features-dir> <issue-file…> → ALSO the §130b claimed-scn check: extracts
 //     claimed scns from each `scenarios:` token (compact forms scn-A,scn-B /
-//     scn-A+B / scn-A..B) and FAILs naming any claimed @release scn whose feature
-//     is not `# status: implemented` (would be skipped under IMPLEMENTED_ONLY).
+//     scn-A+B / scn-A..B, bare numbers — the check-invariants grammar) and FAILs
+//     naming any claimed @release scn whose feature the runner skips under
+//     IMPLEMENTED_ONLY (a header status other than `implemented`).
 //   - Clean → `SKIPPED-SCN GATE: ok`; issue with no scenarios token + no mid-file
 //     status → `na`. Any problem → `SKIPPED-SCN GATE: FAIL` + offenders, exit 1.
 
@@ -75,9 +79,9 @@ const scnKey = (digits) => `scn-${parseInt(digits, 10)}`;
 // expansion keeps the start's zero padding (scn-001..scn-003 → scn-001, scn-002,
 // scn-003 — the FU-134 review found scn-1.. here, which never matched @scn-001).
 // Whitespace after `scenarios:` is tolerated only before an explicit `scn-`, so
-// "scenarios: 2 slices" is prose, not a claim. Returns Map<key, id as claimed>.
+// "scenarios: 2 slices" is prose, not a claim. Returns the Set of claimed keys.
 function claimedScns(files) {
-  const scns = new Map();
+  const scns = new Set();
   for (const f of files) {
     if (!existsSync(f)) continue;
     const text = readFileSync(f, 'utf8');
@@ -87,90 +91,72 @@ function claimedScns(files) {
         if (range) {
           const [a, b, w] = [+range[1], +range[2], range[1].length];
           if (b >= a && b - a < 1000) {
-            for (let n = a; n <= b; n++) { const d = String(n).padStart(w, '0'); scns.set(scnKey(d), `scn-${d}`); }
+            for (let n = a; n <= b; n++) scns.add(scnKey(String(n).padStart(w, '0')));
           }
           continue;
         }
         const one = seg.match(/^(?:scn-)?(\d+)$/i);
-        if (one) scns.set(scnKey(one[1]), `scn-${one[1]}`);
+        if (one) scns.add(scnKey(one[1]));
       }
     }
   }
   return scns;
 }
 
-// Map scn key -> { id, file, status, release }. Mirrors how cucumber tags a
-// scenario (the FU-134 review: each case below was missed, so a claimed @release
-// scn read "implemented" while the runner skipped it):
-//   - Feature and Rule tags are inherited by every scenario under them;
-//   - `Scenario`, `Example`, `Scenario Outline` and `Scenario Template` are all
-//     scenarios, and an `Examples` block adds its own tags to its outline's;
-//   - blank lines and comments may sit inside a tag block; any other line
-//     (a step, a description, a table row) ends it; docstring content is data.
-// The status is the runner's own reading (parseFeatureStatus), not a regex of
-// our own (the review: `\w+` read 'implemented' from `implemented-wip`).
-const KEYWORD = /^(Feature|Business Need|Ability|Rule|Background|Scenario Outline|Scenario Template|Scenario|Example|Examples|Scenarios):/;
-const STEP = /^(Given|When|Then|And|But|\*)\s/;
-const tagsOf = (line) => line.replace(/\s+#.*$/, '').split(/\s+/).filter((t) => t.startsWith('@'));
+// Map scn key -> { id, file, status, release }, from the scenarios the shared
+// reader scans with their EFFECTIVE tags — Feature and Rule tags inherited,
+// `Scenario` / `Example` / `Scenario Outline` / `Scenario Template`, an Examples
+// block adding its own tags (the FU-134 reviews: each case was missed, so a
+// claimed @release scn read "implemented" while the runner skipped it). An id
+// seen again in the same file ORs its @release flag (an outline's scn whose
+// Examples block alone carries @release is still @release). The status is the
+// runner's own reading.
 function indexScenarios(parsed) {
   const idx = new Map();
-  for (const [file, { text, status }] of parsed) {
-    const add = (tags) => {
+  for (const [file, { status, scenarios }] of parsed) {
+    for (const { tags } of scenarios) {
       const release = tags.includes('@release');
       for (const t of tags) {
         const m = t.match(/^@scn-(\d+)$/);
-        if (m && !idx.has(scnKey(m[1]))) idx.set(scnKey(m[1]), { id: `scn-${m[1]}`, file, status, release });
+        if (!m) continue;
+        const prev = idx.get(scnKey(m[1]));
+        if (!prev) idx.set(scnKey(m[1]), { id: `scn-${m[1]}`, file, status, release });
+        else if (prev.file === file) prev.release ||= release;
       }
-    };
-    let pending = [], feature = [], rule = [], outline = [];
-    let fence = null, underStep = false;
-    for (const line of text.split(/\r?\n/)) {
-      const t = line.trim();
-      if (fence) { if (t.startsWith(fence)) fence = null; continue; }
-      const open = t.match(/^("""|```)/);
-      if (open && underStep) { fence = open[1]; continue; }
-      if (!t || t.startsWith('#')) continue;
-      if (t.startsWith('@')) { pending.push(...tagsOf(t)); continue; }
-      const kw = t.match(KEYWORD);
-      underStep = !kw && STEP.test(t);
-      if (!kw) { pending = []; continue; }
-      switch (kw[1]) {
-        case 'Feature': case 'Business Need': case 'Ability': feature = pending; rule = []; break;
-        case 'Rule': rule = pending; break;
-        case 'Background': break;
-        case 'Examples': case 'Scenarios': add([...outline, ...pending]); break;
-        default: outline = [...feature, ...rule, ...pending]; add(outline);
-      }
-      pending = [];
     }
   }
   return idx;
 }
 
-// ISSUE #141 — mid-file `# status:` lint. The runner reads the status ONLY from
-// the header (the leading comment block), so a `# status: implemented` placed
+// ISSUE #141 — the status-line lint. The runner reads the status ONLY from the
+// header (the leading comment block), so a `# status: implemented` placed
 // per-scenario / mid-file is SILENTLY IGNORED: the whole approved/draft feature
 // is excluded under IMPLEMENTED_ONLY and its @release scenarios never run — yet
 // the gate reports green. This is the §106 false-green produced BY the
-// §58-status mechanism itself (bit belong PRs #350/#357). The status is a
+// §58-status mechanism itself (a consumer shipped it twice). The status is a
 // header-only contract; a declaration after the header is the misuse that must
-// be loud, not silent. FU-134: the detection lives in parse-feature-status.mjs,
-// the one reader the cucumber.mjs template also imports.
-const MESSAGES = {
-  default: (file, p) => `STATUS LINE ${file}:${p.line} \`${p.text}\` — a '# status:' the runner cannot honor (${p.kind}).`,
-  'mid-file': (file, p) => `MID-FILE STATUS ${file}:${p.line} \`${p.text}\` — a '# status:' AFTER the header block (the leading comment block) is IGNORED by cucumber.mjs; the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`,
-};
+// be loud, not silent. FU-134: the detection — and each problem's explanation —
+// live in parse-feature-status.mjs, the one reader the cucumber.mjs template
+// also imports.
+const LABEL = { 'mid-file': 'MID-FILE STATUS' };
 
-const features = featureFiles(featuresDir);
+let features;
+try {
+  features = featureFiles(featuresDir);
+} catch (e) {
+  console.log('SKIPPED-SCN GATE: FAIL');
+  console.log(`  ✗ UNREADABLE ${e.path ?? featuresDir} — ${e.code ?? e.message}: a feature the runner should see cannot be read (a symlink whose target is missing?). Fix or remove it; it must never drop off the CI surface silently.`);
+  process.exit(1);
+}
 const parsed = new Map(features.map((f) => {
-  const text = readFileSync(f, 'utf8');
-  return [f, { text, ...parseFeatureStatus(text) }];
+  const { status, problems: found, scenarios } = parseFeatureStatus(readFileSync(f, 'utf8'));
+  return [f, { status, problems: found, scenarios }];
 }));
 const problems = [];
 
 // (1) Status-line lint — ALWAYS (issue-independent; the silent-skip cause).
 for (const [file, { problems: found }] of parsed) {
-  for (const p of found) problems.push((MESSAGES[p.kind] ?? MESSAGES.default)(file, p));
+  for (const p of found) problems.push(`${LABEL[p.kind] ?? p.kind.toUpperCase()} ${file}:${p.line} \`${p.text}\` — ${p.message}`);
 }
 
 // (2) §130b claimed-@release-scn check — only when issue files are given
@@ -184,7 +170,7 @@ if (issueFiles.length) {
   claimedCount = claimed.size;
   if (claimed.size) {
     const idx = indexScenarios(parsed);
-    for (const key of claimed.keys()) {
+    for (const key of claimed) {
       const info = idx.get(key);
       if (!info) continue;            // not found / not in features — Step-3 count check owns that
       if (!info.release) continue;    // only @release scns gate CI's definition of done

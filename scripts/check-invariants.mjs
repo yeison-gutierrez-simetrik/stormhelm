@@ -30,13 +30,16 @@
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
 // anywhere in the repo (the reason is logged and stays auditable in git).
-// Zero npm dependencies (imports only the sibling parser/detector, which /setup
+// Zero npm dependencies (imports only the sibling parsers/detector, which /setup
 // installs alongside this script). Exit 0 = all met (or N/A), 1 = a blocking failure.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseFile } from './parse-layers-affected.mjs';
 import { detectCeremony } from './detect-ceremony.mjs';
+// The features the runner sees, listed the way the runner lists them (FU-134):
+// symlinked directories followed, dotfiles skipped, a broken feature loud.
+import { featureFiles as listFeatureFiles } from './parse-feature-status.mjs';
 
 const walk = (dir, re, acc = []) => {
   if (!existsSync(dir)) return acc;
@@ -56,7 +59,7 @@ const read = (f) => readFileSync(f, 'utf8');
 // `.planning/issues/` is also accepted for projects that keep them with planning
 // evidence. Both are scanned so the gate runs regardless of the project's choice.
 const issueFiles = [...walk('issues', /^\d.*\.md$/), ...walk('.planning/issues', /^\d.*\.md$/)];
-const featureFiles = walk('features', /\.feature$/);
+const featureFiles = listFeatureFiles('features');
 const sads = walk('docs/architecture', /\.md$/).filter((f) => !/INDEX/i.test(f));
 const threats = walk('docs/threat-models', /\.md$/).filter((f) => !/TEMPLATE/i.test(f));
 // PR-I: docs/decisions/ now holds rationale (grilling, clarify-logs, open-questions),

@@ -109,6 +109,20 @@ test('a dangling symlink in features/ does not crash the gate', () => {
   assert.equal(status, 0, out);
 });
 
+// Review round 3: the invariant gate listed features with its own walk, which
+// does not follow a symlinked directory — the runner (and the lint) do, so the
+// gate audited a different feature set. It now uses the shared featureFiles().
+test('INV-8 sees an implemented feature inside a symlinked features directory', () => {
+  const { status, out } = runMutated((dir) => {
+    mkdirSync(join(dir, 'shared-features'), { recursive: true });
+    writeFileSync(join(dir, 'shared-features', 'x.feature'),
+      '# status: implemented\nFeature: X\n\n  @smoke @scn-900\n  Scenario: s\n    Given g\n');
+    symlinkSync(join(dir, 'shared-features'), join(dir, 'features', 'shared'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-8/, 'the implemented feature is seen and needs its -final matrix');
+});
+
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
   const { status, out } = runMutated((dir) => {
     const p = join(dir, 'docs/adr/0001-auth-approach.md');

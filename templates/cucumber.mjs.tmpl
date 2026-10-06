@@ -23,40 +23,38 @@
 // must rotate per-scenario at close-out (the FOLLOW-UP 49 label↔body fork
 // class). One source of truth, already enforced by INV-3/INV-8.
 //
-// MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is
-// read from the header only — the file's leading comment block — so a
+// MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is read
+// from the header only — the file's leading comment block — so a
 // `# status: implemented` placed per-scenario under an approved header is
 // IGNORED: the whole feature is skipped and the run reports green having never
-// executed it (belong PRs #350/#357). On the CI surface
-// (CUCUMBER_IMPLEMENTED_ONLY=1, i.e. test:acceptance / test:smoke) the config
-// THROWS at load naming every file:line; locally it warns on stderr and
-// continues. This holds even if the workflow's check-skipped-release-scn.mjs
-// step is dropped. One throw blocks every flagged run repo-wide (pre-push smoke
-// included) until the file is fixed — fail closed by design.
+// executed it. On the CI surface (CUCUMBER_IMPLEMENTED_ONLY=1, i.e.
+// test:acceptance / test:smoke) the config THROWS at load naming every
+// file:line; locally it warns on stderr and continues. This holds even if the
+// workflow's check-skipped-release-scn.mjs step is dropped. One throw blocks
+// every flagged run repo-wide (pre-push smoke included) until the file is fixed
+// — fail closed by design.
 //
 // parseFeatureStatus() is the ONE reader of `# status:` — the status this config
-// honors and the declarations it cannot. It is IMPORTED from
+// honors and the lines it cannot, each with its explanation. It is IMPORTED from
 // scripts/parse-feature-status.mjs, the same module check-skipped-release-scn.mjs
 // uses; /setup vendors it beside this file. Import, not copy: a re-sync refreshes
-// scripts/ but never this (consumer-tuned) config, so a copy would drift from the
-// lint on the first change to the reader. Keep the import when adapting this
-// file, and export nothing but the default: a named export here is read by
-// cucumber as a profile.
+// scripts/ but never this (consumer-tuned) config. If this config does not sit at
+// the repo root next to scripts/, point the import at the vendored copy. Keep the
+// import when adapting, and export nothing but the default: a named export here is
+// read by cucumber as a profile.
 
 import { readFileSync } from 'node:fs';
 import { featureFiles, parseFeatureStatus } from './scripts/parse-feature-status.mjs';
 
-// One read per feature: the status the runner honors + the declarations it cannot.
+// One read per feature: the status the runner honors + every `# status:` line it
+// cannot, each with the reader's own explanation.
 const features = featureFiles('features').map((f) => ({ f, ...parseFeatureStatus(readFileSync(f, 'utf8')) }));
-const unread = features.flatMap(({ f, problems }) => problems.map((p) => `${f}:${p.line} (${p.kind}: ${p.text})`));
+const unread = features.flatMap(({ f, problems }) => problems.map((p) => `${f}:${p.line} (${p.kind}: ${p.text}) — ${p.message}`));
 if (unread.length) {
   const msg =
-    `[cucumber.mjs] ${unread.length} '# status:' declaration(s) this config never reads — status is read from the ` +
-    `header block only (the leading comment block), so their feature keeps its header status and its @release ` +
-    `scenarios can be skipped while the run reports green (ISSUE #141 / FOLLOW-UP 134):\n` +
-    unread.map((s) => `  - ${s}`).join('\n') +
-    `\nMove the status to the feature's header block (before its first tag / Feature line), ` +
-    `or split the feature so each file carries one header status.`;
+    `[cucumber.mjs] ${unread.length} '# status:' problem(s) — this config reads ONE status per feature, from its ` +
+    `header block, so each of these can skip @release scenarios while the run reports green (ISSUE #141 / ` +
+    `FOLLOW-UP 134):\n` + unread.map((s) => `  - ${s}`).join('\n');
   if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
   console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);
 }

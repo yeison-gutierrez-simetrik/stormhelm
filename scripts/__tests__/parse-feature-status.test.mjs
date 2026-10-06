@@ -48,10 +48,13 @@ test('FU-134: reader contract — status, the line it came from, and where the h
 test('FU-134: a mid-file status declaration is reported with its line and text', async () => {
   const { parseFeatureStatus } = await load();
   const r = parseFeatureStatus('# status: approved\nFeature: X\n\n  # status: implemented\n  @release @scn-1\n');
-  assert.deepEqual(r.problems, [{ line: 4, kind: 'mid-file', text: '# status: implemented' }]);
+  assert.deepEqual(r.problems.map(({ line, kind, text }) => ({ line, kind, text })), [{ line: 4, kind: 'mid-file', text: '# status: implemented' }]);
+  // The explanation travels WITH the problem (review round 3): the lint and the
+  // consumer's cucumber.mjs both print it, and a re-sync refreshes it in one place.
+  assert.match(r.problems[0].message, /IGNORED/);
 });
 
-test('FU-134: featureFiles walks features/ and skips an unreadable entry (an editor lock symlink)', async () => {
+test('FU-134: featureFiles skips dotfiles (an editor lock symlink) but fails loudly on any other unreadable entry', async () => {
   const { featureFiles } = await load();
   const dir = mkdtempSync(join(tmpdir(), 'pfs-walk-'));
   try {
@@ -61,7 +64,25 @@ test('FU-134: featureFiles walks features/ and skips an unreadable entry (an edi
     symlinkSync(join(dir, 'nonexistent'), join(dir, '.#lock.feature'));
     assert.deepEqual(featureFiles(dir), [join(dir, 'a', 'x.feature')]);
     assert.deepEqual(featureFiles(join(dir, 'missing')), [], 'a missing dir is empty, not a crash');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'shared.feature'));
+    assert.throws(() => featureFiles(dir), /ENOENT/, 'a broken feature must not vanish silently');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134: scenarios carry their effective tags (Feature/Rule inheritance, Examples blocks)', async () => {
+  const { parseFeatureStatus } = await load();
+  const r = parseFeatureStatus([
+    '# status: approved', '@release', 'Feature: X', '  But a description line, not a step:', '  ```',
+    '  @scn-1', '  Scenario: a', '    Given g',
+    '  @smoke', '  Rule: r', '    @scn-2', '    Example: b', '      Given g',
+    '    @scn-3', '    Scenario Outline: c', '      Given <n>', '      @nightly', '      Examples:', '        | n |', '        | 1 |',
+  ].join('\n'));
+  assert.deepEqual(r.scenarios.map((x) => x.tags), [
+    ['@release', '@scn-1'],
+    ['@release', '@smoke', '@scn-2'],
+    ['@release', '@smoke', '@scn-3'],
+    ['@release', '@smoke', '@scn-3', '@nightly'],
+  ]);
 });
 
 test('FU-134 review: any `# status:` line after the header is reported, whatever its value', async () => {

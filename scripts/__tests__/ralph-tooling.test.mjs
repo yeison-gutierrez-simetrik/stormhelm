@@ -440,7 +440,7 @@ test('FU-50: zero implemented features → benign glob + explicit log, never pat
 
 // FOLLOW-UP 134 (ISSUE #141): the config reads `# status:` from the header
 // only, so a mid-file `# status: implemented` under an approved header is
-// ignored → the feature is skipped and the run is green (belong PRs #350/#357).
+// ignored → the feature is skipped and the run is green (a consumer hit this twice).
 // The config must not depend on the CI lint step surviving: under the flag it
 // THROWS at load naming every file:line; locally it warns and keeps going.
 function midFileFixture(dir) {
@@ -509,6 +509,21 @@ test('FU-134: a dangling symlink in features/ does not crash the config (local o
     const on = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
     assert.equal(on.status, 0, on.stderr);
     assert.deepEqual(on.paths, ['features/done.feature']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 3: an unreadable feature that is not a dotfile (a symlink whose
+// target is missing in the checkout) must fail the load — never silently drop
+// off the CI surface.
+test('FU-134: an unreadable non-dotfile feature fails the config load', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134u-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented\nFeature: Done\n');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'shared.feature'));
+    const on = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notEqual(on.status, 0, 'the feature must not silently vanish from the CI surface');
+    assert.match(on.stderr, /shared\.feature/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
