@@ -111,3 +111,60 @@ test('FU-134: a `# language:` other than en is reported; en is not', async () =>
   assert.deepEqual(parseFeatureStatus('# language: de\n# status: approved\nFunktionalität: X\n').problems.map((p) => [p.line, p.kind]), [[1, 'language']]);
   assert.deepEqual(parseFeatureStatus('# language: en\n# status: approved\nFeature: X\n').problems, []);
 });
+
+// ── FOLLOW-UP 135 — the header must hold ONE status line, starting with a state ──
+test('FU-135: a second header status declaration is a duplicate anchored on the read line', async () => {
+  const { parseFeatureStatus } = await load();
+  const r = parseFeatureStatus('# status: approved\n# status: implemented\nFeature: X\n');
+  assert.equal(r.status, 'approved');
+  assert.deepEqual(r.problems.map(({ message, ...rest }) => rest),
+    [{ line: 2, kind: 'duplicate', text: '# status: implemented', readLine: 1, detail: "the runner reads line 1 ('approved')" }]);
+  assert.match(r.problems[0].message, /exactly ONE '# status:' line/, 'the per-kind explanation travels with the problem');
+});
+
+test('FU-135: a read value outside the §58 states is invalid; an empty one is not read', async () => {
+  const { parseFeatureStatus, STATES, HEADER_STATUS_KINDS } = await load();
+  assert.deepEqual(STATES, ['draft', 'clarifying', 'approved', 'implemented', 'retired']);
+  assert.deepEqual(HEADER_STATUS_KINDS, ['duplicate', 'invalid', 'transition', 'empty']);
+  const bad = parseFeatureStatus('# status: implemented.\nFeature: X\n');
+  assert.equal(bad.status, 'implemented.');
+  assert.deepEqual(bad.problems.map(({ message, ...rest }) => rest),
+    [{ line: 1, kind: 'invalid', text: '# status: implemented.', value: 'implemented.', detail: "reads the status as 'implemented.'" }]);
+  const empty = parseFeatureStatus('# status:\nFeature: X\n');
+  assert.equal(empty.status, null, 'an empty status is not read');
+  assert.deepEqual(empty.problems.map(({ message, ...rest }) => rest), [{ line: 1, kind: 'empty', text: '# status:' }]);
+});
+
+test('FU-135 review: an extra header line counts whatever it says; a written-in transition is reported', async () => {
+  const { parseFeatureStatus } = await load();
+  const prose = parseFeatureStatus('# Status: reviewed by legal\n# status: implemented\nFeature: X\n');
+  assert.equal(prose.status, 'reviewed', 'the first non-empty status line IS read — prose there is a misread status');
+  assert.deepEqual(prose.problems.map((p) => [p.line, p.kind]), [[1, 'invalid'], [2, 'duplicate']]);
+  const arrow = parseFeatureStatus('# status: approved → implemented\nFeature: X\n');
+  assert.equal(arrow.status, 'approved');
+  assert.deepEqual(arrow.problems.map((p) => [p.line, p.kind, p.value]), [[1, 'transition', 'approved']]);
+});
+
+// Review round 4: the transition rule is "an arrow (any shape) leading to a state
+// word, `to`/`then` + a state, or a bare second state word". The first version
+// matched any separator after the state (a false failure on legal prose) and
+// missed an arrow with a word or a bracket before the new state (a false green).
+test('FU-135 review: a transition is caught in any notation, with words or brackets before the new state', async () => {
+  const { parseFeatureStatus } = await load();
+  for (const v of ['approved → implemented', 'approved --> implemented', 'approved ⇒ implemented', 'approved > implemented',
+    'approved → now implemented', 'approved → → implemented', 'approved (→ implemented)', 'approved -> (implemented)',
+    'approved to implemented', 'approved then implemented', 'approved implemented', 'approved implemented # flipped']) {
+    const r = parseFeatureStatus(`# status: ${v}\nFeature: X\n`);
+    assert.equal(r.status, 'approved', v);
+    assert.deepEqual(r.problems.map((p) => p.kind), ['transition'], v);
+  }
+});
+
+test('FU-135 review: prose after the state stays legal, even when it names another state', async () => {
+  const { parseFeatureStatus } = await load();
+  for (const v of ['implemented (scn-1 — approved by ops)', 'implemented (approved by operator, §58 ratified)',
+    'implemented — approved by ops', 'implemented - approved by ops', 'implemented [approved in #12]',
+    "implemented 'approved by ops'", 'approved Draft-era scns removed', 'approved by the operator on 2026-10-01']) {
+    assert.deepEqual(parseFeatureStatus(`# status: ${v}\nFeature: X\n`).problems, [], v);
+  }
+});

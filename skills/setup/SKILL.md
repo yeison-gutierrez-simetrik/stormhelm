@@ -565,8 +565,10 @@ jq '.packageManager //= "pnpm@9.15.0"
 #     `# status: implemented` features and LOGS what it skips. The filter
 #     must live INSIDE the config (cucumber-js v12 MERGES config paths with
 #     CLI paths — a file-list wrapper is a silent no-op; see the template
-#     header). It also FAILS CLOSED at load on a mid-file `# status:` under
-#     the flag (FU-134, ISSUE #141) — keep that block when adapting. It imports
+#     header). It also FAILS CLOSED at load on a `# status:` it cannot honor
+#     (mid-file, an extra one in the header, a value that is not a §58 state
+#     word, a written-in transition, or an empty one) under the flag
+#     (FU-134/135, ISSUE #141) — keep that block when adapting. It imports
 #     ./scripts/parse-feature-status.mjs (vendored by the copy loop above — the
 #     same reader the lint uses); keep that import too, and if the config does
 #     not live at the repo root next to scripts/ (a monorepo package, a
@@ -586,8 +588,9 @@ cp "$STORMHELM_PATH/templates/github-workflows/acceptance.yml" .github/workflows
 #  on the trunk until they block an innocent slice's /run-acceptance.
 #  The template also includes the skipped-release gate (FU-134, ISSUE
 #  #141: `node scripts/check-skipped-release-scn.mjs features`, CI mode,
-#  green on an empty tree) — do not drop it when tuning either: a mid-file
-#  `# status:` otherwise skips a feature's @release scns while CI is green.)
+#  green on an empty tree) — do not drop it when tuning either: a mid-file,
+#  duplicate or invalid `# status:` otherwise skips a feature's @release scns
+#  while CI is green.)
 
 # 2. @smoke runs on every push → the pre-push hook (plain invocation —
 #    the test:smoke script owns the tag, see prerequisite 0):
@@ -630,7 +633,7 @@ After generation, the skill runs a self-check:
    This gates on exit 0, so it also catches the next wiring-breakage class for free (a lost exec bit, a bad shebang, a future path-scheme change) — not just the quoting. If it is non-zero, the destructive-git guard is silently absent, exactly the failure §68 forbids.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
-8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44). AND the skipped-release gate is still wired after tuning (FU-134, ISSUE #141) — in *some* workflow (`.yml` or `.yaml`; a consumer may keep it in its own `checks.yml`), on a line that is not commented out (a `run:` value, a `- run:` item or a `run: |` block), with whatever features dir the project uses: `grep -qsE '^[^#]*node[[:space:]]+(\./)?scripts/check-skipped-release-scn\.mjs' .github/workflows/*.y*ml` — AND `cucumber.mjs` kept both its reader import and its fail-closed throw, however a formatter laid them out (quotes, a multi-line import): `grep -qE "from ['\"]\./scripts/parse-feature-status\.mjs['\"]" cucumber.mjs` and `grep -qE "CUCUMBER_IMPLEMENTED_ONLY === ['\"]1['\"]\) throw" cucumber.mjs`. Dropping either lets a `# status:` the runner never reads skip a feature's `@release` scns while CI is green; the config is the backstop that holds even when the workflow step is gone.
+8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44). AND the skipped-release gate is still wired after tuning (FU-134, ISSUE #141) — in *some* workflow (`.yml` or `.yaml`; a consumer may keep it in its own `checks.yml`), on a line that is not commented out (a `run:` value, a `- run:` item or a `run: |` block), with whatever features dir the project uses: `grep -qsE '^[^#]*node[[:space:]]+(\./)?scripts/check-skipped-release-scn\.mjs' .github/workflows/*.y*ml` — AND `cucumber.mjs` kept both its reader import and its fail-closed throw, however a formatter laid them out (quotes, a multi-line import): `grep -qE "from ['\"]\./scripts/parse-feature-status\.mjs['\"]" cucumber.mjs` and `grep -qE "CUCUMBER_IMPLEMENTED_ONLY === ['\"]1['\"]\) throw" cucumber.mjs`. Dropping either lets a `# status:` the runner never reads (or reads as a non-state word) skip a feature's `@release` scns while CI is green; the config is the backstop that holds even when the workflow step is gone.
 9. Print a summary:
 
 ```

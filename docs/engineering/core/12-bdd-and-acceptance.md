@@ -138,7 +138,7 @@ draft → clarifying → approved → implemented → retired
 | (new) → `draft` | `/to-scenarios` | Writes the draft with `# status: draft`. |
 | `draft → clarifying` | `/clarify` | Flips status; the agent may still edit while clarifying. |
 | `clarifying → approved` | `/feature` Step 7 — HUMAN CHECKPOINT 1 | **Only after** the human confirms in chat. The skill writes `approved_at/by/in_commit`. From here the file is read-only to the agent. |
-| `approved → implemented` | `/feature` Step 13 (post-merge close-out) | When all `@release` scenarios are green on the default branch. |
+| `approved → implemented` | `/feature` Step 13 (post-merge close-out) | Per `.feature` file: once **every** `@release` scenario in it is delivered (all the slices that claim them merged) and green on the default branch. A file whose scenarios a later slice still owes stays `approved`. |
 | `implemented → retired` | `/check-consistency` Step 7 | When a scenario is intentionally retired. |
 
 `approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
@@ -149,15 +149,26 @@ Feature files are written in **English Gherkin** (`# language: en`, as
 `/to-scenarios` writes them). The **header** is the file's leading comment block —
 it ends at the first line that is not a comment or blank (a tag line or the
 `Feature:` line) — and its `# status:` line is the only one the runner reads.
-The `# status:` key is **reserved** for that line: any `# status:` comment after
-the header is reported, whatever it says (prose uses another word, e.g.
-`# Note:`), and near-miss spellings (`## status:`, `# status :`) are the same key
-(a second status line *inside* the header is FOLLOW-UP 135). A `# language:` other
-than `en` is reported too: the readers know English keywords only. One module
-does the reading for the runner and the skipped-release lint —
-`scripts/parse-feature-status.mjs`, which the `cucumber.mjs` template imports
-(FOLLOW-UP 134); it is checked against the real Gherkin parser's output in the
-test suite.
+The `# status:` key is **reserved** for that line: any other `# status:` comment
+is reported, whatever it says (prose uses another word, e.g. `# Note:`), and
+near-miss spellings (`## status:`, `# status :`) are the same key. A
+`# language:` other than `en` is reported too: the readers know English keywords
+only. One module does the reading for the runner, the skipped-release lint,
+INV-3/INV-5/INV-8 and `preflight` — `scripts/parse-feature-status.mjs`, which the
+`cucumber.mjs` template imports (FOLLOW-UPs 134-135); it is checked against the
+real Gherkin parser's output in the test suite.
+
+**Exactly one `# status:` line, in the header block, whose value starts with one
+word of the state machine above; a flip edits that line in place** — never adds
+a second one, never writes the transition into it (the old state, then an arrow
+or `to`/`then`, then the new one — in any notation — is read as the old state).
+Prose may follow the state word, and may even name another state, as long as no
+arrow leads to one (`# status: implemented (scn-042 delivered — approved by
+ops)`). An extra header status, a value that is not a state word, a written-in
+transition, an empty status (FOLLOW-UP 135) or a status after the header (ISSUE
+#141) fails CI and the invariant gate (CONFIG §58; see §130b below). A feature
+whose header status is broken is reported there and only there: INV-3, INV-5
+and INV-8 leave it out rather than act on a status its author did not mean.
 
 > **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
 > `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file
@@ -1078,8 +1089,27 @@ runner together), so they cannot disagree about a header. Any `# status:` commen
 after the header is reported, whatever its value; docstring content (a fence
 right under a step — steps exist only inside a Scenario or Background, so a
 "But only within 30 days:" line in a Feature/Rule description is prose) is data,
-while a fence in a description is plain text. A *second*
-status inside the header block is FOLLOW-UP 135.
+while a fence in a description is plain text.
+
+**An extra `# status:` inside the header is the same misuse one block up
+(FOLLOW-UP 135).** The runner reads the header's first non-empty status line, so
+`# status: approved` plus a later `# status: implemented` (a close-out flip
+written as a new line) keeps the feature skipped — and before FU-135, INV-8's
+"`implemented` on any line" match certified it implemented. The lint reports
+every other `# status:` line in the header block, whatever its value (a
+same-value one is the next flip's trap), anchored on the line the runner reads.
+The header **value** gets the same treatment: the readers used to take `\S+` /
+`\w+` / `[a-zA-Z]+` / an `implemented` prefix, so `# status: implemented.` was
+skipped by cucumber yet `implemented` to every other gate. With one reader, the
+rule is that the first word must be a §58 state (`implemented.`, `in-progress`,
+a quoted value are flagged; a flip written into the line — an arrow of any
+shape leading to a state word, `to`/`then` + a state, or a bare second state
+word — is read as its first word and flagged, while prose that merely mentions a
+state with no arrow to it stays legal; an empty `# status:` is not read at all,
+so it is flagged too). INV-3, INV-5, INV-8 and `preflight` read the status
+through the same module, and the invariant gate fails CONFIG §58 on any such
+line — the one place a broken header is reported (INV-3/5/8 leave the feature
+out) — so no invariant can certify a status the runner reads differently.
 
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
 `/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's

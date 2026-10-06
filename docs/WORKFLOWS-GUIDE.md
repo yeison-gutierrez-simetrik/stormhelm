@@ -1172,7 +1172,7 @@ Decision: ✓ CLEAR
 #### `/traceability-matrix`
 
 ```
-docs/audit/traceability-v0.3.0-reviews.md generated.
+docs/audit/traceability-v0.3.0-reviews-draft.md generated (pre-merge; Step 13 writes the -final).
 
 | scn-NNN | Feature file | Issue | PR | Constitution | SLO |
 |---|---|---|---|---|---|
@@ -1194,7 +1194,7 @@ Events registered (added to docs/events.md):
 >
 > *Reviewer: 0 blocking (after iteration), 3 suggestions.*
 > *Security: CLEAR.*
-> *Traceability: docs/audit/traceability-v0.3.0-reviews.md*
+> *Traceability: docs/audit/traceability-v0.3.0-reviews-draft.md*
 > *Threat model: docs/threat-models/provider-review.md (approved 2026-06-01 by @reviewer)*
 > *SLO: p95 287ms ≤ 500ms ✓*
 >
@@ -1226,22 +1226,29 @@ Triggered automatically by the merge (via GitHub webhook or manual invocation).
 ```
 ✓ Step 13 — Post-merge close-out for #003
 
-1. Re-running /traceability-matrix on merged commit a3b9f12
-   → docs/audit/traceability-v0.3.0-reviews.md updated with final commit hash
-2. Issue #003 updated:
+1. features/reviews/provider-review.feature: every @release scn in the file
+   is claimed by a merged issue (this one closes the last) → its header line
+   `# status: approved` edited in place to `# status: implemented`
+   (never a second line)
+   → check-skipped-release-scn: SKIPPED-SCN GATE: ok
+   → acceptance suite (now including this file): green
+2. Re-running /traceability-matrix on merged commit a3b9f12 (after the flip)
+   → docs/audit/traceability-v0.3.0-reviews-final.md written with the final
+     commit hash (INV-8 reads `traceability-*-final.md`)
+3. Issue #003 updated:
    - PR link: #PR-200
    - Merged at: 2026-06-01T16:42:00Z
    - Label ralph-done → released
    - Closed
-3. Spec docs/specs/provider-review.md: Status Clarified → Released
-4. docs/events.md updated:
+4. Spec docs/specs/provider-review.md: Status Clarified → Released
+5. docs/events.md updated:
    - + review.published.v1
    - + review.edited.v1
    - + review.soft_deleted.v1
    - + review.hard_deleted.v1
-5. docs/audit/incidents.md: no incident this slice
-6. No deploy trigger (manual gate)
-7. Session log: feature.released.v1 emitted
+6. docs/audit/incidents.md: no incident this slice
+7. No deploy trigger (manual gate)
+8. Session log: feature.released.v1 emitted
 
 Lifecycle closed.
 ```

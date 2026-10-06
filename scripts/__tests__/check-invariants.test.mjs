@@ -123,6 +123,65 @@ test('INV-8 sees an implemented feature inside a symlinked features directory', 
   assert.match(out, /❌ INV-8/, 'the implemented feature is seen and needs its -final matrix');
 });
 
+// FU-135: INV-8 matched `# status: implemented` on ANY line, so a close-out flip
+// written as a second header line (approved + implemented) was certified
+// "implemented, pinned to a -final matrix" while the runner reads `approved` and
+// skips the feature. INV-3/INV-5/INV-8 now read the status through the same
+// parser as the runner (scripts/parse-feature-status.mjs).
+test('FU-135: INV-8 does not certify a feature whose header the runner reads as approved', () => {
+  const { out } = runMutated((dir) => {
+    const p = join(dir, 'features/identity/auth.feature');
+    const text = readFileSync(p, 'utf8');
+    writeFileSync(p, text.replace('# status: approved', '# status: approved\n# status: implemented'));
+    const scns = [...text.matchAll(/@(scn-\d+)/g)].map((m) => m[1]);
+    mkdirSync(join(dir, 'docs/audit'), { recursive: true });
+    writeFileSync(join(dir, 'docs/audit/traceability-v1.0.0-final.md'),
+      `# Traceability v1.0.0 (final)\n${scns.map((s) => `- ${s}: shipped`).join('\n')}\n`);
+  });
+  assert.doesNotMatch(out, /INV-8 §58: 1 implemented feature/, 'the runner reads approved — not implemented');
+  assert.match(out, /INV-8 §58: no implemented features/);
+});
+
+// FU-135 review: release certification must not pass on a tree the CI config
+// refuses to load. Any `# status:` line the runner cannot honor fails CONFIG §58,
+// and a broken header is named as such — not as INV-5 orphans.
+test('FU-135: a malformed # status line fails CONFIG §58 and is not reported as INV-5 orphans', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'features/identity/auth.feature');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('# status: approved', '# status: approved.'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ CONFIG §58: '# status:' line\(s\) the runner cannot honor: identity\/auth\.feature:\d+ \(invalid\)/);
+  assert.doesNotMatch(out, /❌ INV-5/, 'the broken header is the CONFIG failure, not orphaned scns');
+  assert.doesNotMatch(out, /❌ INV-3/, 'nor scns of a non-approved feature: the header is broken, not unapproved');
+});
+
+// Review round 4: one broken header was treated three ways — INV-3 acted on the
+// read status ("non-approved"), INV-5 skipped it, INV-8 certified a transition
+// line as implemented. Now all three leave a header-broken feature to CONFIG §58.
+test('FU-135: a header-broken feature is CONFIG §58 only — INV-3 and INV-8 leave it out', () => {
+  const dup = runMutated((dir) => {
+    const p = join(dir, 'features/identity/auth.feature');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('# status: approved', '# status: draft\n# status: approved'));
+  });
+  assert.equal(dup.status, 1, dup.out);
+  assert.match(dup.out, /❌ CONFIG §58: .*identity\/auth\.feature:\d+ \(duplicate\)/);
+  assert.doesNotMatch(dup.out, /❌ INV-3/, 'not "re-approve": the fix is the header');
+
+  const arrow = runMutated((dir) => {
+    const p = join(dir, 'features/identity/auth.feature');
+    const text = readFileSync(p, 'utf8');
+    writeFileSync(p, text.replace('# status: approved', '# status: implemented → retired'));
+    const scns = [...text.matchAll(/@(scn-\d+)/g)].map((m) => m[1]);
+    mkdirSync(join(dir, 'docs/audit'), { recursive: true });
+    writeFileSync(join(dir, 'docs/audit/traceability-v1.0.0-final.md'),
+      `# Traceability v1.0.0 (final)\n${scns.map((s) => `- ${s}: shipped`).join('\n')}\n`);
+  });
+  assert.equal(arrow.status, 1, arrow.out);
+  assert.match(arrow.out, /❌ CONFIG §58: .*\(transition\)/);
+  assert.match(arrow.out, /INV-8 §58: no implemented features/, 'a transition line is never a certified release');
+});
+
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
   const { status, out } = runMutated((dir) => {
     const p = join(dir, 'docs/adr/0001-auth-approach.md');

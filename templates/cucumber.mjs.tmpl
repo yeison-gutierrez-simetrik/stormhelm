@@ -23,7 +23,10 @@
 // must rotate per-scenario at close-out (the FOLLOW-UP 49 label↔body fork
 // class). One source of truth, already enforced by INV-3/INV-8.
 //
-// MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is read
+// A `# status:` THIS CONFIG CANNOT HONOR FAILS CLOSED (ISSUE #141, FOLLOW-UPs
+// 134-135): one after the header, an extra one in it, a header value that is not
+// a §58 state word, a transition written into the line, or an empty status line.
+// The mid-file case first (ISSUE #141, FOLLOW-UP 134): status is read
 // from the header only — the file's leading comment block — so a
 // `# status: implemented` placed per-scenario under an approved header is
 // IGNORED: the whole feature is skipped and the run reports green having never
@@ -71,8 +74,9 @@ if (found.length) {
   const why = [...new Map(found.map((p) => [p.kind, p.message])).entries()];
   const msg =
     `[cucumber.mjs] ${found.length} feature status problem(s) — this config reads ONE status per feature, from its ` +
-    `header block, so each of these can skip @release scenarios while the run reports green (ISSUE #141 / ` +
-    `FOLLOW-UP 134):\n` + found.map((p) => `  - ${p.f}${p.line ? `:${p.line}` : ''} (${p.kind}: ${p.text})`).join('\n') + '\n' +
+    `header block (its one '# status:' line, a §58 state word alone), so each of these can skip ` +
+    `@release scenarios while the run reports green (ISSUE #141 / FOLLOW-UPs 134-135):\n` +
+    found.map((p) => `  - ${p.f}${p.line ? `:${p.line}` : ''} (${p.kind}: ${p.text}${p.detail ? ` — ${p.detail}` : ''})`).join('\n') + '\n' +
     why.map(([kind, message]) => `Why (${kind}): ${message}`).join('\n');
   if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
   console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);

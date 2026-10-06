@@ -160,6 +160,217 @@
       "release": {
         "scn-1": true
       }
+    },
+    "duplicate header status, conflicting (approved then implemented)": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "duplicate header status, same value (a latent flip trap)": {
+      "statusComments": [
+        2,
+        3
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "indented duplicate inside the header": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "the duplicate is anchored on the line the runner reads (indented first)": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "duplicate past the old 10-line window": {
+      "statusComments": [
+        10,
+        11
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "duplicate header status AND a mid-file one": {
+      "statusComments": [
+        1,
+        2,
+        5
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "an empty status line next to a real one": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a second `# Status:` line in the header is an extra, whatever it says": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a prose `# Status:` line above the real one is read (invalid) and the real one is the extra": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a transition written into the status line (approved → implemented)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a transition in another notation (approved --> implemented)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a transition with a word between the arrow and the state (approved → now implemented)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a bracketed transition (approved (→ implemented))": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a spelled transition (approved to implemented)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a bare second state word (approved implemented)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "prose after the state that mentions another state is legal": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a dash before prose that names a state is legal (implemented — approved by ops)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a bracketed note that names a state is legal (implemented [approved in #12])": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "prose that starts with a state-like word is legal (approved Draft-era scns removed)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "header value with trailing punctuation (implemented.)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "header value outside the §58 states (in-progress)": {
+      "statusComments": [
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "quoted header value": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "empty header value (not read: the feature would run as legacy)": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "retired is a §58 state": {
+      "statusComments": [
+        1
+      ],
+      "release": {
+        "scn-1": true
+      }
+    },
+    "a duplicate with an invalid value is reported once": {
+      "statusComments": [
+        1,
+        2
+      ],
+      "release": {
+        "scn-1": true
+      }
     }
   },
   "index": {

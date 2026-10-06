@@ -38,8 +38,10 @@ import { join } from 'node:path';
 import { parseFile } from './parse-layers-affected.mjs';
 import { detectCeremony } from './detect-ceremony.mjs';
 // The features the runner sees, listed the way the runner lists them (FU-134):
-// symlinked directories followed, dotfiles skipped, a broken feature loud.
-import { featureFiles as listFeatureFiles } from './parse-feature-status.mjs';
+// symlinked directories followed, dotfiles skipped, a broken feature loud — and
+// each one's status read by the runner's own reader (FU-135), so an invariant can
+// never certify a status the runner reads differently.
+import { featureFiles as listFeatureFiles, parseFeatureStatus, HEADER_STATUS_KINDS } from './parse-feature-status.mjs';
 import { expandScenarioClaims, parseClaimToken } from './scenario-claims.mjs';
 
 const walk = (dir, re, acc = []) => {
@@ -51,7 +53,10 @@ const walk = (dir, re, acc = []) => {
   }
   return acc;
 };
-const read = (f) => readFileSync(f, 'utf8');
+// Each file is read from disk once: the feature and issue loops below all read
+// the same files (FU-135 review: ~5 reads per feature per gate run).
+const cache = new Map();
+const read = (f) => { if (!cache.has(f)) cache.set(f, readFileSync(f, 'utf8')); return cache.get(f); };
 
 // --- gather artifacts -------------------------------------------------------
 // Issue files: canonical location is `issues/` (per /feature + /to-issues);
@@ -90,13 +95,24 @@ const issues = issueFiles.map((f) => {
   };
 });
 
+// Each feature parsed ONCE through the runner's reader (FU-135) and shared by the
+// CONFIG §58 check, INV-3, INV-5 and INV-8. A feature whose HEADER status the
+// runner cannot honor (an extra / invalid / transition / empty status line) is
+// the CONFIG §58 failure below, and only that: INV-3, INV-5 and INV-8 all leave it
+// out, so one broken header is reported once, under its real cause, instead of as
+// "non-approved scns", an orphan, or an uncertified release.
+const parsedFeature = new Map(featureFiles.map((f) => [f, parseFeatureStatus(read(f))]));
+const statusOf = (f) => parsedFeature.get(f).status;
+const headerBroken = (f) => parsedFeature.get(f).problems.some((p) => HEADER_STATUS_KINDS.includes(p.kind));
+const brokenScns = new Set();   // scns defined in a header-broken feature (INV-3 defers them)
+
 // scn → approved? (from .feature # status, PR-B/§58)
 const scnApproved = {};
 const definedScns = new Set();
 const scnFiles = new Map();   // FOLLOW-UP 105: scn id → set of feature files defining it
 for (const f of featureFiles) {
   const t = read(f);
-  const status = (t.match(/^#\s*status:\s*([a-zA-Z]+)/im) || [, null])[1]?.toLowerCase();
+  const status = statusOf(f);
   for (const m of new Set([...t.matchAll(/@(scn-\d+)/g)].map((x) => x[1]))) {
     if (!scnFiles.has(m)) scnFiles.set(m, new Set());
     scnFiles.get(m).add(f.split('/').slice(-2).join('/'));
@@ -107,7 +123,11 @@ for (const f of featureFiles) {
   // features to it. The old strict equality made INV-3 and INV-8 contradict
   // each other: a correct close-out flagged every shipped scenario as
   // "non-approved" (live: all 18 of slice-02). draft/clarifying still reject.
-  for (const m of t.matchAll(/@(scn-\d+)/g)) { definedScns.add(m[1]); scnApproved[m[1]] = status === 'approved' || status === 'implemented'; }
+  for (const m of t.matchAll(/@(scn-\d+)/g)) {
+    definedScns.add(m[1]);
+    if (headerBroken(f)) brokenScns.add(m[1]);
+    else scnApproved[m[1]] = status === 'approved' || status === 'implemented';
+  }
 }
 const releaseScns = new Set();
 for (const f of featureFiles) {
@@ -121,7 +141,10 @@ for (const f of featureFiles) {
   // real orphan (live: 30 scns of a parallel slice). Header-less legacy
   // features still count (they are on the regression surface, like the
   // cucumber template treats them).
-  const status = (t.match(/^#\s*status:\s*([a-zA-Z]+)/im) || [, null])[1]?.toLowerCase();
+  // A broken header is the CONFIG §58 failure below (FU-135) — counting its scns
+  // as orphans here would misname the cause.
+  if (headerBroken(f)) continue;
+  const status = statusOf(f);
   if (status === 'draft' || status === 'clarifying') continue;
   // a scn is @release if its tag line contains @release
   for (const line of t.split('\n')) { const m = line.match(/@(scn-\d+)/); if (m && /@release/.test(line)) releaseScns.add(m[1]); }
@@ -209,6 +232,18 @@ if (unlistable.length)
       `Scenario title embeds a scn id with no matching @scn tag (the ID lives in the TAG — a title-only id is invisible to every invariant and to range reservation): ${mismatches.join('; ')}. Tag the scenario @scn-NNN (matching the title) or drop the id from the title.`);
 }
 
+// CONFIG §58 (FU-135): every `# status:` line must be one the runner can honor —
+// one header line, starting with a §58 state word, and none after the header.
+// The CI config refuses to load otherwise, so release certification (INV-8,
+// /traceability-matrix) must not pass on such a tree either. The skipped-release
+// lint prints each explanation.
+{
+  const broken = featureFiles.flatMap((f) => parsedFeature.get(f).problems.map((p) => `${f.split('/').slice(-2).join('/')}:${p.line} (${p.kind})`));
+  if (broken.length)
+    add('CONFIG', '§58', 'fail',
+      `'# status:' line(s) the runner cannot honor: ${broken.join('; ')}. Run \`node scripts/check-skipped-release-scn.mjs features\` for the explanation of each; keep exactly one '# status:' line in the header, starting with a §58 state word.`);
+}
+
 // INV-1: multi-module ⇒ SAD exists
 if (!issues.some((i) => i.multiModule)) add('INV-1', '§107', 'na', 'no multi-module issue');
 else if (sads.length) add('INV-1', '§107', 'pass', `SAD present (${sads.length})`);
@@ -225,6 +260,7 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
   for (const i of issues.filter((x) => x.ralphReady))
     for (const scn of i.scns) {
       if (!definedScns.has(scn)) undef.push(`${scn} (${i.f.split('/').pop()})`);
+      else if (brokenScns.has(scn)) continue;   // its feature's header is CONFIG §58's failure (FU-135)
       else if (!scnApproved[scn]) bad.push(`${scn} (${i.f.split('/').pop()})`);
     }
   if (!issues.some((x) => x.ralphReady)) add('INV-3', '§63', 'na', 'no ralph-ready issue');
@@ -296,7 +332,11 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 // Per-feature (not "≥1 -final exists anywhere"): a stale -final from a prior
 // release must NOT satisfy a newly-implemented feature whose Step 13 was skipped.
 {
-  const implementedFeatures = featureFiles.filter((f) => /^#\s*status:\s*implemented/im.test(read(f)));
+  // The status the runner reads (FU-135) — not "`implemented` on any line": a
+  // close-out flip written as a SECOND header line was certified here while the
+  // runner read the first one (`approved`) and skipped the feature. A broken
+  // header is CONFIG §58's failure, never a certified release.
+  const implementedFeatures = featureFiles.filter((f) => !headerBroken(f) && statusOf(f) === 'implemented');
   if (!implementedFeatures.length) {
     add('INV-8', '§58', 'na', 'no implemented features');
   } else {

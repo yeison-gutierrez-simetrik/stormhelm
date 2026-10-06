@@ -185,7 +185,7 @@ Format spec: `skills/to-scenarios/references/feature-file-format.md`.
 
 #### 🔴 HUMAN CHECKPOINT #1 — scenario approval
 
-A human flips the `status: draft → approved` header. Until then Ralph cannot consume any issue tied to these scenarios. `/feature` pauses here.
+A human approves the scenarios in chat; `/feature` then edits the header's `# status:` word in place from `draft` to `approved` (§58 — one status line, never a written-in transition). Until then Ralph cannot consume any issue tied to these scenarios. `/feature` pauses here.
 
 #### 8. Decompose into issues — `/to-issues`
 
