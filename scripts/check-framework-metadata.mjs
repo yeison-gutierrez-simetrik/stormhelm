@@ -264,6 +264,55 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
   }
 }
 
+// --- Project-agnostic (the maintainer's rule) ----------------------------------
+// The framework is copied into any project, so what it ships — skills/, agents/,
+// hooks/, templates/, docs/engineering/, docs/WORKFLOWS-GUIDE.md, README.md and
+// the consumer-runtime scripts — and its test suite must not cite a consumer:
+// no consumer name, no consumer slice / scn / issue ids. Write the generic
+// lesson; the evidence belongs in the PR body and the .planning/ handoff. Two
+// manual scrubs each missed citations, so the common shapes fail here, named
+// file:line — a backstop, not a proof (a reviewer still reads for dates and
+// domain detail). The §1–§55 attribution credit is allowed; a line carrying
+// `agnostic-ok` (say why) is exempt. Not shipped: framework-self files are out
+// of scope, this script included.
+{
+  const SHAPES = [
+    ['consumer name', /\bbelong(?:-marketplace)?\b(?!\s+(?:to|in|into|before|after|there|here|with|on|at|under|inside|outside|elsewhere|together)\b)/i],
+    ['live-note id', /\blive\b[^\n]{0,80}?(?:\bscn-\d{3,}\b|\bslices? ?-?#?\d+[a-z]?\b|\bissue[- ]\d+\b)/i],
+    ['live-note id', /(?:\bscn-\d{3,}|\bslices? ?-?\d+[a-z]?)\b[^\n]{0,40}\(live\)/i],
+    ['slice id', /\bslice-\d+[a-z]?\b|\bslices? \d{2}[a-z]?\b/i],
+  ];
+  const ATTRIBUTION = /Belong A2A Marketplace team/;   // the §1–§55 credit (AGENTS.md, README.md)
+  const isFrameworkSelf = (f) => /^\/\/\s*scope:\s*framework-self\b/m.test(readFileSync(f, 'utf8').split('\n').slice(0, 6).join('\n'));
+  const walkFiles = (dir, acc = []) => {
+    if (!existsSync(dir)) return acc;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walkFiles(p, acc); }
+      else if (e.isFile()) acc.push(p);   // a symlink is not followed: its target is scanned where it lives
+    }
+    return acc;
+  };
+  const shipped = [
+    ...['skills', 'agents', 'hooks', 'templates', 'docs/engineering', 'scripts/__tests__'].flatMap((d) => walkFiles(d)),
+    ...ls('scripts', /\.mjs$/).map((f) => join('scripts', f)).filter((f) => !isFrameworkSelf(f)),
+    ...['docs/WORKFLOWS-GUIDE.md', 'README.md'].filter((f) => existsSync(f)),
+  ];
+  for (const f of shipped) {
+    const buf = readFileSync(f);
+    if (buf.includes(0)) continue;   // binary
+    buf.toString('utf8').split('\n').forEach((line, i) => {
+      if (line.includes('agnostic-ok') || ATTRIBUTION.test(line)) return;
+      for (const [kind, re] of SHAPES) {
+        const m = line.match(re);
+        if (!m) continue;
+        block.push(`${relative(ROOT, f)}:${i + 1}  [project-agnostic] cites a consumer (${kind}: "${m[0].slice(0, 60)}") — shipped files and tests stay project-agnostic: write the generic lesson (the evidence goes in the PR body / .planning/ handoff), or mark a deliberate exception with \`agnostic-ok\` and the reason`);
+        break;
+      }
+    });
+  }
+}
+
 const dump = (a) => a.forEach((x) => console.log('  ' + x));
 if (warn.length) { console.log(`\n⚠️  ${warn.length} warning(s):`); dump(warn); }
 if (block.length) {

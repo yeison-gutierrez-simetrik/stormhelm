@@ -80,7 +80,7 @@ test('FU-54: slice-doc Layers block → multi-module fires (the live 3-for-3 gap
   try {
     const doc = j(dir, '03-register-provider-agent.md');
     wfs(doc, [
-      '# Slice 03 — register provider agent', '',
+      '# Slice A — register provider agent', '',
       '### Layers',
       '- **Module:** Marketplace Backend → Onboarding, Auth, Catalog Integration',
       '', '## Depends on', 'None (foundation)', '',
@@ -125,7 +125,7 @@ test('FU-66: a schema-only slice owning ≥2 modules tables is still multi-modul
   try {
     const doc = j(dir, '06-schema-foundations.md');
     wfs(doc, [
-      '# Slice 06 — schema foundations (substrate, no behavior)', '',
+      '# Slice B — schema foundations (substrate, no behavior)', '',
       '### Layers',
       '- **Module:** Contract Engine → msas, sow_fixed_details',
       '- **Module:** Settlement → service_scopings',

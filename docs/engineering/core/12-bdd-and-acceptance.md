@@ -194,7 +194,7 @@ acceptance / close-out gate the slice's claimed `@release` scenarios must
 **RUN** — which requires the feature at `# status: implemented` (§50). An
 **untouched** feature still at `# status: approved` makes those scns SKIP under
 `CUCUMBER_IMPLEMENTED_ONLY=1`, so "acceptance pass" is **skip-green, not
-run-green** — the 27b/38a false-green (live: a consumer's money slice).
+run-green** — the close-out false-green (live: a consumer's money slice).
 
 **Who flips it (FOLLOW-UP 135):** the slice that completes the file's
 `@release` scenarios, at its close-out, in its own PR (§58's transition table) —
@@ -288,7 +288,7 @@ scenarios:scn-042+043        # canonical compact form (the `+` joins tokens)
 **Overflow fallback for many-scenario (foundation / tier-N) slices
 (FOLLOW-UP 71).** GitHub's label limit is **50 chars**, and even the compact
 `+` form overflows a large foundation slice (e.g. 19 contiguous scenarios →
-`scenarios:scn-137+138+…+155` ≈ 90 chars; `gh label create` rejects it). When
+`scenarios:scn-201+202+…+219` ≈ 90 chars; `gh label create` rejects it). When
 the compact label would exceed 50 chars:
 
 - **Omit the GitHub `scenarios:` label entirely.** Keep the slice's `tier:N`
@@ -306,7 +306,7 @@ the compact label would exceed 50 chars:
   green to the offline checker. (The earlier FU-71 fix touched only INV-5;
   the launch gate is the other consumer of the label.)
 
-A `range` form (`scenarios:scn-137..155`) is **not** used — the canonical
+A `range` form (`scenarios:scn-201..219`) is **not** used — the canonical
 `scn-NNN` set form (`SCN_VALUE` in `check-invariants`) rejects `..`, and a
 range hides which scenarios are actually present. Omit-and-rely-on-file is the
 sanctioned pattern.
@@ -918,7 +918,7 @@ contract** that production never honors, and only the §114 reviewer catches it
 by hand. (Live, FOLLOW-UP 90: a Stripe-webhook double attached `chargeId` to
 `checkout.session.completed`; the real event carries `payment_intent` as an
 unexpanded string id and no charge. The scenario passed; production recorded an
-empty `stripe_charge_id`.)
+empty charge id.)
 
 ### The contract (name it in all three places — FU-17 anti-drift)
 
@@ -982,8 +982,8 @@ surface.**
    **step definition** that drives behavior via `container.<x>.execute(` bypasses
    the input adapter. This lint fails RED in CI on that pattern (a legitimate
    `Given`-seed carries an inline `// acceptance-driver-ok` opt-out). It catches
-   the most common shape — the live `scn-482` miss was exactly a container-direct
-   step. `/setup` copies it; run it in the acceptance gate.
+   the most common shape — the live miss behind this rule was exactly a
+   container-direct step. `/setup` copies it; run it in the acceptance gate.
 2. **Review convention (the reachability half).** Whether a use case has a
    *production caller* needs the consumer's DI/adapter vocabulary, so the
    `/security-hardening`, `/run-acceptance`, and §114 merge-gate reviews flag a
@@ -1015,9 +1015,9 @@ whose authoritative re-review is still running is not mergeable.
 The deeper lesson: a money/settlement guard has **two** reachable paths and a
 scenario for the submit/write path does NOT cover the evaluation/charge path.
 In a consumer, the submit-side guard had a scenario; the **evaluate-side** guard
-(a scheduled job re-checking the agreement's status before an off-session charge)
-did not — so an agreement that had become frozen or cancelled could still
-be charged. The rule (threat-model → scenario): for each money guard the threat
+(the evaluation step checking the agreement's status before an off-session top-up)
+did not — so an agreement that had become frozen, cancelled or pending payment
+could still be charged. The rule (threat-model → scenario): for each money guard the threat
 model names, `/to-scenarios` emits an **"entity became non-fundable AFTER
 accrual"** scenario (the evaluation/charge path), not only the write-time reject.
 Then green CI alone is sufficient for that class — the gap fails RED in `/tdd`,
@@ -1031,7 +1031,7 @@ required — (a) closes the race, (b) removes the dependence on catching it.
 ## §130. Ralph's "green" is the full @release CI definition of done — a tag-subset gate and a silently-skipped @release scenario both ship false-green
 
 Two ways Ralph declared a slice done while the suite CI actually runs was red
-(FOLLOW-UP 107 + 108, the 28→39 campaign). Both share one root cause: **the gate
+(FOLLOW-UP 107 + 108, one multi-slice campaign). Both share one root cause: **the gate
 Ralph trusts to mean "done" is narrower than the gate that decides
 mergeability.** `outcome:green` MUST mean "the @release suite CI will run is
 green," never "a subset passed."
@@ -1043,8 +1043,8 @@ green," never "a subset passed."
 feature**. A change correct for the slice's scns that breaks an
 exact-cardinality / registry / shared assertion in a DIFFERENT feature passes
 the scoped gate; Ralph opens a PR / logs `outcome:green`; the full `@release` CI
-then fails (live: scn-531 notification cardinality, scn-131 stub-activation FK,
-settlement take-rate). The fix: per-iteration runs may stay scoped, but the
+then fails (live: an exact notification count, a stub-activation foreign key,
+a settlement fee rate). The fix: per-iteration runs may stay scoped, but the
 **iteration that goes green runs the full `@release` suite — the exact CI
 definition of done — before declaring green or opening the PR**
 (`$BDD_RUNNER --tags "@release and not @manual"`). `/run-acceptance` Step 3b owns

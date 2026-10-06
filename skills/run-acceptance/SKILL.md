@@ -186,8 +186,8 @@ exclusions.
 Steps 2–3 are **scoped** — fast, but blind to a regression in *another* feature.
 A change correct for this slice's scns that breaks an exact-cardinality /
 registry / shared assertion elsewhere passes them, and Ralph opens a PR that the
-full `@release` CI then red-fails (FU-107: scn-531 cardinality, scn-131 stub-FK,
-take-rate). `outcome:green` MUST mean "the suite CI runs is green," not "a subset
+full `@release` CI then red-fails (FU-107: an exact notification count, a
+stub-activation foreign key, a settlement fee rate). `outcome:green` MUST mean "the suite CI runs is green," not "a subset
 passed." So the iteration that is about to go green runs the **exact CI
 definition of done**, before declaring green / opening the PR:
 

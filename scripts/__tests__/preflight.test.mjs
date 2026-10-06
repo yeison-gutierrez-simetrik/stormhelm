@@ -281,7 +281,7 @@ test('a same-spec file must not borrow approval from its siblings (regression: f
 // --- scn-fresh (§59 reservation gate, FU-121/FU-124) -------------------------
 // The three ways an id can be "taken" (tag, title-only, issues label) plus the
 // no-arg allocation helper. Live motivation: three consumer slices raced the same
-// range (2026-07-16) even following the manual check-max ritual.
+// range even following the manual check-max ritual.
 
 const scnFeature = (body) => `# status: implemented\n\nFeature: X\n\n${body}`;
 

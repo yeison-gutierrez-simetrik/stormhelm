@@ -416,7 +416,7 @@ fi
 # scns the label doesn't, abort BEFORE iteration 1, pre-spend.
 # Two capture shapes (the consumer review caught the second): the canonical
 # heading sections, AND the legacy blockquote/bold inline form the live
-# incident actually used (`> **Scope amendment (date):** … scn-067..070`),
+# incident actually used (`> **Scope amendment (date):** … scn-A..B`),
 # which closes on a blank line or the next heading.
 BODY_SCNS=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' \
   | awk '{ low = tolower($0) }
@@ -994,8 +994,8 @@ EOF
     # Push BEFORE creating the PR: non-interactive `gh pr create` aborts on
     # an unpushed branch ("you must first push the current branch…"). This
     # is the first instruction every successful run reaches — and it had
-    # never executed until the issue-15 run, where it failed at the finish
-    # line. --head makes the call worktree/detached-HEAD-proof.
+    # never executed until the first live run that reached it, where it
+    # failed at the finish line. --head makes the call worktree/detached-HEAD-proof.
     if ! git push -u origin "$BRANCH"; then
       ralph_git_action "push" "failed" "git push -u origin $BRANCH"
       ralph_error_tool "git" "git push failed before PR creation"
