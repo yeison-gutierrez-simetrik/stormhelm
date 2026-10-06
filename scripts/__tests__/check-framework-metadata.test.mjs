@@ -1,7 +1,8 @@
-// Coverage for scripts/check-framework-metadata.mjs gates that scan the whole
-// tracked tree. Each test runs the real linter against a throwaway COPY of the
-// repo's tracked files (a fresh git repo, so `git ls-files` sees exactly them),
-// mutates one file, and asserts the gate's verdict.
+// Coverage for the scripts/check-framework-metadata.mjs gates that scan the whole
+// tracked tree — English-only and project-agnostic, which share one listing of
+// tracked text files. Each test runs the real linter against a throwaway COPY of
+// the repo's tracked files (a fresh git repo, so `git ls-files` sees exactly
+// them), mutates one file, and asserts the gate's verdict.
 //
 // Run: node --test scripts/__tests__/check-framework-metadata.test.mjs
 
@@ -32,13 +33,13 @@ function withRepoCopy(mutate) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-// The maintainer's rule: the framework is English only. A manual sweep missed
-// Spanish twice, so the rule is a gate: Spanish markers in any tracked text file
-// fail the linter, naming file:line.
-test('english-only gate: the tracked tree as it stands is clean', () => {
+// The maintainer's two rules, each a gate: the framework is English only, and
+// what it ships (and its tests) never cites a consumer. Manual sweeps missed both
+// more than once.
+test('both gates: the tracked tree as it stands is clean', () => {
   const { status, out } = withRepoCopy(() => {});
   assert.equal(status, 0, out);
-  assert.doesNotMatch(out, /\[english-only\]/);
+  assert.doesNotMatch(out, /\[english-only\]|\[project-agnostic\]/);
 });
 
 test('english-only gate: a Spanish line in a skill fails, naming file:line', () => {
@@ -82,4 +83,43 @@ test('english-only gate: English that happens to contain one Spanish-looking wor
   });
   assert.equal(status, 0, out);
   assert.doesNotMatch(out, /\[english-only\]/);
+});
+
+// ── project-agnostic gate ──────────────────────────────────────────────────
+
+test('project-agnostic gate: a consumer name in a skill fails, naming file:line', () => {
+  const { status, out } = withRepoCopy((dir) => {
+    appendFileSync(join(dir, 'skills', 'setup', 'SKILL.md'), '\nThis step was added after belong-marketplace hit it twice.\n'); // agnostic-ok: the gate's own fixture
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /skills\/setup\/SKILL\.md:\d+ +\[project-agnostic\] cites a consumer \(consumer name/);
+});
+
+test('project-agnostic gate: consumer ids in a live note fail, in a template and in a test', () => {
+  const { status, out } = withRepoCopy((dir) => {
+    appendFileSync(join(dir, 'templates', 'ralph-lib.sh'), '\n# (live: slice-24 lost a commit here)\n'); // agnostic-ok: the gate's own fixture
+    appendFileSync(join(dir, 'scripts', '__tests__', 'ralph-loop.test.mjs'), '\n// two slices reused scn-470/471 (live).\n'); // agnostic-ok: the gate's own fixture
+    appendFileSync(join(dir, 'docs', 'engineering', 'core', '13-ralph-and-afk.md'), '\nPromoted after slices 08+09.\n'); // agnostic-ok: the gate's own fixture
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /templates\/ralph-lib\.sh:\d+ +\[project-agnostic\] .*live-note id/);
+  assert.match(out, /scripts\/__tests__\/ralph-loop\.test\.mjs:\d+ +\[project-agnostic\] .*live-note id/);
+  assert.match(out, /core\/13-ralph-and-afk\.md:\d+ +\[project-agnostic\] .*slice id/);
+});
+
+// The verb, generic examples, the §1–§55 attribution credit and an explicit
+// `agnostic-ok` exception are not citations; framework-self files and the
+// .planning/ handoff (the consumer feedback log) are out of scope.
+test('project-agnostic gate: no false alarm on the verb, generic examples, the credit, or out-of-scope files', () => {
+  const { status, out } = withRepoCopy((dir) => {
+    appendFileSync(join(dir, 'skills', 'setup', 'SKILL.md'),
+      '\nThese checks belong to /setup; slice 1 and scn-001 are examples. (live: a consumer slice)\n' +
+      'Files go where they belong.\nA hard-wrapped line where these checks belong\nto the setup step.\n' +
+      'The rules credit the Belong A2A Marketplace team.\n' +
+      'Kept as the regression fixture: slice-24. <!-- agnostic-ok: quoted from the upstream bug report -->\n');
+    appendFileSync(join(dir, 'scripts', 'check-framework-metadata.mjs'), '\n// framework-self: live: slice-24\n'); // agnostic-ok: the gate's own fixture
+    appendFileSync(join(dir, '.planning', 'FOLLOW-UPS-HANDOFF.md'), '\nLive evidence: belong-marketplace slice-24.\n'); // agnostic-ok: the gate's own fixture
+  });
+  assert.equal(status, 0, out);
+  assert.doesNotMatch(out, /\[project-agnostic\]/);
 });

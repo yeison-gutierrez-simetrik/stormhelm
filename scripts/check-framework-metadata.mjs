@@ -23,7 +23,7 @@
 // Suppress a single intentional line with a trailing  <!-- metadata-ok -->  comment.
 // Zero external dependencies (matches hooks/ convention). Exit 0 = clean, 1 = blocking mismatch.
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, lstatSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -200,6 +200,21 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
   }
 }
 
+// --- Tracked text files (shared by the two gates below) ----------------------
+// One listing, so the English-only and project-agnostic gates see the same files:
+// `git ls-files -z` (without -z git quotes a non-ASCII path, which then never
+// resolves), regular files only (a tracked symlink is scanned where its target
+// lives), text only (a NUL byte means binary). Outside a git checkout: none.
+const trackedText = (() => {
+  let tracked = [];
+  try { tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean); } catch { /* not a git checkout */ }
+  return tracked.flatMap((path) => {
+    if (!existsSync(path) || !lstatSync(path).isFile()) return [];
+    const buf = readFileSync(path);
+    return buf.includes(0) ? [] : [{ path, lines: buf.toString('utf8').split('\n') }];
+  });
+})();
+
 // --- English only (the maintainer's rule) --------------------------------------
 // Everything the framework ships or keeps is English — its own text AND what it
 // asks of consumers (English Gherkin, the ADR `Date:` field). A manual sweep missed
@@ -213,14 +228,8 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
   const SPANISH_CHARS = /[áéíóúñ¿¡]/; // lang-ok: the detector's own character list
   const SPANISH_WORDS = /\b(?:que|para|los|las|unas?|unos|por|pero|cuando|como|estos?|estas?|hay|nuevos?|nuevas?|internos?|archivos?|reglas|agentes?|tiene|además|también)\b/g; // lang-ok: the detector's own word list
   const NAMES = /Gutiérrez/g; // lang-ok: proper names
-  const BINARY = /\.(png|jpe?g|gif|ico|pdf|zip|gz|woff2?)$/i;
-  let tracked = [];
-  // -z: without it git quotes a path with non-ASCII bytes ("an\303\241lisis.md"),
-  // and that file — the likeliest to be Spanish — would never be scanned.
-  try { tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean); } catch { /* not a git checkout */ }
-  for (const f of tracked) {
-    if (BINARY.test(f) || !existsSync(f) || !statSync(f).isFile()) continue;   // a tracked symlink may point at a directory
-    readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+  for (const { path: f, lines } of trackedText) {
+    lines.forEach((line, i) => {
       if (line.includes('lang-ok')) return;
       const text = line.replace(NAMES, '');
       const words = [...new Set(text.match(SPANISH_WORDS) ?? [])];
@@ -277,36 +286,28 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
 // of scope, this script included.
 {
   const SHAPES = [
-    ['consumer name', /\bbelong(?:-marketplace)?\b(?!\s+(?:to|in|into|before|after|there|here|with|on|at|under|inside|outside|elsewhere|together)\b)/i],
+    // The consumer's name — not the English verb ("where they belong", "these
+    // checks belong to"): lower-case `belong` counts where only a name can stand —
+    // after an article, a preposition or "(" ("the belong consumer", "(belong
+    // 2026-07-16 …)"), or before an id, a date or a possessive ("belong #83",
+    // "belong slice-41b", "belong's ADRs"); capitalized `Belong` unless it starts
+    // a verb phrase.
+    ['consumer name', /\bbelong-marketplace\b|\bBelong\b(?!\s+(?:to|in|into|before|after|there|here|with|on|at|under)\b)|(?<=(?:\b(?:the|a|in|into|from|for|of|by|at|on)\s+|\())belong\b|\bbelong(?='s\b|’s\b|\s+(?:#\d|\d{4}-\d\d-\d\d|PRs?\b|slices?\b|issues?\b|trunk\b|repo\b|consumer\b|campaigns?\b|features?\b|ADRs?\b))/],
     ['live-note id', /\blive\b[^\n]{0,80}?(?:\bscn-\d{3,}\b|\bslices? ?-?#?\d+[a-z]?\b|\bissue[- ]\d+\b)/i],
     ['live-note id', /(?:\bscn-\d{3,}|\bslices? ?-?\d+[a-z]?)\b[^\n]{0,40}\(live\)/i],
     ['slice id', /\bslice-\d+[a-z]?\b|\bslices? \d{2}[a-z]?\b/i],
   ];
   const ATTRIBUTION = /Belong A2A Marketplace team/;   // the §1–§55 credit (AGENTS.md, README.md)
-  const isFrameworkSelf = (f) => /^\/\/\s*scope:\s*framework-self\b/m.test(readFileSync(f, 'utf8').split('\n').slice(0, 6).join('\n'));
-  const walkFiles = (dir, acc = []) => {
-    if (!existsSync(dir)) return acc;
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const p = join(dir, e.name);
-      if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walkFiles(p, acc); }
-      else if (e.isFile()) acc.push(p);   // a symlink is not followed: its target is scanned where it lives
-    }
-    return acc;
-  };
-  const shipped = [
-    ...['skills', 'agents', 'hooks', 'templates', 'docs/engineering', 'scripts/__tests__'].flatMap((d) => walkFiles(d)),
-    ...ls('scripts', /\.mjs$/).map((f) => join('scripts', f)).filter((f) => !isFrameworkSelf(f)),
-    ...['docs/WORKFLOWS-GUIDE.md', 'README.md'].filter((f) => existsSync(f)),
-  ];
-  for (const f of shipped) {
-    const buf = readFileSync(f);
-    if (buf.includes(0)) continue;   // binary
-    buf.toString('utf8').split('\n').forEach((line, i) => {
+  const SCOPE = /^(?:skills|agents|hooks|templates|docs\/engineering|scripts\/__tests__)\/|^docs\/WORKFLOWS-GUIDE\.md$|^README\.md$/;
+  const isRuntimeScript = (path, lines) => /^scripts\/[^/]+\.mjs$/.test(path) && !lines.slice(0, 6).some((l) => /^\/\/\s*scope:\s*framework-self\b/.test(l));
+  for (const { path: f, lines } of trackedText) {
+    if (!SCOPE.test(f) && !isRuntimeScript(f, lines)) continue;
+    lines.forEach((line, i) => {
       if (line.includes('agnostic-ok') || ATTRIBUTION.test(line)) return;
       for (const [kind, re] of SHAPES) {
         const m = line.match(re);
         if (!m) continue;
-        block.push(`${relative(ROOT, f)}:${i + 1}  [project-agnostic] cites a consumer (${kind}: "${m[0].slice(0, 60)}") — shipped files and tests stay project-agnostic: write the generic lesson (the evidence goes in the PR body / .planning/ handoff), or mark a deliberate exception with \`agnostic-ok\` and the reason`);
+        block.push(`${f}:${i + 1}  [project-agnostic] cites a consumer (${kind}: "${m[0].slice(0, 60)}") — shipped files and tests stay project-agnostic: write the generic lesson (the evidence goes in the PR body / .planning/ handoff), or mark a deliberate exception with \`agnostic-ok\` and the reason`);
         break;
       }
     });
