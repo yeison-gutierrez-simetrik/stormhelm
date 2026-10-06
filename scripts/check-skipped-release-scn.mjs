@@ -31,7 +31,8 @@
 //
 // Behavior (rc 0 clean · 1 a genuine false-green risk · 2 only on a malformed call):
 //   - ALWAYS: the mid-file-status lint across every feature — a `# status:` line
-//     AFTER the header block (cucumber's statusOf break point) → FAIL, named.
+//     AFTER the header block (the leading comment block — read by the shared
+//     parse-feature-status.mjs, the same reader cucumber.mjs uses) → FAIL, named.
 //   - <features-dir> ALONE  → CI mode: just the lint (issue-independent backstop).
 //   - <features-dir> <issue-file…> → ALSO the §130b claimed-scn check: extracts
 //     claimed scns from each `scenarios:` token (compact forms scn-A,scn-B /
@@ -42,6 +43,7 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseFeatureStatus } from './parse-feature-status.mjs';
 
 // ISSUE #141: a sane exit contract so this wires plainly into a `pull_request`
 // CI job. rc 0 = clean · rc 1 = a genuine false-green risk · rc 2 ONLY on a
@@ -94,28 +96,25 @@ function featureFiles(dir) {
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
-    const s = statSync(p);
+    let s;
+    try { s = statSync(p); } catch { continue; }   // dangling symlink (an editor lock file) — not a feature
     if (s.isDirectory()) out.push(...featureFiles(p));
     else if (e.endsWith('.feature')) out.push(p);
   }
   return out;
 }
 
-// Map scn -> { file, status, release } by scanning each feature.
-function indexScenarios(files) {
+// Map scn -> { file, status, release } by scanning each feature. The status is
+// what the IMPLEMENTED_ONLY runner reads — the shared parseFeatureStatus(), not
+// a looser regex of our own (the FU-134 review: `\w+` read 'implemented' from
+// `implemented-wip`, which the runner skips).
+function indexScenarios(parsed) {
   const idx = new Map();
-  for (const file of files) {
-    const lines = readFileSync(file, 'utf8').split('\n');
-    // `# status: <word>` — the IMPLEMENTED_ONLY runner reads this header.
-    let status = 'unknown';
-    for (const l of lines) {
-      const m = l.match(/^#\s*status:\s*(\w+)/i);
-      if (m) { status = m[1].toLowerCase(); break; }
-    }
+  for (const [file, { text, status }] of parsed) {
     // A scn's tags can span multiple lines above its Scenario:. Accumulate the
     // contiguous @tag lines, then attribute them to the @scn-NNN they precede.
     let tagBuf = '';
-    for (const l of lines) {
+    for (const l of text.split(/\r?\n/)) {
       const t = l.trim();
       if (t.startsWith('@')) { tagBuf += ' ' + t; continue; }
       if (/^(Scenario|Scenario Outline):/i.test(t)) {
@@ -133,55 +132,47 @@ function indexScenarios(files) {
   return idx;
 }
 
-// ISSUE #141 — mid-file `# status:` lint. `cucumber.mjs` statusOf() reads the
-// status ONLY from the header (it `break`s at the first `Feature`/`@` line), so
-// a `# status: implemented` placed per-scenario / mid-file is SILENTLY IGNORED:
-// the whole approved/draft feature is excluded under IMPLEMENTED_ONLY and its
-// @release scenarios never run — yet the gate reports green. This is the §106
-// false-green produced BY the §58-status mechanism itself (bit belong PRs
-// #350/#357). The status is a header-only contract; a `# status:` after the
-// header break is the misuse that must be loud, not silent.
-// FU-134: templates/cucumber.mjs.tmpl midFileStatus() duplicates this break
-// point + status regex (the template must stay self-contained) so the config
-// fails closed too; a parity test in __tests__/ pins both — change them together.
-function findMidFileStatus(files) {
-  const offenders = [];
-  for (const file of files) {
-    const lines = readFileSync(file, 'utf8').split('\n');
-    let pastHeader = false;
-    lines.forEach((l, i) => {
-      // cucumber's statusOf() break point: the first Feature: or @tag line.
-      if (!pastHeader && /^\s*(Feature|@)/.test(l)) pastHeader = true;
-      else if (pastHeader && /^\s*#\s*status:\s*\w+/i.test(l)) {
-        offenders.push(`MID-FILE STATUS ${file}:${i + 1} \`${l.trim()}\` — a '# status:' AFTER the header block is IGNORED by cucumber.mjs (statusOf breaks at the first Feature/@); the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`);
-      }
-    });
-  }
-  return offenders;
-}
+// ISSUE #141 — mid-file `# status:` lint. The runner reads the status ONLY from
+// the header (the leading comment block), so a `# status: implemented` placed
+// per-scenario / mid-file is SILENTLY IGNORED: the whole approved/draft feature
+// is excluded under IMPLEMENTED_ONLY and its @release scenarios never run — yet
+// the gate reports green. This is the §106 false-green produced BY the
+// §58-status mechanism itself (bit belong PRs #350/#357). The status is a
+// header-only contract; a declaration after the header is the misuse that must
+// be loud, not silent. FU-134: the detection lives in parse-feature-status.mjs,
+// the one reader cucumber.mjs also uses (as a verbatim copy).
+const MESSAGES = {
+  'mid-file': (file, p) => `MID-FILE STATUS ${file}:${p.line} \`${p.text}\` — a '# status:' AFTER the header block (the leading comment block) is IGNORED by cucumber.mjs; the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`,
+};
 
 const features = featureFiles(featuresDir);
+const parsed = new Map(features.map((f) => {
+  const text = readFileSync(f, 'utf8');
+  return [f, { text, ...parseFeatureStatus(text) }];
+}));
 const problems = [];
 
-// (1) Mid-file-status lint — ALWAYS (issue-independent; the silent-skip cause).
-problems.push(...findMidFileStatus(features));
+// (1) Status-line lint — ALWAYS (issue-independent; the silent-skip cause).
+for (const [file, { problems: found }] of parsed) {
+  for (const p of found) problems.push(MESSAGES[p.kind](file, p));
+}
 
 // (2) §130b claimed-@release-scn check — only when issue files are given
 // (Ralph per-slice acceptance). Distinguishes a legitimately-in-planning
 // @release scn (an approved feature with no claim) from a claimed-done-but-
-// skipped one (the issue claims it via scenarios: yet its feature isn't
-// implemented).
+// skipped one (the issue claims it via scenarios: yet the runner skips its
+// feature — any header status but `implemented`; no status = legacy, it runs).
 let claimedCount = 0;
 if (issueFiles.length) {
   const claimed = claimedScns(issueFiles);
   claimedCount = claimed.size;
   if (claimed.size) {
-    const idx = indexScenarios(features);
+    const idx = indexScenarios(parsed);
     for (const scn of claimed) {
       const info = idx.get(scn);
       if (!info) continue;            // not found / not in features — Step-3 count check owns that
       if (!info.release) continue;    // only @release scns gate CI's definition of done
-      if (info.status !== 'implemented') {
+      if (info.status !== null && info.status !== 'implemented') {
         problems.push(`${scn} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
       }
     }

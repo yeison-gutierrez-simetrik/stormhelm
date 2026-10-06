@@ -24,16 +24,23 @@
 // class). One source of truth, already enforced by INV-3/INV-8.
 //
 // MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is
-// read from the header block only, so a `# status: implemented` placed
-// per-scenario under an approved header is IGNORED — the whole feature is
-// skipped and the run reports green having never executed it (belong PRs
-// #350/#357). On the CI surface (CUCUMBER_IMPLEMENTED_ONLY=1, i.e.
-// test:acceptance / test:smoke) the config THROWS at load naming every
-// file:line; locally it warns on stderr and continues. This holds even if the
-// workflow's check-skipped-release-scn.mjs step is dropped. midFileStatus()
-// mirrors that script's break point on purpose (a parity test pins them); it
-// is duplicated, not imported, because this file is copied to the consumer
-// root and must stay self-contained.
+// read from the header only — the file's leading comment block — so a
+// `# status: implemented` placed per-scenario under an approved header is
+// IGNORED: the whole feature is skipped and the run reports green having never
+// executed it (belong PRs #350/#357). On the CI surface
+// (CUCUMBER_IMPLEMENTED_ONLY=1, i.e. test:acceptance / test:smoke) the config
+// THROWS at load naming every file:line; locally it warns on stderr and
+// continues. This holds even if the workflow's check-skipped-release-scn.mjs
+// step is dropped. One throw blocks every flagged run repo-wide (pre-push smoke
+// included) until the file is fixed — fail closed by design.
+//
+// parseFeatureStatus() below is the ONE reader of `# status:` — the status this
+// config honors and the declarations it cannot. It is a verbatim copy of
+// scripts/parse-feature-status.mjs (which check-skipped-release-scn.mjs uses),
+// duplicated, not imported, because this file is copied to the consumer root
+// and must stay self-contained; scripts/__tests__/parse-feature-status.test.mjs
+// fails if the copy drifts. Do not export it: a named export here is read by
+// cucumber as a profile.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,46 +50,55 @@ function featureFiles(dir, acc = []) {
   try { entries = readdirSync(dir); } catch { return acc; }
   for (const e of entries) {
     const p = join(dir, e);
-    if (statSync(p).isDirectory()) featureFiles(p, acc);
+    let st;
+    try { st = statSync(p); } catch { continue; }   // dangling symlink (an editor lock file) — not a feature
+    if (st.isDirectory()) featureFiles(p, acc);
     else if (e.endsWith('.feature')) acc.push(p);
   }
   return acc;
 }
 
-function statusOf(file) {
-  // `# status: <value>` in the file header (first comment block).
-  const head = readFileSync(file, 'utf8').split('\n').slice(0, 10);
-  for (const line of head) {
-    const m = line.match(/^#\s*status:\s*(\S+)/i);
-    if (m) return m[1].toLowerCase();
-    if (/^\s*(Feature|@)/.test(line)) break; // past the header block
+// BEGIN parse-feature-status — verbatim copy in templates/cucumber.mjs.tmpl (keep identical)
+const STATES = ['draft', 'clarifying', 'approved', 'implemented', 'retired'];
+const STATUS_COMMENT = /^\s*#\s*status:\s*(.*)$/i;
+const TAG_TRAILING_STATUS = /^\s*@[^#]*#\s*status:\s*(.*)$/i;
+const DECLARES_STATE = /^["'`]?(draft|clarifying|approved|implemented|retired)\b/i;
+const DOCSTRING_FENCE = /^\s*("""|```)/;
+
+function parseFeatureStatus(text) {
+  const lines = text.split(/\r?\n/);
+  let headerEnd = 0;
+  while (headerEnd < lines.length && /^\s*(#.*)?$/.test(lines[headerEnd])) headerEnd++;
+  let status = null;
+  let statusLine = 0;
+  for (let i = 0; i < headerEnd && !statusLine; i++) {
+    const m = STATUS_COMMENT.exec(lines[i]);
+    const token = m ? m[1].trim().split(/\s+/)[0] : '';
+    if (token) { status = token.toLowerCase(); statusLine = i + 1; }
   }
-  return null; // no header → treated as implemented (legacy features)
+  const problems = [];
+  let fence = null;
+  for (let i = headerEnd; i < lines.length; i++) {
+    const open = DOCSTRING_FENCE.exec(lines[i]);
+    if (open && (fence === null || fence === open[1])) { fence = fence === null ? open[1] : null; continue; }
+    if (fence) continue;
+    const m = STATUS_COMMENT.exec(lines[i]) || TAG_TRAILING_STATUS.exec(lines[i]);
+    if (m && DECLARES_STATE.test(m[1].trim())) problems.push({ line: i + 1, kind: 'mid-file', text: lines[i].trim() });
+  }
+  return { status, statusLine, headerEnd, problems };
 }
+// END parse-feature-status
 
-function midFileStatus(file) {
-  // Line numbers of every `# status:` AFTER the header block — the same break
-  // point as statusOf() (the first Feature/@ line) and as
-  // check-skipped-release-scn.mjs findMidFileStatus(). A status that precedes
-  // that line, even past statusOf()'s 10-line read window, is still header.
-  const hits = [];
-  let pastHeader = false;
-  readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
-    if (!pastHeader && /^\s*(Feature|@)/.test(line)) pastHeader = true;
-    else if (pastHeader && /^\s*#\s*status:\s*\w+/i.test(line)) hits.push(i + 1);
-  });
-  return hits;
-}
-
-const all = featureFiles('features');
-const midFile = all.flatMap((f) => midFileStatus(f).map((n) => `${f}:${n}`));
-if (midFile.length) {
+// One read per feature: the status the runner honors + the declarations it cannot.
+const features = featureFiles('features').map((f) => ({ f, ...parseFeatureStatus(readFileSync(f, 'utf8')) }));
+const unread = features.flatMap(({ f, problems }) => problems.map((p) => `${f}:${p.line} (${p.kind}: ${p.text})`));
+if (unread.length) {
   const msg =
-    `[cucumber.mjs] ${midFile.length} mid-file '# status:' line(s) — status is read from the header block only, ` +
-    `so these are IGNORED and their feature keeps its header status (its @release scenarios can be skipped ` +
-    `while the run reports green — ISSUE #141 / FOLLOW-UP 134):\n` +
-    midFile.map((s) => `  - ${s}`).join('\n') +
-    `\nMove the status to the feature's header block (before its first Feature/@ line), ` +
+    `[cucumber.mjs] ${unread.length} '# status:' declaration(s) this config never reads — status is read from the ` +
+    `header block only (the leading comment block), so their feature keeps its header status and its @release ` +
+    `scenarios can be skipped while the run reports green (ISSUE #141 / FOLLOW-UP 134):\n` +
+    unread.map((s) => `  - ${s}`).join('\n') +
+    `\nMove the status to the feature's header block (before its first tag / Feature line), ` +
     `or split the feature so each file carries one header status.`;
   if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
   console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);
@@ -92,8 +108,7 @@ let paths = ['features/**/*.feature'];
 if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') {
   const implemented = [];
   const skipped = [];
-  for (const f of all) {
-    const st = statusOf(f);
+  for (const { f, status: st } of features) {
     // implemented (or legacy header-less) joins the CI surface; anything
     // else (approved, draft, …) is in-flight and gates per-issue instead.
     if (st === null || st === 'implemented') implemented.push(f);

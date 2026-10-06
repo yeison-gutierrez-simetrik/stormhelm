@@ -14,7 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -274,7 +274,7 @@ function workflowSteps(yml) {
     const isStep = item && (indent === null || item[1].length === indent);
     if (isStep) { indent = item[1].length; steps.push({}); }
     if (!steps.length) continue;
-    const kv = (isStep ? item[2] : raw.trim()).match(/^(name|run|uses):\s*(.*)$/);
+    const kv = (isStep ? item[2] : raw.trim()).match(/^(name|run|uses|if):\s*(.*)$/);
     // YAML semantics: a quoted scalar is taken whole; in a plain one ` #` starts a comment.
     if (kv) steps.at(-1)[kv[1]] = /^"/.test(kv[2]) ? kv[2].replace(/^"(.*)"\s*$/, '$1') : kv[2].replace(/\s+#.*$/, '');
   }
@@ -292,6 +292,9 @@ test('FU-134: template runs the skipped-release lint (CI mode) after the invaria
   assert.ok(inv < lint && lint < rel, `order: invariant gate (#${inv}) < skipped-release gate (#${lint}) < @release (#${rel})`);
   // Full name survives YAML parsing — unquoted, ` #141` would truncate it to "…, ISSUE".
   assert.match(steps[lint].name, /§130b, ISSUE #141 — CI mode\)$/, 'step named for the rule it enforces');
+  // FU-134 review: a zero-dependency static gate must still report when an
+  // earlier step (install / typecheck) failed — not wait for a second CI round.
+  assert.match(steps[lint].if ?? '', /!cancelled\(\)/, 'runs unless the job was cancelled');
 });
 
 // The step's own command, executed in a fresh /setup layout (vendored script +
@@ -302,8 +305,12 @@ test('FU-134: the template step is green on an empty tree and fails naming file:
   const step = steps.find((s) => /check-skipped-release-scn/.test(s.run ?? ''));
   assert.ok(step, 'skipped-release step present in the template');
   withDir((dir) => {
+    // Vendor exactly what /setup's copy loop vendors — a script the lint imports
+    // but the loop forgets fails here the way it would in a fresh consumer.
+    const setup = readFileSync(join(TEMPLATES, '..', 'skills', 'setup', 'SKILL.md'), 'utf8');
+    const vendored = setup.match(/for\s+s\s+in\s+([\s\S]*?);\s*do/)[1].match(/[\w-]+\.mjs/g);
     mkdirSync(join(dir, 'scripts'), { recursive: true });
-    copyFileSync(join(TEMPLATES, '..', 'scripts', 'check-skipped-release-scn.mjs'), join(dir, 'scripts', 'check-skipped-release-scn.mjs'));
+    for (const f of vendored) copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
     mkdirSync(join(dir, 'features'), { recursive: true });
     writeFileSync(join(dir, 'features', '.keep'), '');
     const empty = spawnSync('sh', ['-c', step.run], { cwd: dir, encoding: 'utf8' });
@@ -439,7 +446,7 @@ test('FU-50: zero implemented features → benign glob + explicit log, never pat
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// FOLLOW-UP 134 (ISSUE #141): statusOf() reads `# status:` from the header
+// FOLLOW-UP 134 (ISSUE #141): the config reads `# status:` from the header
 // only, so a mid-file `# status: implemented` under an approved header is
 // ignored → the feature is skipped and the run is green (belong PRs #350/#357).
 // The config must not depend on the CI lint step surviving: under the flag it
@@ -451,7 +458,7 @@ function midFileFixture(dir) {
     '# status: approved',
     'Feature: Split',
     '',
-    '  # status: implemented',      // line 4 — ignored by statusOf()
+    '  # status: implemented',      // line 4 — never read by the config
     '  @release @scn-701',
     '  Scenario: a deliverable',
     '    Given g',
@@ -492,6 +499,24 @@ test('FU-134: without the flag a mid-file # status WARNS on stderr and the confi
     for (const loc of ['features/pay/split.feature:4', 'features/pay/split.feature:9', 'features/tagged.feature:2']) {
       assert.ok(off.stderr.includes(loc), `names ${loc}:\n${off.stderr}`);
     }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review: the config now walks features/ on every load, so an editor
+// lock file (Emacs `.#x.feature`, a dangling symlink) crashed even a local run
+// with ENOENT — main only did that walk under the flag. Unreadable entries are
+// skipped.
+test('FU-134: a dangling symlink in features/ does not crash the config (local or CI)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134s-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented\nFeature: Done\n');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', '.#lock.feature'));
+    const off = await importCucumberCfg(dir, {});
+    assert.equal(off.status, 0, off.stderr);
+    const on = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.equal(on.status, 0, on.stderr);
+    assert.deepEqual(on.paths, ['features/done.feature']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

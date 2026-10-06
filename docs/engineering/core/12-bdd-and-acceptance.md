@@ -118,7 +118,7 @@ has **no** YAML frontmatter — a `---` block breaks the parser, so the state li
 in `#` comments alongside `# language:` and `# Spec source:`):
 
 ```gherkin
-# language: es
+# language: en
 # status: approved
 # approved_at: 2026-05-28
 # approved_by: approver@example.com
@@ -144,6 +144,14 @@ draft → clarifying → approved → implemented → retired
 `approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
 timestamp (which can be edited). The status is **never hand-edited**; the owning
 skill flips it.
+
+Feature files are written in **English Gherkin** (`# language: en`, as
+`/to-scenarios` writes them). The **header** is the file's leading comment block —
+it ends at the first line that is not a comment or blank (a tag line or the
+`Feature:` line) — and its `# status:` line is the only one anything reads. One
+parser does that reading for the runner and the gates alike
+(`scripts/parse-feature-status.mjs`; the `cucumber.mjs` template carries a
+verbatim copy — FOLLOW-UP 134).
 
 > **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
 > `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file
@@ -1035,8 +1043,8 @@ approved→implemented flip discipline (§58), but the gate is the durable fix:
 it does not rely on the human remembering the flip.
 
 **A mid-file `# status:` is the silent-skip the status mechanism produces of
-itself (ISSUE #141).** `cucumber.mjs` `statusOf()` reads `# status:` ONLY from
-the header (it stops at the first `Feature`/`@` line), so a `# status:
+itself (ISSUE #141).** `cucumber.mjs` reads `# status:` ONLY from the header
+(the leading comment block, which ends at the first tag / `Feature:` line), so a `# status:
 implemented` placed per-scenario / mid-file is **silently ignored** — the
 feature keeps its header status, is excluded under `IMPLEMENTED_ONLY`, and its
 `@release` scns never run while the gate stays green (bit belong PRs #350/#357).
@@ -1052,11 +1060,15 @@ claimed-done-but-skipped scn or a silently-ignored mid-file status is.
 
 **Wired from a consumer's first PR (FOLLOW-UP 134).** The `/setup`
 acceptance template runs the CI mode as a `pull_request` step (after the
-invariant gate, before `@release`), and the shipped `cucumber.mjs` **fails
-closed at load** on a mid-file `# status:` under `IMPLEMENTED_ONLY` (it warns
-and continues locally) — so the false-green cannot ship even if the workflow
-step is dropped while tuning. Both parsers end the header block at the first
-`Feature`/`@` line; a parity test pins that they flag the same `file:line`s.
+invariant gate, before `@release`, even when install/typecheck failed), and the
+shipped `cucumber.mjs` **fails closed at load** on a mid-file `# status:` under
+`IMPLEMENTED_ONLY` (it warns and continues locally) — so a mid-file status
+cannot ship green even if the workflow step is dropped while tuning. Both read
+`# status:` through the same parser (`scripts/parse-feature-status.mjs`, verbatim
+in the template), so the lint and the runner cannot disagree about a header; a
+docstring line is data, and a comment declares a status only when its value
+starts with a §58 state word (`# Status: flaky on CI` is prose). A *second*
+status inside the header block is FOLLOW-UP 135.
 
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
 `/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's

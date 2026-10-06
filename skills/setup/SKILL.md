@@ -326,6 +326,7 @@ for s in preflight.mjs check-invariants.mjs check-merge-safety.mjs \
          group-slice-issues.mjs parse-layers-affected.mjs detect-ceremony.mjs \
          check-skill-doc-delivery.mjs check-double-fidelity.mjs \
          check-release-step-fidelity.mjs check-skipped-release-scn.mjs \
+         parse-feature-status.mjs \
          sync-closed-sets.mjs compose-sonar-properties.mjs; do
   cp "$STORMHELM_PATH/scripts/$s" "scripts/$s"
 done
@@ -612,7 +613,7 @@ After generation, the skill runs a self-check:
 1. Verify every `§N` referenced in the generated `AGENTS.md` exists in a file present in the project.
 2. Verify pre-commit hooks installed successfully.
 3. Verify `.planning/` is writable.
-4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/check-skill-doc-delivery.mjs scripts/check-double-fidelity.mjs scripts/check-release-step-fidelity.mjs scripts/check-skipped-release-scn.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
+4. Verify the consumer-runtime scripts copied: `ls scripts/preflight.mjs scripts/check-invariants.mjs scripts/check-merge-safety.mjs scripts/train-merge.mjs scripts/sonar-sweep.mjs scripts/group-slice-issues.mjs scripts/parse-layers-affected.mjs scripts/detect-ceremony.mjs scripts/check-skill-doc-delivery.mjs scripts/check-double-fidelity.mjs scripts/check-release-step-fidelity.mjs scripts/check-skipped-release-scn.mjs scripts/parse-feature-status.mjs scripts/sync-closed-sets.mjs scripts/compose-sonar-properties.mjs` all resolve — otherwise every `node scripts/...` gate would fail at first use.
 5. Verify the hooks copied, wired, AND EXECUTABLE through the shell (FOLLOW-UP 67 — existence checking is what let the unquoted-path outage ship: the files were all there; none could run). `ls .claude/hooks/git-guardrails.cjs … webfetch-cache-post.cjs` all resolve, `.claude/settings.json` registers at least `git-guardrails.cjs` under `hooks.PreToolUse` (matcher `Bash`, §68/§113), and the wired command string **runs green through `/bin/sh -c`** with the project path:
 
    ```bash
@@ -625,7 +626,7 @@ After generation, the skill runs a self-check:
    This gates on exit 0, so it also catches the next wiring-breakage class for free (a lost exec bit, a bad shebang, a future path-scheme change) — not just the quoting. If it is non-zero, the destructive-git guard is silently absent, exactly the failure §68 forbids.
 6. Verify the Night Shift engine is co-located + sound: `ls ralph-local.sh ralph-lib.sh ralph-blocked-comment.md.tmpl ralph-isolated.sh ralph-watch.sh` all resolve at the project root, and `bash -n ralph-local.sh` parses — otherwise `./ralph-local.sh <issue>` aborts on entry with "ralph-lib.sh not found" and the autonomous Night Shift never runs.
 7. Verify the composed Sonar config was written: `ls .sonarcloud.properties sonar-project.properties` both resolve and both contain the `scripts/**` vendored exclusion — otherwise an Automatic-Analysis consumer's gate analyzes vendored framework code on the first re-sync PR.
-8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44). AND the tuned workflow still carries the skipped-release gate (FU-134, ISSUE #141): `grep -q "check-skipped-release-scn.mjs features" .github/workflows/acceptance.yml` — a tuning pass that drops it lets a mid-file `# status:` skip a feature's `@release` scns while CI is green.
+8. Verify the §60 CI surface: `ls .github/workflows/acceptance.yml .git/hooks/pre-push` both resolve, AND the prerequisites landed (FOLLOW-UP 44): `jq -e '.packageManager and .scripts["test:acceptance"] and .scripts["test:smoke"]' package.json` — otherwise the first CI run fails on "No pnpm version is specified" / a missing script, exactly like the first live adoption did (FOLLOW-UP 42/44). AND the skipped-release gate is still wired after tuning (FU-134, ISSUE #141) — in *some* workflow, not necessarily `acceptance.yml` (a consumer may run it in its own `checks.yml`): `grep -qs "check-skipped-release-scn.mjs features" .github/workflows/*.yml` — AND `cucumber.mjs` kept its fail-closed reader: `grep -q "parseFeatureStatus" cucumber.mjs`. Dropping either lets a `# status:` the runner never reads skip a feature's `@release` scns while CI is green; the config is the backstop that holds even when the workflow step is gone.
 9. Print a summary:
 
 ```
@@ -674,12 +675,12 @@ The framework is adopted by **copying** files (README Phase 0 + the copy step ab
    - `.claude/skills/`, `.claude/agents/`, `.claude/hooks/` (+ `hooks/README.md`)
    - the consumer-runtime `scripts/` set (the `for s in …` list above) — re-stamped automatically
    - `docs/engineering/` (the `§N` rules), then re-run the AGENTS.md generation (it prompts before overwriting your personalized index).
-   - **Template-installed, consumer-tuned** — `.github/workflows/acceptance.yml` and `cucumber.mjs` are *not* overwritten (they carry your stack tuning), so a re-sync never delivers new gates in them by itself. Diff each against `$STORMHELM_PATH/templates/` and port the framework gates you are missing — today: the invariant-gate step (FU-123), the skipped-release-gate step `node scripts/check-skipped-release-scn.mjs features` (FU-134), and the mid-file-`# status:` fail-closed block in `cucumber.mjs` (FU-134). Validation step 8 checks the skipped-release step.
-3. **Never touch product-owned artifacts** — these are yours, the framework does not own them:
+3. **Reconcile the template-installed, consumer-tuned artifacts.** `.github/workflows/acceptance.yml` and `cucumber.mjs` are *not* overwritten (they carry your stack tuning), so a re-sync never delivers new gates in them by itself. Diff each against `$STORMHELM_PATH/templates/` and port the framework gates you are missing — today: the invariant-gate step (FU-123), the skipped-release-gate step `node scripts/check-skipped-release-scn.mjs features` (FU-134), and the `parseFeatureStatus` reader + its fail-closed block in `cucumber.mjs` (FU-134). **Migrate first:** run `node scripts/check-skipped-release-scn.mjs features` *before* porting and fix every line it names — once ported, one offending `.feature` anywhere fails every flagged run repo-wide (CI and the pre-push `test:smoke`), and §58 forbids an agent from editing a committed `.feature`, so a Night Shift would stop until a human fixes it.
+4. **Never touch product-owned artifacts** — these are yours, the framework does not own them:
    `docs/constitution.md`, `docs/CONTEXT.md`, `docs/slos.md`, `docs/specs/`, `docs/adr/`, `docs/decisions/`, `docs/audit/`, `features/`, `issues/`, `src/`, and your `.claude/settings.json` customizations.
-4. **Verify:** `node scripts/check-invariants.mjs` + your test suite still pass; the stamps now show the new `<sha>`.
+5. **Verify:** `node scripts/check-invariants.mjs`, `node scripts/check-skipped-release-scn.mjs features` and your test suite pass; validation step 8's checks pass; the stamps now show the new `<sha>`.
 
-The split **is** the rule: *framework-owned → overwrite on re-sync; product-owned → never touched.* (A `/setup --resync` flag that automates steps 2-3 with exactly this allow/deny split is a candidate; until it ships, this is the manual procedure — the same discipline applied by hand in real adoptions.)
+The split **is** the rule: *framework-owned → overwrite on re-sync; product-owned → never touched.* (A `/setup --resync` flag that automates steps 2 and 4 with exactly this allow/deny split is a candidate; until it ships, this is the manual procedure — the same discipline applied by hand in real adoptions.)
 
 ## Non-destructive
 

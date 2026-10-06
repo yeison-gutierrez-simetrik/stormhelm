@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync, symlinkSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -107,8 +107,8 @@ test('FU-108: compact scenarios:scn-565+566 form is parsed (566 still caught)', 
 });
 
 // ── ISSUE #141 — mid-file `# status:` lint + CI mode + exit contract ───────
-// cucumber.mjs statusOf() reads `# status:` only from the header (breaks at the
-// first Feature/@), so a per-scenario/mid-file status is silently ignored → the
+// cucumber.mjs reads `# status:` only from the header (the leading comment
+// block), so a per-scenario/mid-file status is silently ignored → the
 // feature is skipped under IMPLEMENTED_ONLY and its @release scns never run, yet
 // the gate is green. The lint makes that misuse LOUD; the CI mode wires it into
 // a plain pull_request job (rc 0/1, never 2 on a bare call).
@@ -182,38 +182,61 @@ test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NO
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-// ── FOLLOW-UP 134 — lint ⇆ cucumber.mjs parity on "header block" ──────────
-// Two parsers now define where the header block ends: this lint
-// (findMidFileStatus) and the shipped cucumber.mjs template (midFileStatus,
-// duplicated because the template is copied to the consumer root and must stay
-// self-contained). Black-box parity: the same fixture goes through the real
-// lint (CI mode) and the real template config (local mode → warning list), and
-// both must name exactly the same file:line set.
+// ── FOLLOW-UP 134 — one `# status:` reader for the lint AND the runner ─────
+// scripts/parse-feature-status.mjs is the single reader; the shipped
+// cucumber.mjs template carries a verbatim copy (it is copied to the consumer
+// root and must stay self-contained — parse-feature-status.test.mjs pins the
+// copy). Black-box parity on top: the same fixture goes through the real lint
+// (CI mode) and the real template config (local mode → warning list), and both
+// must name exactly the same file:line set. `reads` is the status the runner
+// must read — checked against the parser AND against the config's real CI
+// surface decision, so the lint can never again read a feature differently
+// from the runner (the FU-134 review's oracle gap).
 
 const TEMPLATE = join(here, '..', '..', 'templates', 'cucumber.mjs.tmpl');
+const PARSER = pathToFileURL(join(here, '..', 'parse-feature-status.mjs')).href;
 const notes = Array.from({ length: 10 }, (_, i) => `# note ${i + 1}`);
 const PARITY = [
-  { name: 'header-only status', expect: [],
+  { name: 'header-only status', expect: [], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'status after Feature:', expect: [4],
+  { name: 'status after Feature:', expect: [4], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'status after a tag line', expect: [3],
+  { name: 'status after a tag line', expect: [3], reads: 'approved',
     body: ['# status: approved', '@release', '# status: implemented', 'Feature: X', '  @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'no status at all (legacy = implemented)', expect: [],
+  { name: 'no status at all (legacy = implemented)', expect: [], reads: null,
     body: ['Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  // Pinned as the lint behaves today: the break point is the first Feature/@
-  // line, NOT the 10-line read window — a status on line 11 still sits in the
-  // header block, so neither parser flags it. (statusOf() does not READ it
-  // either — the feature runs as legacy/implemented, where strict mode makes an
-  // unimplemented one loud, not a silent skip; asserted below.)
-  { name: 'status on line 11, no Feature/@ before it', expect: [],
+  // The header is the leading comment block, however long: a status on line 11
+  // is still THE header status and is read (the old 10-line read window left
+  // it unread, so the feature ran as legacy — FU-134 review).
+  { name: 'status on line 11, still in the leading comment block', expect: [], reads: 'approved',
     body: [...notes, '# status: approved', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // FU-134 review: the header ends at the first non-comment line, whatever the
+  // keyword (`Ability:` / `Business Need:` are English synonyms of `Feature:`).
+  { name: 'Ability: keyword ends the header like Feature:', expect: [3], reads: 'approved',
+    body: ['# status: approved', 'Ability: X', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'status trailing a tag line', expect: [3], reads: 'approved',
+    body: ['# status: approved', 'Feature: X', '  @release @scn-1 # status: implemented', '  Scenario: s', '    Given g'] },
+  // A docstring is data: a `# status:` inside one is never a declaration.
+  { name: 'docstring content is data, not a status', expect: [], reads: 'implemented',
+    body: ['# status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given a payload',
+      '      """', '      # status: approved', '      """', '    And a json payload', '      ```json', '      # status: draft', '      ```'] },
+  // Only a state word makes a comment a status declaration — prose is prose.
+  { name: 'a prose comment is not a status declaration', expect: [], reads: 'implemented',
+    body: ['# status: implemented', 'Feature: X', '  # Status: flaky on CI, see #12', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
+    body: ['# status: implemented (scn-835 delivered — issue #551)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'indented header status is read', expect: [], reads: 'approved',
+    body: ['  # status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'a UTF-8 BOM before the header status', expect: [], reads: 'approved',
+    body: ['﻿# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'CRLF line endings', expect: [4], reads: 'approved', eol: '\r\n',
+    body: ['# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
 ];
 
-function parityRepo(body) {
+function parityRepo(body, eol = '\n') {
   const dir = mkdtempSync(join(tmpdir(), 'parity-'));
   mkdirSync(join(dir, 'features'), { recursive: true });
-  writeFileSync(join(dir, 'features', 'f.feature'), body.join('\n') + '\n');
+  writeFileSync(join(dir, 'features', 'f.feature'), body.join(eol) + eol);
   copyFileSync(TEMPLATE, join(dir, 'cucumber.mjs'));
   return dir;
 }
@@ -227,27 +250,38 @@ const loadConfig = (dir, env = {}) => {
 };
 
 for (const fx of PARITY) {
-  test(`FU-134 parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, () => {
-    const dir = parityRepo(fx.body);
+  test(`${fx.fu ?? 'FU-134'} parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
+    const dir = parityRepo(fx.body, fx.eol);
     try {
       const lint = spawnSync('node', [GATE, 'features'], { cwd: dir, encoding: 'utf8' });
       const local = loadConfig(dir);
       const ci = loadConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
-      assert.deepEqual(lines(lint.stdout), fx.expect, `lint:\n${lint.stdout}`);
+      assert.deepEqual(lines(lint.stdout), fx.expect, `lint:\n${lint.stdout}${lint.stderr}`);
       assert.deepEqual(lines(local.stderr), fx.expect, `cucumber.mjs (local warn):\n${local.stderr}`);
-      assert.deepEqual(lines(local.stderr), lines(lint.stdout), 'the two parsers agree');
       assert.equal(lint.status, fx.expect.length ? 1 : 0, 'lint rc tracks the finding');
       assert.equal(local.status, 0, 'local load never throws');
       assert.equal(ci.status === 0, fx.expect.length === 0, `CI load throws iff there is a finding:\n${ci.stderr}`);
+      // The runner oracle: what the shared reader says the runner reads…
+      const { parseFeatureStatus } = await import(PARSER);
+      const text = fx.body.join(fx.eol ?? '\n') + (fx.eol ?? '\n');
+      assert.equal(parseFeatureStatus(text).status, fx.reads, 'the reader reads the expected status');
+      // …is what the config actually does with the feature on the CI surface.
+      if (ci.status === 0) {
+        const onSurface = ci.paths.includes('features/f.feature');
+        assert.equal(onSurface, fx.reads === null || fx.reads === 'implemented', `CI surface: ${JSON.stringify(ci.paths)}`);
+      }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 }
 
-test('FU-134 parity: a line-11 status is not READ by statusOf() — the feature runs as legacy/implemented', () => {
-  const dir = parityRepo(PARITY.at(-1).body);
+// FU-134 review: an editor lock file (Emacs `.#x.feature`, a dangling symlink)
+// crashed the lint's walk with ENOENT. Unreadable entries are skipped.
+test('FU-134: a dangling symlink in features/ does not crash CI mode', () => {
+  const dir = setupFeature('# status: implemented\nFeature: X\n\n  @scn-1\n  Scenario: s\n    Given g\n');
   try {
-    const ci = loadConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
-    assert.equal(ci.status, 0, ci.stderr);
-    assert.deepEqual(ci.paths, ['features/f.feature'], 'on the CI surface (strict) — loud if unimplemented, never a silent skip');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', '.#lock.feature'));
+    const r = runCI(dir);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED-SCN GATE: ok/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
