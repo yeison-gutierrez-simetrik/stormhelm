@@ -144,7 +144,7 @@ switch (check) {
   }
   case 'scn-fresh': {
     // §59 scn-id reservation gate (FU-121/FU-124): parallel slices racing the same range is a
-    // check-then-reserve TOCTOU — three belong slices collided live (2026-07-16) even FOLLOWING
+    // check-then-reserve TOCTOU — three consumer slices collided live even FOLLOWING
     // the "verify max before reserving" ritual. This gate makes the check executable at
     // authoring time and counts every place an id can be spoken for:
     //   1. `@scn-NNN` tags in features/**          — the §59 definition (what check-invariants reads)

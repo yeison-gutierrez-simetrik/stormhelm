@@ -8,7 +8,7 @@
 // production caller?") needs the consumer's DI vocabulary → it stays a §114
 // review convention. But the OTHER half is a pure-syntax grep, no DI knowledge:
 // an acceptance STEP DEFINITION that drives behavior via `container.<x>.execute(`
-// bypasses the input adapter — exactly the live miss (slice-27c scn-482 called
+// bypasses the input adapter — exactly the live miss (a consumer's @release scenario called
 // the container directly and shipped a money use case with no route). This lint
 // fails RED in CI on that pattern instead of relying on a reviewer's grep.
 //

@@ -173,8 +173,8 @@ Measured 2026-06-17: a thin 5-scn relay slice and a heavy foundation slice
 both cost **≈100k per call** (`BASE_CONTEXT`); one sub-issue needs tdd +
 run-acceptance + reviewer (+ often one fix iteration) = **≥3 calls**, so the
 floor is ≈300k even for a tiny slice. Under-budgeting cost a `budget-exceeded`
-bump+resume on nearly every sub-issue of the live campaign (#172 132k>120k,
-#175 227k>200k, #179 272k>250k), each re-paying a fresh iteration's setup.
+bump+resume on nearly every sub-issue of the live campaign (132k>120k,
+227k>200k, 272k>250k), each re-paying a fresh iteration's setup.
 
 - `BASE_CONTEXT` ≈ **100k** (the measured per-call repo-context overhead — a
   tunable constant, not a magic number; raise it for a large repo).
@@ -262,8 +262,8 @@ Emit a `slice-group:<slug>` label on every issue of a group so the relationship 
 > **`merge-unit:<slug>`** and **`chain-order:N`** (1-based, topological). These
 > encode the "merge all-or-none, IN ORDER" contract: `train-merge.mjs` refuses
 > to merge a member out of order, so main never holds a window where an
-> intermediate state reads a not-yet-swapped dependency (live: slice-24
-> accept/reject read the OLD `findByQuoteRequestId` until the chain tip's swap —
+> intermediate state reads a not-yet-swapped dependency (live: an
+> intermediate member read a repository method the chain tip had already replaced —
 > the chain MUST land as a unit). When `main` moves under an in-flight chain, do
 > NOT `git merge origin/main` per branch (that creates divergent merge commits
 > and O(chain²) re-conflict churn on every human merge); rebase the **whole

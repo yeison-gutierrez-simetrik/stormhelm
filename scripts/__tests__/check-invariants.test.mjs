@@ -505,7 +505,7 @@ test('FU-105: the clean fixture (disjoint scn ids per feature) has no collision'
 });
 
 // --- CONFIG §59 companion: title-embedded scn id must match the scenario's @scn tag (FU-124) ---
-// Live class: a belong slice shipped 6 scenarios TITLED scn-894..899 with zero tags — invisible
+// Live class: a consumer slice shipped 6 scenarios TITLED with scn ids and zero tags — invisible
 // to every invariant while silently overlapping a sibling's approved tag block.
 
 test('CONFIG §59 fails on a Scenario titled scn-NNN with no @scn tag (title-only id)', () => {

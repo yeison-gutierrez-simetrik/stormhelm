@@ -1104,8 +1104,8 @@ test('FU-49: body without scenario sections → label is authoritative (pinned)'
 // The live amendment was a BLOCKQUOTE inside ## Plan — not a heading. The
 // first backstop only matched headings, so the exact incident that motivated
 // FU-49 would have passed it silently (reproduced by the consumer against
-// belong #29's real body). Pinned verbatim, including the scn range form.
-test('FU-49: the live blockquote amendment shape aborts (belong #29 verbatim)', () => {
+// a consumer issue's real body). Pinned verbatim, including the scn range form.
+test('FU-49: the live blockquote amendment shape aborts (a consumer issue, verbatim)', () => {
   withConsumer((dir) => {
     const { status, out } = runRalph(dir, ['1', '3'], {
       MOCK_BODY: '## Plan\n\nSome plan text.\n\n> **Scope amendment (2026-06-04):** this issue also owns the idempotency-replay hardening scenarios **scn-067..070** (encrypted-store TTL, key rotation, replay rate-limit, audit invariant). Budget bumped to `budget:250k`.\n\nMore plan text.\n',
@@ -1118,7 +1118,7 @@ test('FU-49: the live blockquote amendment shape aborts (belong #29 verbatim)', 
   });
 });
 
-// Dependency amendments had the SAME blind spot (belong #31's blockquote
+// Dependency amendments had the SAME blind spot (a consumer issue's blockquote
 // never entered the dep graph → fed the FU-48 incomplete-base incident).
 test('FU-49: deps_from_body reads blockquote dependency amendments', () => {
   const r = spawnSync('bash', ['-c', [
@@ -1503,7 +1503,7 @@ test('FU-83/84: RALPH_FALLBACK_MODEL recovers an outage in-process — session c
 // doc deliverable but a slice diff that never touches a **/skills/**/*.md is NOT
 // done, even with every scenario green. The engine fails it in the green branch
 // (before the §114 reviewer) so Ralph self-corrects in the next /tdd, instead of
-// a human merge-gate BLOCK + round-trip (belong PR #146/#147). Reference: the
+// a human merge-gate BLOCK + round-trip (two consumer PRs in a row). Reference: the
 // Danger.js "changed X ⇒ must change Y" rule class, made deterministic.
 const SKILL_DOC_GATE = join(here, '..', 'check-skill-doc-delivery.mjs');
 

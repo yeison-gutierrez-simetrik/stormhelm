@@ -135,7 +135,7 @@ for (const f of featureFiles) {
   // without the human checkpoint) — and INV-8 *requires* close-outs to flip
   // features to it. The old strict equality made INV-3 and INV-8 contradict
   // each other: a correct close-out flagged every shipped scenario as
-  // "non-approved" (live: all 18 of slice-02). draft/clarifying still reject.
+  // "non-approved" (live: every shipped scenario of a slice). draft/clarifying still reject.
   for (const id of scnIdsOf(f)) {
     definedScns.add(id);
     if (headerBroken(f)) brokenScns.add(id);
@@ -222,8 +222,8 @@ if (unlistable.length)
 
 // CONFIG §59 companion (FU-124): a Scenario TITLE that embeds scn-NNN without the matching
 // @scn-NNN tag on that scenario is gate-invisible drift — the id reads as claimed to a human
-// (and to future range reservations) but defines nothing this checker can see. Live: a belong
-// slice shipped 6 scenarios titled scn-894..899 with ZERO tags; 894/895 silently overlapped a
+// (and to future range reservations) but defines nothing this checker can see. Live: a consumer
+// slice shipped 6 scenarios with the scn id in the TITLE and ZERO tags; two silently overlapped a
 // sibling slice's APPROVED tag block and no invariant went red. §59 already rules "the ID lives
 // in the tag, never in the title" — this makes the rule executable. Tags accumulate across the
 // consecutive tag lines directly above the Scenario line (blank lines don't break the block).

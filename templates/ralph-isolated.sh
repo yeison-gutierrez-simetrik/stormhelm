@@ -37,7 +37,7 @@
 #     re-entry that used to be a manual cd + re-source + relaunch dance
 #     (three times in one live night). .env is re-copied (fresh secrets win).
 #
-# Graduated from the belong-marketplace consumer prototype (FOLLOW-UP 32).
+# Graduated from a consumer prototype (FOLLOW-UP 32).
 
 set -euo pipefail
 

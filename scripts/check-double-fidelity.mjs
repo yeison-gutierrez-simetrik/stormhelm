@@ -5,10 +5,10 @@
 // FOLLOW-UP 90 — external-provider test-doubles can fabricate a wire shape the
 // real provider never emits, so a money/IO slice ships green against an INVENTED
 // contract (the double IS the contract the acceptance gate certifies). Live:
-// belong slice 18 — a Stripe-webhook double attached `chargeId` to
+// a consumer's Stripe-webhook double attached `chargeId` to
 // `checkout.session.completed`, but the real event carries `payment_intent` as
-// an UNEXPANDED string id (no charge); scn-321 passed against the fabrication,
-// production recorded an empty `stripe_charge_id`. Only the §114 reviewer caught
+// an UNEXPANDED string id (no charge); the scenario passed against the fabrication,
+// production recorded an empty charge id. Only the §114 reviewer caught
 // it, by hand.
 //
 // This pins a double against a RECORDED REAL-SHAPE GOLDEN (a `*.contract.json`

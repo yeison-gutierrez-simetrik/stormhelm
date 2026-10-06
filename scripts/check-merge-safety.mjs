@@ -116,7 +116,7 @@ if (mode === 'pre') {
   // branch-protection REQUIRED checks — a check that is not branch-protected
   // (or never registered for the branch) is invisible to it, so an auto-pilot
   // reading absence-of-failure as green can merge a PR whose authoritative gate
-  // never ran (live: belong PR #156 — `acceptance` never registered across 3
+  // never ran (live: a consumer PR's `acceptance` check never registered across 3
   // pushes while SonarCloud passed). Assert against a declared EXPECTED-checks
   // manifest: every name PRESENT + COMPLETED + SUCCESS, and zero pending.
   const expected = resolveExpectedChecks();

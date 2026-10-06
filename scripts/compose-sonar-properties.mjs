@@ -27,7 +27,7 @@
 //      scanner — what most adopters use). It does NOT read sonar-project.properties.
 //   - `sonar-project.properties` ← the CI-based scanner only.
 // Writing the composed config to the wrong file makes the exclusions silently
-// ignored (proven on belong #13: same exclusions → red in sonar-project.properties,
+// ignored (proven on a consumer: same exclusions → red in sonar-project.properties,
 // green once moved to .sonarcloud.properties). So `--write` emits BOTH (harmless —
 // each reader ignores the other; the most robust default). Bare stdout is kept for
 // piping / hand-placement.

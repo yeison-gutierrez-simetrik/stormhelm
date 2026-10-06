@@ -529,8 +529,8 @@ it works on a fresh DB (E2E, testcontainers) and silently traps the first
 persistent-DB deploy. A `RENAME COLUMN` throws `42703` on replay, a `DROP`
 throws undefined-object, a data `INSERT` throws `23505` — none in the tolerated
 set. The runner *looks* general-purpose but is fresh-DB-only, and nothing says
-so. (Live, FOLLOW-UP 106: belong's `e2e/migrate.mjs` succeeded on the first dev
-deploy and failed on the second at a `0013` `RENAME COLUMN`.)
+so. (Live, FOLLOW-UP 106: a consumer's raw migration runner succeeded on the
+first dev deploy and failed on the second at a `RENAME COLUMN` migration.)
 
 ### The rule
 
@@ -561,7 +561,7 @@ ephemeral DB and asserts the 2nd run is a **no-op** (zero applied, exit 0). With
 the tracked migrator this is automatically green; a reintroduced raw-replay
 runner, a hand-edited applied migration (journal-hash break), or any
 non-idempotent statement under a raw runner makes it RED — the gate that would
-have caught belong's runner before it shipped:
+have caught that runner before it shipped:
 
 ```yaml
 # .github/workflows/migrate-replay-safety.yml (consumer)

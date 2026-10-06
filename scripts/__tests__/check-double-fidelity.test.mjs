@@ -1,6 +1,6 @@
 // CI coverage for scripts/check-double-fidelity.mjs (FOLLOW-UP 90).
 //
-// Reproduces belong slice-18's live miss as a fixture: a Stripe-webhook double
+// Reproduces a consumer's live miss as a fixture: a Stripe-webhook double
 // that attaches `chargeId` to `checkout.session.completed` (which the real event
 // never carries — it has `payment_intent` as an unexpanded string id). The
 // structural diff against the recorded golden fails the fabricated/typed-wrong

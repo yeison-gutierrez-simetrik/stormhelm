@@ -433,13 +433,13 @@ A slice often decomposes into several issues that **share a foundation** (issue 
 
 ### Night Shift slice-groups: the deliberate stacked exception (FOLLOW-UP 38a, maintainer ruling 2026-06-04)
 
-A Night Shift slice-group is the one place stacking is **sanctioned**: each Ralph run is one issue, sessions run AFK while humans sleep, and waiting for a human merge between siblings would serialize the night on the reviewer's bed-time (live: belong #19 and #21 both branched from `main` and conflicted on the shared wiring files — the second PR needed manual resolution). The chain model trades §123's default for nocturnal throughput, **under four mandatory conditions**:
+A Night Shift slice-group is the one place stacking is **sanctioned**: each Ralph run is one issue, sessions run AFK while humans sleep, and waiting for a human merge between siblings would serialize the night on the reviewer's bed-time (live: two sibling slices both branched from `main` and conflicted on the shared wiring files — the second PR needed manual resolution). The chain model trades §123's default for nocturnal throughput, **under four mandatory conditions**:
 
 1. **Merge commits only.** Squash-merging a base PR rewrites its commits and breaks every stacked diff above it. The engine's PR body states this; the merge guidance for chained PRs is merge-commit, base-first.
 2. **The engine carries the base.** `ralph-local.sh --base <prev-branch>` (also accepted by `ralph-isolated.sh`, which starts the worktree at that ref) branches the slice FROM the previous sibling's branch and opens the PR **against** it (`gh pr create --base`). Merge order = chain order; GitHub retargets child PRs automatically when the base merges and its branch is deleted. A chained branch **may merge `origin/main` mid-run** when it needs a dependency that merged after the fork (merge commits only) — this is blessed, but it creates the double-merge-base trap on retarget; see the merge-train runbook point 5 (FOLLOW-UP 81) for the signature and recovery.
 3. **Finding-attribution (PR-Attr) is mandatory** — unchanged from the stacked rule above: a blocking finding is fixed on the branch that owns the offending code, never on a branch stacked above it.
 4. **Cascade procedure.** If the foundation changes post-review, each child refreshes with `git merge <prev-branch>` (in chain order) and re-gates. (Candidate for automation later; manual and documented for now.)
-5. **Merge as a UNIT, in order (FOLLOW-UP 100, maintainer ruling 2026-06-17).** `/to-issues` stamps every chained member with `merge-unit:<slug>` + `chain-order:N`, and `train-merge.mjs` **refuses to merge a member out of order** — so `main` never holds a window where an intermediate state reads a not-yet-swapped dependency (live: slice-24's accept/reject read the OLD `findByQuoteRequestId` until the chain tip swapped it; the chain MUST land all-or-none, in order).
+5. **Merge as a UNIT, in order (FOLLOW-UP 100, maintainer ruling 2026-06-17).** `/to-issues` stamps every chained member with `merge-unit:<slug>` + `chain-order:N`, and `train-merge.mjs` **refuses to merge a member out of order** — so `main` never holds a window where an intermediate state reads a not-yet-swapped dependency (live: an intermediate chain member read a repository method the chain tip had already replaced; the chain MUST land all-or-none, in order).
 
 #### Stacked-chain reconciliation when `main` moves (FOLLOW-UP 100)
 
@@ -904,7 +904,7 @@ entry per self-answered question:
 Doc supersessions and any deviation from the standard flow are flagged at the
 top of the log first.
 
-**Why this is safe enough to document (but not to default).** In the belong
+**Why this is safe enough to document (but not to default).** In the consumer
 pilot, two slices reached draft PRs with zero pre-PR human checkpoints, and
 the **non-human gates held**: the §114 reviewer caught a constitution
 violation (`zod` in the domain layer) that originated in the auto-pilot's own

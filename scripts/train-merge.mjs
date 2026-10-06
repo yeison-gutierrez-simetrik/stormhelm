@@ -46,8 +46,8 @@ const { headRefName, baseRefName, headRefOid } = view;
 
 // 1b. FOLLOW-UP 100: merge-unit ordering. A chained slice-group must merge
 // all-or-none IN ORDER, leaving NO window on main where an intermediate state
-// reads stale code (live: slice-24 accept/reject read the OLD
-// findByQuoteRequestId until the chain tip swapped it). A PR labeled
+// reads stale code (live: an intermediate member read a
+// repository method the chain tip had already replaced). A PR labeled
 // `merge-unit:<slug>` is refused unless it is the LOWEST open `chain-order:N`
 // of its unit — the next member in order. /to-issues stamps both labels on
 // chained sub-issues; this is where the contract is enforced.
