@@ -41,14 +41,14 @@
 //   - Clean → `SKIPPED-SCN GATE: ok`; issue with no scenarios token + no mid-file
 //     status → `na`. Any problem → `SKIPPED-SCN GATE: FAIL` + offenders, exit 1.
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { parseFeatureStatus } from './parse-feature-status.mjs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { featureFiles, parseFeatureStatus } from './parse-feature-status.mjs';
 
 // ISSUE #141: a sane exit contract so this wires plainly into a `pull_request`
 // CI job. rc 0 = clean · rc 1 = a genuine false-green risk · rc 2 ONLY on a
-// truly malformed call (no features dir). Two modes:
-//   <features-dir>               → CI mode: the issue-independent mid-file-status
+// truly malformed call (no arguments, or a features dir that does not exist —
+// a typo or a monorepo path must not become a permanently green no-op). Two modes:
+//   <features-dir>               → CI mode: the issue-independent status-line
 //                                  lint across every feature (FU-44: the script
 //                                  owns its own scoping for a bare node/pnpm call).
 //   <features-dir> <issue-file…> → Ralph per-slice: the above PLUS the §130b
@@ -57,76 +57,91 @@ import { parseFeatureStatus } from './parse-feature-status.mjs';
 const args = process.argv.slice(2);
 if (args.length < 1) {
   console.error('usage: node scripts/check-skipped-release-scn.mjs <features-dir> [issue-or-spec-file...]');
-  console.error('  <features-dir> alone = CI mode (mid-file-status lint, §130b/ISSUE #141)');
+  console.error('  <features-dir> alone = CI mode (status-line lint, §130b/ISSUE #141)');
   process.exit(2);
 }
 const [featuresDir, ...issueFiles] = args;
+if (!existsSync(featuresDir) || !statSync(featuresDir).isDirectory()) {
+  console.error(`features dir not found: ${featuresDir} — pass the directory that holds the .feature files (rc 2: a malformed call, never a green no-op).`);
+  process.exit(2);
+}
+
+// scn ids compare by number, so `scn-1` and `scn-001` can never miss each other.
+const scnKey = (digits) => `scn-${parseInt(digits, 10)}`;
 
 // --- claimed scns from the issue/spec `scenarios:` tokens -------------------
+// The grammar check-invariants and ralph_expand_scns read (they must agree): an
+// optional `scn-` prefix on every element, `+`/`,` lists, and `A..B` ranges whose
+// expansion keeps the start's zero padding (scn-001..scn-003 → scn-001, scn-002,
+// scn-003 — the FU-134 review found scn-1.. here, which never matched @scn-001).
+// Whitespace after `scenarios:` is tolerated only before an explicit `scn-`, so
+// "scenarios: 2 slices" is prose, not a claim. Returns Map<key, id as claimed>.
 function claimedScns(files) {
-  const scns = new Set();
+  const scns = new Map();
   for (const f of files) {
     if (!existsSync(f)) continue;
     const text = readFileSync(f, 'utf8');
-    // Capture ONLY the structured token list after `scenarios:` — a leading
-    // scn-N then compact continuations (,/+ lists, .. ranges). Stops at prose
-    // (a space), so "scenarios:scn-566 for the slice" yields just scn-566.
-    // Forms: scenarios:scn-021,scn-022 · scenarios:scn-021+022 · scn-021..023
-    for (const m of text.matchAll(/scenarios:\s*(scn-\d+(?:(?:[,+]|\.\.)(?:scn-)?\d+)*)/g)) {
-      for (const tok of m[1].split(/[,+]/)) {
-        // range scn-A..scn-B or scn-A..B (or bare A..B from a compact list)
-        const range = tok.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/);
+    for (const m of text.matchAll(/scenarios:(?:\s*(?=scn-))?((?:scn-)?\d+(?:(?:[,+]|\.\.)(?:scn-)?\d+)*)/gi)) {
+      for (const seg of m[1].split(/[,+]/)) {
+        const range = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/i);
         if (range) {
-          const a = +range[1], b = +range[2];
-          if (b >= a && b - a < 1000) for (let n = a; n <= b; n++) scns.add(`scn-${n}`);
+          const [a, b, w] = [+range[1], +range[2], range[1].length];
+          if (b >= a && b - a < 1000) {
+            for (let n = a; n <= b; n++) { const d = String(n).padStart(w, '0'); scns.set(scnKey(d), `scn-${d}`); }
+          }
           continue;
         }
-        // Inside a scenarios: token, a bare number IS a scn (compact + form).
-        const one = tok.match(/^(?:scn-)?(\d+)$/);
-        if (one) scns.add(`scn-${one[1]}`);
+        const one = seg.match(/^(?:scn-)?(\d+)$/i);
+        if (one) scns.set(scnKey(one[1]), `scn-${one[1]}`);
       }
     }
   }
   return scns;
 }
 
-// --- walk .feature files ----------------------------------------------------
-function featureFiles(dir) {
-  const out = [];
-  if (!existsSync(dir)) return out;
-  for (const e of readdirSync(dir)) {
-    const p = join(dir, e);
-    let s;
-    try { s = statSync(p); } catch { continue; }   // dangling symlink (an editor lock file) — not a feature
-    if (s.isDirectory()) out.push(...featureFiles(p));
-    else if (e.endsWith('.feature')) out.push(p);
-  }
-  return out;
-}
-
-// Map scn -> { file, status, release } by scanning each feature. The status is
-// what the IMPLEMENTED_ONLY runner reads — the shared parseFeatureStatus(), not
-// a looser regex of our own (the FU-134 review: `\w+` read 'implemented' from
-// `implemented-wip`, which the runner skips).
+// Map scn key -> { id, file, status, release }. Mirrors how cucumber tags a
+// scenario (the FU-134 review: each case below was missed, so a claimed @release
+// scn read "implemented" while the runner skipped it):
+//   - Feature and Rule tags are inherited by every scenario under them;
+//   - `Scenario`, `Example`, `Scenario Outline` and `Scenario Template` are all
+//     scenarios, and an `Examples` block adds its own tags to its outline's;
+//   - blank lines and comments may sit inside a tag block; any other line
+//     (a step, a description, a table row) ends it; docstring content is data.
+// The status is the runner's own reading (parseFeatureStatus), not a regex of
+// our own (the review: `\w+` read 'implemented' from `implemented-wip`).
+const KEYWORD = /^(Feature|Business Need|Ability|Rule|Background|Scenario Outline|Scenario Template|Scenario|Example|Examples|Scenarios):/;
+const STEP = /^(Given|When|Then|And|But|\*)\s/;
+const tagsOf = (line) => line.replace(/\s+#.*$/, '').split(/\s+/).filter((t) => t.startsWith('@'));
 function indexScenarios(parsed) {
   const idx = new Map();
   for (const [file, { text, status }] of parsed) {
-    // A scn's tags can span multiple lines above its Scenario:. Accumulate the
-    // contiguous @tag lines, then attribute them to the @scn-NNN they precede.
-    let tagBuf = '';
-    for (const l of text.split(/\r?\n/)) {
-      const t = l.trim();
-      if (t.startsWith('@')) { tagBuf += ' ' + t; continue; }
-      if (/^(Scenario|Scenario Outline):/i.test(t)) {
-        for (const sm of tagBuf.matchAll(/@scn-(\d+)\b/g)) {
-          const scn = `scn-${sm[1]}`;
-          const release = /@release\b/.test(tagBuf);
-          if (!idx.has(scn)) idx.set(scn, { file, status, release });
-        }
-        tagBuf = '';
-      } else if (t !== '') {
-        tagBuf = ''; // a non-tag, non-scenario line breaks the tag block
+    const add = (tags) => {
+      const release = tags.includes('@release');
+      for (const t of tags) {
+        const m = t.match(/^@scn-(\d+)$/);
+        if (m && !idx.has(scnKey(m[1]))) idx.set(scnKey(m[1]), { id: `scn-${m[1]}`, file, status, release });
       }
+    };
+    let pending = [], feature = [], rule = [], outline = [];
+    let fence = null, underStep = false;
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (fence) { if (t.startsWith(fence)) fence = null; continue; }
+      const open = t.match(/^("""|```)/);
+      if (open && underStep) { fence = open[1]; continue; }
+      if (!t || t.startsWith('#')) continue;
+      if (t.startsWith('@')) { pending.push(...tagsOf(t)); continue; }
+      const kw = t.match(KEYWORD);
+      underStep = !kw && STEP.test(t);
+      if (!kw) { pending = []; continue; }
+      switch (kw[1]) {
+        case 'Feature': case 'Business Need': case 'Ability': feature = pending; rule = []; break;
+        case 'Rule': rule = pending; break;
+        case 'Background': break;
+        case 'Examples': case 'Scenarios': add([...outline, ...pending]); break;
+        default: outline = [...feature, ...rule, ...pending]; add(outline);
+      }
+      pending = [];
     }
   }
   return idx;
@@ -142,6 +157,7 @@ function indexScenarios(parsed) {
 // be loud, not silent. FU-134: the detection lives in parse-feature-status.mjs,
 // the one reader cucumber.mjs also uses (as a verbatim copy).
 const MESSAGES = {
+  default: (file, p) => `STATUS LINE ${file}:${p.line} \`${p.text}\` — a '# status:' the runner cannot honor (${p.kind}).`,
   'mid-file': (file, p) => `MID-FILE STATUS ${file}:${p.line} \`${p.text}\` — a '# status:' AFTER the header block (the leading comment block) is IGNORED by cucumber.mjs; the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`,
 };
 
@@ -154,7 +170,7 @@ const problems = [];
 
 // (1) Status-line lint — ALWAYS (issue-independent; the silent-skip cause).
 for (const [file, { problems: found }] of parsed) {
-  for (const p of found) problems.push(MESSAGES[p.kind](file, p));
+  for (const p of found) problems.push((MESSAGES[p.kind] ?? MESSAGES.default)(file, p));
 }
 
 // (2) §130b claimed-@release-scn check — only when issue files are given
@@ -168,12 +184,12 @@ if (issueFiles.length) {
   claimedCount = claimed.size;
   if (claimed.size) {
     const idx = indexScenarios(parsed);
-    for (const scn of claimed) {
-      const info = idx.get(scn);
+    for (const key of claimed.keys()) {
+      const info = idx.get(key);
       if (!info) continue;            // not found / not in features — Step-3 count check owns that
       if (!info.release) continue;    // only @release scns gate CI's definition of done
       if (info.status !== null && info.status !== 'implemented') {
-        problems.push(`${scn} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
+        problems.push(`${info.id} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
       }
     }
   }

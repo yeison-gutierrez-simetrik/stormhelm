@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -96,6 +96,17 @@ test('FU-39: INV-3 accepts a ralph-ready scn in an IMPLEMENTED feature (close-ou
   assert.equal(status, 0, `INV-3 and INV-8 must hold SIMULTANEOUSLY at close-out:\n${out}`);
   assert.match(out, /INV-3 §63: all ralph-ready scns defined and approved/);
   assert.match(out, /INV-8 §58: .*pinned|INV-8 §58: pass|✅ INV-8/, 'INV-8 satisfied in the same state');
+});
+
+// FU-134 review: an editor lock file (Emacs `.#x.feature`, a dangling symlink)
+// crashed the invariant gate's walk with ENOENT — the same file the lint and the
+// cucumber config already skip.
+test('a dangling symlink in features/ does not crash the gate', () => {
+  const { status, out } = runMutated((dir) => {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', '.#lock.feature'));
+  });
+  assert.doesNotMatch(out, /ENOENT/, out);
+  assert.equal(status, 0, out);
 });
 
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {

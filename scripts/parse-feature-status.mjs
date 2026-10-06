@@ -2,11 +2,11 @@
 // scripts/parse-feature-status.mjs
 //
 // The single reader of a .feature file's `# status:` (§58) — FOLLOW-UP 134.
-// check-skipped-release-scn.mjs imports it; templates/cucumber.mjs.tmpl carries a
-// VERBATIM copy of the block between the BEGIN/END markers (the template is copied
-// to the consumer root and must stay self-contained, and a named export in a
-// cucumber config is read as a profile, so the copy drops `export`).
-// scripts/__tests__/parse-feature-status.test.mjs fails if the two drift.
+// Imported by check-skipped-release-scn.mjs AND by the shipped cucumber.mjs
+// template (`import … from './scripts/parse-feature-status.mjs'` — /setup vendors
+// this file beside the config). One module, not a copy: a re-sync refreshes
+// scripts/ but never the consumer-tuned cucumber.mjs, so an inline copy would
+// drift from the lint on the first change to the reader.
 //
 // Before this, the lint and the runner each parsed the header their own way
 // (keyword-specific break, a 10-line read window, column-0 only, `\w+` vs `\S+`),
@@ -17,20 +17,37 @@
 //   - the HEADER is the file's leading block of comment / blank lines; it ends at
 //     the first other line (a tag line or the Feature keyword line, whatever the
 //     keyword);
-//   - the STATUS is the first token of the header's first `# status:` line,
-//     lower-cased; prose may follow it. No header status → null (legacy: the
-//     runner treats the feature as implemented);
-//   - a status DECLARATION anywhere else — after the header, or trailing a tag
-//     line — is never read, so it is reported. Docstring content is data, and a
-//     comment declares a status only when its value starts with a §58 state word
-//     (`# Status: flaky on CI` is prose).
+//   - the STATUS is the first word of the header's first non-empty `# status:`
+//     line, lower-cased; prose may follow it. No header status → null (legacy:
+//     the runner treats the feature as implemented);
+//   - the `# status:` key is RESERVED for that one line. Any other `# status:`
+//     comment after the header — or trailing a tag line — is never read, so it
+//     is reported whatever it says (`# status: done` and `# Status: flaky` alike;
+//     prose uses another word). Docstring content (a fence right under a step)
+//     is data; a fence anywhere else is plain description text.
 
-// BEGIN parse-feature-status — verbatim copy in templates/cucumber.mjs.tmpl (keep identical)
-export const STATES = ['draft', 'clarifying', 'approved', 'implemented', 'retired'];
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
 const STATUS_COMMENT = /^\s*#\s*status:\s*(.*)$/i;
 const TAG_TRAILING_STATUS = /^\s*@[^#]*#\s*status:\s*(.*)$/i;
-const DECLARES_STATE = /^["'`]?(draft|clarifying|approved|implemented|retired)\b/i;
 const DOCSTRING_FENCE = /^\s*("""|```)/;
+const STEP = /^\s*(Given|When|Then|And|But|\*)\s/;
+
+// Every .feature under `dir`. An unreadable entry (a dangling symlink — an editor
+// lock file like Emacs' `.#x.feature`) is skipped, not a crash; a missing dir is empty.
+export function featureFiles(dir, acc = []) {
+  let entries;
+  try { entries = readdirSync(dir); } catch { return acc; }
+  for (const e of entries) {
+    const p = join(dir, e);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) featureFiles(p, acc);
+    else if (e.endsWith('.feature')) acc.push(p);
+  }
+  return acc;
+}
 
 export function parseFeatureStatus(text) {
   const lines = text.split(/\r?\n/);
@@ -40,18 +57,20 @@ export function parseFeatureStatus(text) {
   let statusLine = 0;
   for (let i = 0; i < headerEnd && !statusLine; i++) {
     const m = STATUS_COMMENT.exec(lines[i]);
-    const token = m ? m[1].trim().split(/\s+/)[0] : '';
-    if (token) { status = token.toLowerCase(); statusLine = i + 1; }
+    const word = m ? m[1].trim().split(/\s+/)[0] : '';
+    if (word) { status = word.toLowerCase(); statusLine = i + 1; }
   }
   const problems = [];
   let fence = null;
+  let underStep = false;
   for (let i = headerEnd; i < lines.length; i++) {
-    const open = DOCSTRING_FENCE.exec(lines[i]);
-    if (open && (fence === null || fence === open[1])) { fence = fence === null ? open[1] : null; continue; }
-    if (fence) continue;
-    const m = STATUS_COMMENT.exec(lines[i]) || TAG_TRAILING_STATUS.exec(lines[i]);
-    if (m && DECLARES_STATE.test(m[1].trim())) problems.push({ line: i + 1, kind: 'mid-file', text: lines[i].trim() });
+    const line = lines[i];
+    if (fence) { if (line.trim().startsWith(fence)) fence = null; continue; }
+    const open = DOCSTRING_FENCE.exec(line);
+    if (open && underStep) { fence = open[1]; continue; }
+    const m = STATUS_COMMENT.exec(line) || TAG_TRAILING_STATUS.exec(line);
+    if (m) problems.push({ line: i + 1, kind: 'mid-file', text: line.trim() });
+    if (line.trim() && !/^\s*#/.test(line)) underStep = STEP.test(line);
   }
   return { status, statusLine, headerEnd, problems };
 }
-// END parse-feature-status

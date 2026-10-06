@@ -34,60 +34,17 @@
 // step is dropped. One throw blocks every flagged run repo-wide (pre-push smoke
 // included) until the file is fixed — fail closed by design.
 //
-// parseFeatureStatus() below is the ONE reader of `# status:` — the status this
-// config honors and the declarations it cannot. It is a verbatim copy of
-// scripts/parse-feature-status.mjs (which check-skipped-release-scn.mjs uses),
-// duplicated, not imported, because this file is copied to the consumer root
-// and must stay self-contained; scripts/__tests__/parse-feature-status.test.mjs
-// fails if the copy drifts. Do not export it: a named export here is read by
+// parseFeatureStatus() is the ONE reader of `# status:` — the status this config
+// honors and the declarations it cannot. It is IMPORTED from
+// scripts/parse-feature-status.mjs, the same module check-skipped-release-scn.mjs
+// uses; /setup vendors it beside this file. Import, not copy: a re-sync refreshes
+// scripts/ but never this (consumer-tuned) config, so a copy would drift from the
+// lint on the first change to the reader. Keep the import when adapting this
+// file, and export nothing but the default: a named export here is read by
 // cucumber as a profile.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-
-function featureFiles(dir, acc = []) {
-  let entries;
-  try { entries = readdirSync(dir); } catch { return acc; }
-  for (const e of entries) {
-    const p = join(dir, e);
-    let st;
-    try { st = statSync(p); } catch { continue; }   // dangling symlink (an editor lock file) — not a feature
-    if (st.isDirectory()) featureFiles(p, acc);
-    else if (e.endsWith('.feature')) acc.push(p);
-  }
-  return acc;
-}
-
-// BEGIN parse-feature-status — verbatim copy in templates/cucumber.mjs.tmpl (keep identical)
-const STATES = ['draft', 'clarifying', 'approved', 'implemented', 'retired'];
-const STATUS_COMMENT = /^\s*#\s*status:\s*(.*)$/i;
-const TAG_TRAILING_STATUS = /^\s*@[^#]*#\s*status:\s*(.*)$/i;
-const DECLARES_STATE = /^["'`]?(draft|clarifying|approved|implemented|retired)\b/i;
-const DOCSTRING_FENCE = /^\s*("""|```)/;
-
-function parseFeatureStatus(text) {
-  const lines = text.split(/\r?\n/);
-  let headerEnd = 0;
-  while (headerEnd < lines.length && /^\s*(#.*)?$/.test(lines[headerEnd])) headerEnd++;
-  let status = null;
-  let statusLine = 0;
-  for (let i = 0; i < headerEnd && !statusLine; i++) {
-    const m = STATUS_COMMENT.exec(lines[i]);
-    const token = m ? m[1].trim().split(/\s+/)[0] : '';
-    if (token) { status = token.toLowerCase(); statusLine = i + 1; }
-  }
-  const problems = [];
-  let fence = null;
-  for (let i = headerEnd; i < lines.length; i++) {
-    const open = DOCSTRING_FENCE.exec(lines[i]);
-    if (open && (fence === null || fence === open[1])) { fence = fence === null ? open[1] : null; continue; }
-    if (fence) continue;
-    const m = STATUS_COMMENT.exec(lines[i]) || TAG_TRAILING_STATUS.exec(lines[i]);
-    if (m && DECLARES_STATE.test(m[1].trim())) problems.push({ line: i + 1, kind: 'mid-file', text: lines[i].trim() });
-  }
-  return { status, statusLine, headerEnd, problems };
-}
-// END parse-feature-status
+import { readFileSync } from 'node:fs';
+import { featureFiles, parseFeatureStatus } from './scripts/parse-feature-status.mjs';
 
 // One read per feature: the status the runner honors + the declarations it cannot.
 const features = featureFiles('features').map((f) => ({ f, ...parseFeatureStatus(readFileSync(f, 'utf8')) }));

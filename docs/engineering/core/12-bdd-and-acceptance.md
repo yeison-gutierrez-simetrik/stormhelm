@@ -148,10 +148,12 @@ skill flips it.
 Feature files are written in **English Gherkin** (`# language: en`, as
 `/to-scenarios` writes them). The **header** is the file's leading comment block —
 it ends at the first line that is not a comment or blank (a tag line or the
-`Feature:` line) — and its `# status:` line is the only one anything reads. One
-parser does that reading for the runner and the gates alike
-(`scripts/parse-feature-status.mjs`; the `cucumber.mjs` template carries a
-verbatim copy — FOLLOW-UP 134).
+`Feature:` line) — and its `# status:` line is the only one the runner reads.
+The `# status:` key is **reserved** for that line: any other `# status:` comment
+is reported, whatever it says (prose uses another word, e.g. `# Note:`). One
+module does the reading for the runner and the skipped-release lint —
+`scripts/parse-feature-status.mjs`, which the `cucumber.mjs` template imports
+(FOLLOW-UP 134).
 
 > **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
 > `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file
@@ -1064,10 +1066,11 @@ invariant gate, before `@release`, even when install/typecheck failed), and the
 shipped `cucumber.mjs` **fails closed at load** on a mid-file `# status:` under
 `IMPLEMENTED_ONLY` (it warns and continues locally) — so a mid-file status
 cannot ship green even if the workflow step is dropped while tuning. Both read
-`# status:` through the same parser (`scripts/parse-feature-status.mjs`, verbatim
-in the template), so the lint and the runner cannot disagree about a header; a
-docstring line is data, and a comment declares a status only when its value
-starts with a §58 state word (`# Status: flaky on CI` is prose). A *second*
+`# status:` through the same module (`scripts/parse-feature-status.mjs`, which the
+template imports — /setup vendors it, and a re-sync updates the lint and the
+runner together), so they cannot disagree about a header. Any `# status:` comment
+after the header is reported, whatever its value; docstring content (a fence
+right under a step) is data, while a fence in a description is plain text. A *second*
 status inside the header block is FOLLOW-UP 135.
 
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**

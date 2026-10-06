@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync, symlinkSyn
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { loadCucumberConfig } from './load-cucumber-config.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GATE = join(here, '..', 'check-skipped-release-scn.mjs');
@@ -183,17 +184,15 @@ test('#141: exit contract — 0 args → rc 2 (usage); a bare features-dir is NO
 });
 
 // ── FOLLOW-UP 134 — one `# status:` reader for the lint AND the runner ─────
-// scripts/parse-feature-status.mjs is the single reader; the shipped
-// cucumber.mjs template carries a verbatim copy (it is copied to the consumer
-// root and must stay self-contained — parse-feature-status.test.mjs pins the
-// copy). Black-box parity on top: the same fixture goes through the real lint
+// scripts/parse-feature-status.mjs is the single reader: the lint and the
+// shipped cucumber.mjs template both IMPORT it (/setup vendors it beside the
+// config, and a re-sync updates both at once). Black-box parity on top: the same fixture goes through the real lint
 // (CI mode) and the real template config (local mode → warning list), and both
 // must name exactly the same file:line set. `reads` is the status the runner
 // must read — checked against the parser AND against the config's real CI
 // surface decision, so the lint can never again read a feature differently
 // from the runner (the FU-134 review's oracle gap).
 
-const TEMPLATE = join(here, '..', '..', 'templates', 'cucumber.mjs.tmpl');
 const PARSER = pathToFileURL(join(here, '..', 'parse-feature-status.mjs')).href;
 const notes = Array.from({ length: 10 }, (_, i) => `# note ${i + 1}`);
 const PARITY = [
@@ -216,13 +215,23 @@ const PARITY = [
     body: ['# status: approved', 'Ability: X', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'status trailing a tag line', expect: [3], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '  @release @scn-1 # status: implemented', '  Scenario: s', '    Given g'] },
-  // A docstring is data: a `# status:` inside one is never a declaration.
+  // A docstring (a fence right under a step) is data: a `# status:` inside one
+  // is never a declaration.
   { name: 'docstring content is data, not a status', expect: [], reads: 'implemented',
     body: ['# status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given a payload',
       '      """', '      # status: approved', '      """', '    And a json payload', '      ```json', '      # status: draft', '      ```'] },
-  // Only a state word makes a comment a status declaration — prose is prose.
-  { name: 'a prose comment is not a status declaration', expect: [], reads: 'implemented',
+  // The `# status:` key is reserved for the header's status line: any other
+  // `# status:` comment is reported, whatever it says (the FU-134 review: a
+  // state-word filter let `# status: done` through, which main flagged).
+  // Prose uses another word (`# Note: flaky on CI`).
+  { name: 'a `# Status:` comment after the header is reported, whatever it says', expect: [3], reads: 'implemented',
     body: ['# status: implemented', 'Feature: X', '  # Status: flaky on CI, see #12', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { name: 'mid-file `# status: done` (not a state word) is still reported', expect: [4], reads: 'approved',
+    body: ['# status: approved', 'Feature: X', '', '  # status: done', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // A fence in a description is plain text — only a fence under a step opens a
+  // docstring (the review: an unbalanced ``` in a description hid everything after it).
+  { name: 'a fence in the Feature description is text, not a docstring', expect: [4], reads: 'approved',
+    body: ['# status: approved', 'Feature: X', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
     body: ['# status: implemented (scn-835 delivered — issue #551)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'indented header status is read', expect: [], reads: 'approved',
@@ -237,17 +246,10 @@ function parityRepo(body, eol = '\n') {
   const dir = mkdtempSync(join(tmpdir(), 'parity-'));
   mkdirSync(join(dir, 'features'), { recursive: true });
   writeFileSync(join(dir, 'features', 'f.feature'), body.join(eol) + eol);
-  copyFileSync(TEMPLATE, join(dir, 'cucumber.mjs'));
   return dir;
 }
 const lines = (text) => [...text.matchAll(/features\/f\.feature:(\d+)/g)].map((m) => +m[1]);
-const loadConfig = (dir, env = {}) => {
-  const r = spawnSync('node', ['-e', `
-    import(${JSON.stringify(pathToFileURL(join(dir, 'cucumber.mjs')).href)})
-      .then((m) => console.log(JSON.stringify(m.default.paths)));
-  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, CUCUMBER_IMPLEMENTED_ONLY: '', ...env } });
-  return { status: r.status, stderr: r.stderr, paths: r.status === 0 ? JSON.parse(r.stdout) : null };
-};
+const loadConfig = loadCucumberConfig;   // stages cucumber.mjs + scripts/parse-feature-status.mjs
 
 for (const fx of PARITY) {
   test(`${fx.fu ?? 'FU-134'} parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
@@ -284,4 +286,86 @@ test('FU-134: a dangling symlink in features/ does not crash CI mode', () => {
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /SKIPPED-SCN GATE: ok/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review: a missing features dir is a malformed call (rc 2, the script's
+// own contract) — not a permanently green no-op on a typo or a monorepo path.
+test('FU-134: a features dir that does not exist → rc 2, not a green no-op', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nofeat-'));
+  try {
+    const r = spawnSync('node', [GATE, join(dir, 'featurez')], { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stderr, /features dir not found/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review: the §130b claimed-scn index only knew `Scenario:` /
+// `Scenario Outline:` with the tags directly above. Cucumber also tags a
+// scenario through its Feature and Rule (inheritance), accepts `Example:` and
+// `Scenario Template:`, and allows comments inside a tag block — each of those
+// claimed @release scns was reported "implemented" while the runner skipped it.
+test('FU-134: §130b sees @release inherited from Feature/Rule, Example:/Scenario Template:, and comment-split tag blocks', () => {
+  const dir = setupFeature([
+    '# status: approved',
+    '@release',
+    'Feature: X',
+    '',
+    '  @scn-1',
+    '  Scenario: inherits @release from the Feature',
+    '    Given g',
+    '',
+    '  @scn-2',
+    '  Example: the Example synonym',
+    '    Given g',
+    '',
+    '  @smoke',
+    '  # a note between tags',
+    '  @scn-3',
+    '  Scenario: a comment inside the tag block',
+    '    Given g',
+    '',
+    '  @scn-4',
+    '  Scenario Template: the outline synonym <n>',
+    '    Given <n>',
+    '    Examples:',
+    '      | n |',
+    '      | 1 |',
+    '',
+  ].join('\n'));
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'scenarios:scn-1+2+3+4\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    for (const scn of ['scn-1', 'scn-2', 'scn-3', 'scn-4']) {
+      assert.match(r.stdout, new RegExp(`${scn} — @release but its feature is "# status: approved"`), `${scn} flagged`);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134: §130b sees @release on a Rule', () => {
+  const dir = setupFeature('# status: approved\nFeature: X\n\n  @release\n  Rule: a rule\n\n    @scn-5\n    Scenario: inherits @release from the Rule\n      Given g\n');
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'scenarios:scn-5\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /scn-5 — @release/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review: claimed ranges lost their zero padding (scn-001..scn-002 →
+// scn-1, scn-2 — never matching @scn-001), and the bare-number form
+// check-invariants accepts (`scenarios:001+002`) was not read at all. The claim
+// grammar now matches check-invariants / ralph_expand_scns.
+test('FU-134: §130b reads zero-padded ranges and the bare-number form', () => {
+  const body = '# status: approved\nFeature: X\n\n  @release @scn-001\n  Scenario: a\n    Given g\n\n  @release @scn-002\n  Scenario: b\n    Given g\n';
+  for (const claim of ['scenarios:scn-001..scn-002', 'scenarios:001+002']) {
+    const dir = setupFeature(body);
+    try {
+      writeFileSync(join(dir, 'issue.md'), `${claim}\n`);
+      const r = runCI(dir, join(dir, 'issue.md'));
+      assert.equal(r.status, 1, `${claim}: ${r.stdout}${r.stderr}`);
+      assert.match(r.stdout, /scn-001 — @release/, claim);
+      assert.match(r.stdout, /scn-002 — @release/, claim);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });

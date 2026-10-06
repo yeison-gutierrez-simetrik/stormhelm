@@ -43,7 +43,9 @@ const walk = (dir, re, acc = []) => {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) { if (!['node_modules', '.git'].includes(e.name)) walk(p, re, acc); }
-    else if (re.test(e.name)) acc.push(p);
+    // A dangling symlink (an editor lock file like Emacs' `.#x.feature`) is not a
+    // file to read — skip it rather than crash the whole gate with ENOENT.
+    else if (re.test(e.name) && (!e.isSymbolicLink() || existsSync(p))) acc.push(p);
   }
   return acc;
 };

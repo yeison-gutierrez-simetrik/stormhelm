@@ -1,34 +1,31 @@
 // Coverage for scripts/parse-feature-status.mjs — the single `# status:` reader
-// (§58) shared by check-skipped-release-scn.mjs and, as a verbatim copy, by the
-// shipped cucumber.mjs template (FOLLOW-UP 134 review). Behavioral parity
-// between the lint and the real config lives in check-skipped-release-scn.test.mjs;
-// this file pins the copy and the reader's own contract.
+// (§58) imported by check-skipped-release-scn.mjs and by the shipped cucumber.mjs
+// template (FOLLOW-UP 134 review). Behavioral parity between the lint and the
+// real config lives in check-skipped-release-scn.test.mjs; this file pins the
+// import and the reader's own contract.
 //
 // Run: node --test scripts/__tests__/parse-feature-status.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MODULE = join(here, '..', 'parse-feature-status.mjs');
 const TEMPLATE = join(here, '..', '..', 'templates', 'cucumber.mjs.tmpl');
 const load = () => import(pathToFileURL(MODULE).href);
 
-// The template cannot import from scripts/ (consumers copy it to their root),
-// so it carries the reader between BEGIN/END markers. `export` is the only
-// allowed difference: a named export in a cucumber config is read as a profile.
-const block = (text) => {
-  const m = text.match(/\/\/ BEGIN parse-feature-status[^\n]*\n([\s\S]*?)\/\/ END parse-feature-status/);
-  assert.ok(m, 'BEGIN/END parse-feature-status markers present');
-  return m[1].replace(/^export /gm, '');
-};
-
-test('FU-134: cucumber.mjs.tmpl carries a verbatim copy of parse-feature-status.mjs', () => {
-  assert.equal(block(readFileSync(TEMPLATE, 'utf8')), block(readFileSync(MODULE, 'utf8')),
-    'the template copy drifted from scripts/parse-feature-status.mjs — re-copy the block');
+// The template IMPORTS the reader (FU-134 review): /setup vendors
+// scripts/parse-feature-status.mjs beside cucumber.mjs, and a re-sync refreshes
+// the scripts but never the tuned config — an inline copy would drift from the
+// lint on the first reader change. A named import is not a cucumber profile.
+test('FU-134: cucumber.mjs.tmpl imports the shared reader instead of carrying a copy', () => {
+  const tmpl = readFileSync(TEMPLATE, 'utf8');
+  assert.match(tmpl, /^import \{ featureFiles, parseFeatureStatus \} from '\.\/scripts\/parse-feature-status\.mjs';$/m);
+  assert.doesNotMatch(tmpl, /function parseFeatureStatus|function featureFiles/, 'no inline copy to drift');
 });
 
 test('FU-134: the template exports nothing but its config (named exports are cucumber profiles)', () => {
@@ -52,4 +49,23 @@ test('FU-134: a mid-file status declaration is reported with its line and text',
   const { parseFeatureStatus } = await load();
   const r = parseFeatureStatus('# status: approved\nFeature: X\n\n  # status: implemented\n  @release @scn-1\n');
   assert.deepEqual(r.problems, [{ line: 4, kind: 'mid-file', text: '# status: implemented' }]);
+});
+
+test('FU-134: featureFiles walks features/ and skips an unreadable entry (an editor lock symlink)', async () => {
+  const { featureFiles } = await load();
+  const dir = mkdtempSync(join(tmpdir(), 'pfs-walk-'));
+  try {
+    mkdirSync(join(dir, 'a'), { recursive: true });
+    writeFileSync(join(dir, 'a', 'x.feature'), 'Feature: X\n');
+    writeFileSync(join(dir, 'notes.md'), '');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, '.#lock.feature'));
+    assert.deepEqual(featureFiles(dir), [join(dir, 'a', 'x.feature')]);
+    assert.deepEqual(featureFiles(join(dir, 'missing')), [], 'a missing dir is empty, not a crash');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134 review: any `# status:` line after the header is reported, whatever its value', async () => {
+  const { parseFeatureStatus } = await load();
+  const r = parseFeatureStatus('# status: approved\nFeature: X\n  # Status: flaky on CI\n  # status: done\n');
+  assert.deepEqual(r.problems.map((p) => p.line), [3, 4]);
 });

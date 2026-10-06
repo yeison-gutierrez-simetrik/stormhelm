@@ -18,6 +18,7 @@ import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync,
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { loadCucumberConfig } from './load-cucumber-config.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = join(here, '..', '..', 'templates');
@@ -394,17 +395,8 @@ test('watch --queue: a CHILD session.ended is informational, never terminal for 
 // §58 lands approved features BEFORE steps exist; §60 CI must not run them.
 // The narrowing lives INSIDE the config (cucumber v12 merges CLI paths with
 // config paths — a wrapper file-list is a silent no-op, hit live).
-const importCucumberCfg = async (dir, env) => {
-  copyFileSync(join(TEMPLATES, 'cucumber.mjs.tmpl'), join(dir, 'cucumber.mjs'));
-  // The flag is cleared unless a test sets it: an exported CUCUMBER_IMPLEMENTED_ONLY
-  // in the runner's env must not turn a "local" load into a CI one.
-  const r = spawnSync('node', ['-e', `
-    import(${JSON.stringify('file://' + join(dir, 'cucumber.mjs'))})
-      .then((m) => console.log(JSON.stringify(m.default.paths)));
-  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, CUCUMBER_IMPLEMENTED_ONLY: '', ...env } });
-  // A config that throws at load (FU-134 fail-closed) exits non-zero with no paths.
-  return { paths: r.status === 0 ? JSON.parse(r.stdout.trim()) : null, stderr: r.stderr, status: r.status };
-};
+// The config is staged + loaded by the shared helper (scripts/__tests__/load-cucumber-config.mjs).
+const importCucumberCfg = async (dir, env) => loadCucumberConfig(dir, env);
 
 test('FU-50: implemented-only gate runs implemented features, skips approved LOUDLY', async () => {
   // NOTE: withDir is sync (its finally would rm the dir under the pending
