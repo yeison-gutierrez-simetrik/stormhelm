@@ -40,7 +40,7 @@ import { detectCeremony } from './detect-ceremony.mjs';
 // The features the runner sees, listed the way the runner lists them (FU-134):
 // symlinked directories followed, dotfiles skipped, a broken feature loud.
 import { featureFiles as listFeatureFiles } from './parse-feature-status.mjs';
-import { expandScenarioClaims } from './scenario-claims.mjs';
+import { expandScenarioClaims, parseClaimToken } from './scenario-claims.mjs';
 
 const walk = (dir, re, acc = []) => {
   if (!existsSync(dir)) return acc;
@@ -58,7 +58,10 @@ const read = (f) => readFileSync(f, 'utf8');
 // `.planning/issues/` is also accepted for projects that keep them with planning
 // evidence. Both are scanned so the gate runs regardless of the project's choice.
 const issueFiles = [...walk('issues', /^\d.*\.md$/), ...walk('.planning/issues', /^\d.*\.md$/)];
-const featureFiles = listFeatureFiles('features');
+// A feature that cannot be listed (a symlink whose target is missing) is a named
+// CONFIG failure below, not a crash: the gate still reports every other result.
+const unlistable = [];
+const featureFiles = listFeatureFiles('features', { onError: (p, e) => unlistable.push(`${p} (${e.code ?? e.message})`) });
 const sads = walk('docs/architecture', /\.md$/).filter((f) => !/INDEX/i.test(f));
 const threats = walk('docs/threat-models', /\.md$/).filter((f) => !/TEMPLATE/i.test(f));
 // PR-I: docs/decisions/ now holds rationale (grilling, clarify-logs, open-questions),
@@ -147,21 +150,26 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
 // error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
 // Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
 {
-  // A segment is a single scn (`scn-021`/`021`) OR a range (`scn-A..scn-B`,
-  // FU-96); segments join with `+`/`,`. Must agree with ralph_expand_scns and
-  // the INV-5 expander above — all three read a label identically.
-  const SEG = '(?:scn-)?\\d+(?:\\.\\.(?:scn-)?\\d+)?';
-  const SCN_VALUE = new RegExp(`^${SEG}(?:[+,]${SEG})*$`);
+  // The grammar is scripts/scenario-claims.mjs' — the module the INV-5 expander
+  // above and the §130b gate import, and the one ralph_expand_scns mirrors — so
+  // a token this check accepts is one every reader expands the same way (FU-134
+  // review: a trailing period, an upper-case `SCN-` and an oversized range were
+  // read differently). A trailing period is sentence punctuation, not the token.
   const malformed = [];
   for (const f of issueFiles) {
     for (const m of read(f).matchAll(/scenarios:([^\s`'")\]]+)/gi)) {
-      if (!SCN_VALUE.test(m[1])) malformed.push(`${f}: 'scenarios:${m[1]}'`);
+      const value = m[1].replace(/\.+$/, '');
+      if (!/^[a-z0-9+,.-]+$/.test(value) || parseClaimToken(value).bad.length) malformed.push(`${f}: 'scenarios:${m[1]}'`);
     }
   }
   if (malformed.length)
     add('CONFIG', '§63', 'fail',
-      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6): ${malformed.join('; ')}`);
+      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (lower-case, a range under 1000 ids; see /to-issues Step 6): ${malformed.join('; ')}`);
 }
+
+if (unlistable.length)
+  add('CONFIG', '§58', 'fail',
+    `feature file(s) that cannot be read: ${unlistable.join('; ')} — fix or remove them (a symlink whose target is missing?); the runner fails on them too, and their status cannot be read.`);
 
 // FOLLOW-UP 105: a scn-NNN id defined in TWO feature files is an authoring-time
 // collision — /to-issues allocates scn ranges per-issue with no campaign-wide

@@ -61,21 +61,30 @@ const MIDFILE = "a '# status:' after the header block (the leading comment block
 // them: dotfiles and dot-directories are skipped (editor lock files such as
 // `.#x.feature` live there), and each REAL directory is walked once — a symlink
 // that aliases another directory, or points back at an ancestor, neither lists a
-// feature twice nor loops. Anything else that cannot be read throws — a broken
-// feature must fail loudly, never silently leave the CI surface. A missing dir
-// is empty.
-export function featureFiles(dir, acc = [], seen = new Set()) {
-  if (!existsSync(dir)) return acc;
-  const real = realpathSync(dir);
-  if (seen.has(real)) return acc;
-  seen.add(real);
-  for (const e of readdirSync(dir)) {
-    if (e.startsWith('.')) continue;
-    const p = join(dir, e);
-    const st = statSync(p);
-    if (st.isDirectory()) featureFiles(p, acc, seen);
-    else if (e.endsWith('.feature')) acc.push(p);
-  }
+// feature twice nor loops. Anything else that cannot be read is an error: it
+// throws, or — given `onError(path, error)` — is reported there and skipped, so a
+// caller can name every broken entry and still check the rest. Either way a
+// broken feature is loud, never silently off the CI surface. A missing dir is
+// empty.
+export function featureFiles(dir, { onError } = {}) {
+  const acc = [];
+  const seen = new Set();
+  const fail = (p, e) => { if (!onError) throw e; onError(p, e); };
+  const walk = (d) => {
+    if (!existsSync(d)) return;
+    const real = realpathSync(d);
+    if (seen.has(real)) return;
+    seen.add(real);
+    for (const e of readdirSync(d)) {
+      if (e.startsWith('.')) continue;
+      const p = join(d, e);
+      let st;
+      try { st = statSync(p); } catch (err) { fail(p, err); continue; }
+      if (st.isDirectory()) walk(p);
+      else if (e.endsWith('.feature')) acc.push(p);
+    }
+  };
+  walk(dir);
   return acc;
 }
 

@@ -521,7 +521,12 @@ test('FU-134: an unreadable non-dotfile feature fails the config load', async ()
     symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'shared.feature'));
     const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
     assert.notEqual(on.status, 0, 'the feature must not silently vanish from the CI surface');
-    assert.match(on.stderr, /shared\.feature/);
+    assert.match(on.stderr, /shared\.feature \(unreadable: ENOENT\)/, 'named, not a stack trace');
+    // FU-134 review round 5: a local run (flag unset) warns and keeps working.
+    const off = loadCucumberConfig(dir, {});
+    assert.equal(off.status, 0, `a local run must not crash on it:\n${off.stderr}`);
+    assert.match(off.stderr, /shared\.feature \(unreadable: ENOENT\)/);
+    assert.match(off.stderr, /warning only/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

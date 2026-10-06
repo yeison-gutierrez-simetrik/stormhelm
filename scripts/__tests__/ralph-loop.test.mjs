@@ -657,6 +657,20 @@ test('FU-21: ralph_expand_scns expands every wild label form', () => {
   assert.equal(r.stdout.trim(), 'scn-021 scn-022 scn-030 scn-031');
 });
 
+// FU-134 review round 5: the bash twin reads the JS grammar
+// (scripts/scenario-claims.mjs): a trailing period ends the token, an upper-case
+// `SCN-` and a 1000+-id range are dropped (with a warning), like every gate.
+test('FU-134: ralph_expand_scns follows the shared grammar (trailing period, case, range cap)', () => {
+  const expand = (v) => spawnSync('bash', ['-c', `source "${join(TEMPLATES, 'ralph-lib.sh')}"; ralph_expand_scns "${v}"`], { encoding: 'utf8' });
+  assert.equal(expand('scn-007.').stdout.trim(), 'scn-007');
+  assert.equal(expand('scn-001..scn-003.').stdout.trim(), 'scn-001 scn-002 scn-003');
+  assert.equal(expand('SCN-021+022').stdout.trim(), 'scn-022');
+  const huge = expand('scn-1..scn-5000');
+  assert.equal(huge.stdout.trim(), '');
+  assert.match(huge.stderr, /dropping unparseable segment/);
+  assert.equal(expand('scn-1..scn-1000').stdout.trim().split(' ').length, 1000);
+});
+
 // T20b — non-numeric garbage is dropped, matching check-invariants.mjs' parser
 // (the two auditors must agree on what a label means).
 test('FU-21: ralph_expand_scns drops non-numeric segments', () => {

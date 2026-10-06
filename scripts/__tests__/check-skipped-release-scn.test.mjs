@@ -137,7 +137,8 @@ test('#141: a mid-file `# status:` (after the header) trips the lint → FAIL ex
     '',
   ].join('\n'));
   try {
-    const r = runCI(dir, join(dir, 'issue.md'));   // issue file absent — irrelevant; the lint always runs
+    writeFileSync(join(dir, 'issue.md'), 'No scenarios claimed here.\n');
+    const r = runCI(dir, join(dir, 'issue.md'));   // an issue with no claims — the lint always runs
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /SKIPPED-SCN GATE: FAIL/);
     assert.match(r.stdout, /MID-FILE STATUS/);
@@ -434,4 +435,47 @@ test('FU-134: scenario claims — prose is not a claim, a trailing period is not
   assert.deepEqual(expandScenarioClaims('Delivers scenarios:scn-7.'), ['scn-7']);
   assert.deepEqual(expandScenarioClaims('scenarios:scn-001..scn-003'), ['scn-001', 'scn-002', 'scn-003']);
   assert.deepEqual(expandScenarioClaims('scenarios:021+022,scn-030'), ['scn-021', 'scn-022', 'scn-030']);
+});
+
+// FU-134 review round 5: a missing issue file (an empty "$ISSUE_FILE", a typo)
+// read as "no claims" → `na`, rc 0 — the green no-op the rc-2 contract exists to
+// prevent.
+test('FU-134: a missing or empty issue-file argument → rc 2, not a green na', () => {
+  const dir = setupFeature('# status: implemented\nFeature: X\n\n  @release @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    for (const arg of [join(dir, 'no-such-issue.md'), '']) {
+      const r = runCI(dir, arg);
+      assert.equal(r.status, 2, `'${arg}': ${r.stdout}${r.stderr}`);
+      assert.match(r.stderr, /issue\/spec file not found/);
+      assert.doesNotMatch(r.stdout, /SKIPPED-SCN GATE: (na|ok)/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review round 5: an unreadable entry no longer aborts the scan — it is
+// named, and every other feature is still checked.
+test('FU-134: a dangling feature symlink is named and the other features are still checked', () => {
+  const dir = setupFeature('# status: approved\nFeature: X\n  # status: implemented\n  @release @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'x', 'gone.feature'));
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /UNREADABLE .*gone\.feature `ENOENT`/);
+    assert.match(r.stdout, /MID-FILE STATUS .*x\.feature:3/, 'the readable feature is still linted');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review round 5: one grammar for every reader — the expander drops what
+// CONFIG §63 rejects (upper-case `SCN-`, backwards or 1000+-id ranges), and a
+// trailing period ends the token.
+test('FU-134: the shared claims grammar — trailing period, case, range bounds', async () => {
+  const { parseClaimToken, expandScenarioClaims, MAX_RANGE } = await import(pathToFileURL(join(here, '..', 'scenario-claims.mjs')).href);
+  assert.equal(MAX_RANGE, 1000);
+  assert.deepEqual(parseClaimToken('scn-007.'), { ids: ['scn-007'], bad: [] });
+  assert.deepEqual(parseClaimToken('SCN-021+022'), { ids: ['scn-022'], bad: ['SCN-021'] });
+  assert.deepEqual(parseClaimToken('scn-009..scn-003'), { ids: [], bad: ['scn-009..scn-003'] });
+  assert.deepEqual(parseClaimToken('scn-1..scn-200000000'), { ids: [], bad: ['scn-1..scn-200000000'] });
+  assert.equal(parseClaimToken('scn-1..scn-1000').ids.length, 1000, 'a 1000-id range is the largest accepted');
+  assert.deepEqual(parseClaimToken('scn-1..scn-1001').ids, []);
+  assert.deepEqual(expandScenarioClaims('scenarios:scn-1..scn-200000000 and scenarios:scn-5'), ['scn-5']);
 });

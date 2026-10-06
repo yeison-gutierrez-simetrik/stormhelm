@@ -35,8 +35,9 @@
 //     AFTER the header block (the leading comment block — read by the shared
 //     parse-feature-status.mjs, the same reader cucumber.mjs uses) → FAIL, named.
 //   - <features-dir> ALONE  → CI mode: just the lint (issue-independent backstop).
-//   - A features dir that does not exist → rc 2. A feature that cannot be read
-//     (not a dotfile — a symlink whose target is missing) → FAIL, named.
+//   - A features dir or an issue/spec file that does not exist → rc 2. A
+//     feature that cannot be read (not a dotfile — a symlink whose target is
+//     missing) → FAIL, named, and every other feature is still checked.
 //   - <features-dir> <issue-file…> → ALSO the §130b claimed-scn check: extracts
 //     claimed scns from each `scenarios:` token (compact forms scn-A,scn-B /
 //     scn-A+B / scn-A..B, bare numbers — the check-invariants grammar) and FAILs
@@ -70,6 +71,13 @@ if (!existsSync(featuresDir) || !statSync(featuresDir).isDirectory()) {
   console.error(`features dir not found: ${featuresDir} — pass the directory that holds the .feature files (rc 2: a malformed call, never a green no-op).`);
   process.exit(2);
 }
+// An issue/spec file that does not exist (an empty "$ISSUE_FILE", a typo) is the
+// same malformed call: skipping it would read "no claims" and pass as `na`.
+const missingIssue = issueFiles.find((f) => !f || !existsSync(f) || !statSync(f).isFile());
+if (missingIssue !== undefined) {
+  console.error(`issue/spec file not found: '${missingIssue}' — pass the issue (or spec) file whose scenarios: token this slice claims (rc 2: a malformed call, never a green no-op).`);
+  process.exit(2);
+}
 
 // scn ids compare by number, so `scn-1` and `scn-001` can never miss each other.
 const scnKey = (digits) => `scn-${parseInt(digits, 10)}`;
@@ -81,7 +89,6 @@ const scnKey = (digits) => `scn-${parseInt(digits, 10)}`;
 function claimedScns(files) {
   const scns = new Map();
   for (const f of files) {
-    if (!existsSync(f)) continue;
     for (const id of expandScenarioClaims(readFileSync(f, 'utf8'))) scns.set(scnKey(id.slice(4)), id);
   }
   return scns;
@@ -125,20 +132,16 @@ function indexScenarios(parsed) {
 const LABEL = { 'mid-file': 'MID-FILE STATUS', language: 'NON-ENGLISH FEATURE', unreadable: 'UNREADABLE' };
 const label = (kind) => LABEL[kind] ?? kind.toUpperCase();
 
-let features;
-try {
-  features = featureFiles(featuresDir);
-} catch (e) {
-  console.log('SKIPPED-SCN GATE: FAIL');
-  console.log(`  ✗ UNREADABLE ${e.path ?? featuresDir} — ${e.code ?? e.message}: a feature the runner should see cannot be read (a symlink whose target is missing?). Fix or remove it; it must never drop off the CI surface silently.`);
-  process.exit(1);
-}
-const parsed = new Map();
+const UNREADABLE = 'a feature the runner should see cannot be read (a symlink whose target is missing? permissions?) — fix or remove it; it must never drop off the CI surface silently.';
 const problems = [];   // [{ file, line, kind, text, message }]
+const features = featureFiles(featuresDir, {
+  onError: (p, e) => problems.push({ file: p, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: UNREADABLE }),
+});
+const parsed = new Map();
 for (const f of features) {
   let text;
   try { text = readFileSync(f, 'utf8'); } catch (e) {
-    problems.push({ file: f, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: 'a feature the runner should see cannot be read (permissions?) — fix it; it must never drop off the CI surface silently.' });
+    problems.push({ file: f, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: UNREADABLE });
     continue;
   }
   const { status, problems: found, scenarios } = parseFeatureStatus(text);

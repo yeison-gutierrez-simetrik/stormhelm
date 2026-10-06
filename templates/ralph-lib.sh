@@ -398,10 +398,13 @@ ralph_acceptance_result_check() {
 # GitHub's 50-char label cap for a slice with more than ~8 scenarios).
 #   ralph_expand_scns "scn-021+022,scn-030" → "scn-021 scn-022 scn-030"
 #   ralph_expand_scns "scn-409..scn-412"    → "scn-409 scn-410 scn-411 scn-412"
+# The grammar is scripts/scenario-claims.mjs' (the JS gates read it): lower-case,
+# a trailing period ends the token ("scenarios:scn-007." in prose), and a range
+# spanning 1000 ids or more is dropped like any other unparseable segment.
 # ──────────────────────────────────────────────────────────────────────
 ralph_expand_scns() {
   local out="" scn
-  for scn in $(echo "${1:-}" | tr ',+' ' '); do
+  for scn in $(echo "${1:-}" | sed 's/\.*$//' | tr ',+' ' '); do
     case "$scn" in
       scn-*) : ;;
       *) scn="scn-${scn}" ;;   # compact-form continuation: 022 → scn-022
@@ -417,7 +420,7 @@ ralph_expand_scns() {
         case "${a}-${b}" in
           *[!0-9-]*|-*|*-) : ;;                       # not a clean numeric range → drop
           *)
-            if [ "$((10#$a))" -le "$((10#$b))" ]; then
+            if [ "$((10#$a))" -le "$((10#$b))" ] && [ "$((10#$b - 10#$a))" -lt 1000 ]; then
               local w=${#a} n
               for n in $(seq "$((10#$a))" "$((10#$b))"); do
                 out="${out}${out:+ }scn-$(printf "%0${w}d" "$n")"

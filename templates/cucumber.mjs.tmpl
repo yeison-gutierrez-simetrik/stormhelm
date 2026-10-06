@@ -54,15 +54,25 @@ if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1' && !existsSync('features')) {
 
 // One read per feature: the status the runner honors + every `# status:` line it
 // cannot. Each offending line is listed; each kind's explanation — from the
-// reader — is printed once.
-const features = featureFiles('features').map((f) => ({ f, ...parseFeatureStatus(readFileSync(f, 'utf8')) }));
-const found = features.flatMap(({ f, problems }) => problems.map((p) => ({ f, ...p })));
+// reader — is printed once. A feature that cannot be read (a symlink whose target
+// is missing) is listed too, never a crash: local runs keep working.
+const UNREADABLE = 'a feature the runner should see cannot be read (a symlink whose target is missing? permissions?) — fix or remove it.';
+const found = [];
+const features = [];
+const unreadable = (f, e) => found.push({ f, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: UNREADABLE });
+for (const f of featureFiles('features', { onError: unreadable })) {
+  let text;
+  try { text = readFileSync(f, 'utf8'); } catch (e) { unreadable(f, e); continue; }
+  const read = parseFeatureStatus(text);
+  features.push({ f, ...read });
+  for (const p of read.problems) found.push({ f, ...p });
+}
 if (found.length) {
   const why = [...new Map(found.map((p) => [p.kind, p.message])).entries()];
   const msg =
-    `[cucumber.mjs] ${found.length} '# status:' problem(s) — this config reads ONE status per feature, from its ` +
+    `[cucumber.mjs] ${found.length} feature status problem(s) — this config reads ONE status per feature, from its ` +
     `header block, so each of these can skip @release scenarios while the run reports green (ISSUE #141 / ` +
-    `FOLLOW-UP 134):\n` + found.map((p) => `  - ${p.f}:${p.line} (${p.kind}: ${p.text})`).join('\n') + '\n' +
+    `FOLLOW-UP 134):\n` + found.map((p) => `  - ${p.f}${p.line ? `:${p.line}` : ''} (${p.kind}: ${p.text})`).join('\n') + '\n' +
     why.map(([kind, message]) => `Why (${kind}): ${message}`).join('\n');
   if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
   console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);

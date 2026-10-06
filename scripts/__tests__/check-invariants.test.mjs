@@ -422,3 +422,34 @@ test('CONFIG §59 fails when the title id and the scenario tag DISAGREE', () => 
   assert.equal(status, 1, `a title/tag mismatch is drift, not style:\n${out}`);
   assert.match(out, /scn-999 titled but not tagged/);
 });
+
+// FU-134 review round 5: CONFIG §63 reads a `scenarios:` token with the SAME
+// grammar as the expanders (scripts/scenario-claims.mjs, ralph_expand_scns): a
+// trailing period is sentence punctuation; an upper-case `SCN-`, a backwards
+// range and a range spanning 1000+ ids are malformed for every reader.
+test('FU-134: CONFIG §63 shares the expanders\' grammar (trailing period ok; SCN-, backwards and oversized ranges malformed)', () => {
+  const withToken = (token) => runMutated((dir) => {
+    const p = join(dir, 'issues', '002-list.md');
+    writeFileSync(p, readFileSync(p, 'utf8') + `\nDelivers ${token}\n`);
+  });
+  const period = withToken('scenarios:scn-002.');
+  assert.doesNotMatch(period.out, /CONFIG §63/, `a trailing period is not part of the token:\n${period.out}`);
+  for (const bad of ['scenarios:SCN-002', 'scenarios:scn-009..scn-003', 'scenarios:scn-1..scn-200000000']) {
+    const r = withToken(bad);
+    assert.equal(r.status, 1, `${bad}:\n${r.out}`);
+    assert.match(r.out, /❌ CONFIG §63: unparseable scenarios label/, bad);
+  }
+});
+
+// FU-134 review round 5: a feature that cannot be listed (a dangling, non-dot
+// symlink) crashed the gate with a stack trace; it is a named CONFIG failure now,
+// and every other invariant still reports.
+test('FU-134: a dangling feature symlink is a named CONFIG failure, not a crash', () => {
+  const { status, out } = runMutated((dir) => {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'gone.feature'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ CONFIG §58: feature file\(s\) that cannot be read: .*gone\.feature \(ENOENT\)/);
+  assert.match(out, /INV-1/, 'the other invariants still ran');
+  assert.doesNotMatch(out, /at .*check-invariants\.mjs:\d+/, 'no stack trace');
+});
