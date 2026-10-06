@@ -772,7 +772,7 @@ fi
 
 ## §107. Agent Teams for intra-feature parallelization
 
-For features that touch multiple modules and would benefit from a dependency-graph orchestration (architecture → backend ↔ frontend ↔ devops → reviewer → integrator → final QA), use the **Agent Teams** pattern as an expansion of Eje 3 (sub-agentes intra-issue).
+For features that touch multiple modules and would benefit from a dependency-graph orchestration (architecture → backend ↔ frontend ↔ devops → reviewer → integrator → final QA), use the **Agent Teams** pattern as an expansion of the intra-issue sub-agent pattern.
 
 This is **distinct from Ralph workers** (§63-§70). Ralph workers parallelize *between* features (horizontal). Agent Teams parallelize *inside* one feature (vertical), where each teammate has a single responsibility and depends on specific upstream outputs.
 

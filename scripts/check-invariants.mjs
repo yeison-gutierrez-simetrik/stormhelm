@@ -291,11 +291,20 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 }
 
 // INV-4: ADR Accepted ⇒ has a Date
+// Both are read as header FIELD lines — `**Status:** Accepted`, `**Status**: Accepted`,
+// `Status: Accepted`, `- **Date:** 2026-06-02` — anchored at the line start, so a word
+// that merely ends in "date:" (`**Candidate:**`) is not a date, and the field must
+// carry a value (an empty `**Date:**` is not a date). The field name is English
+// (the framework is English-only); a date under any other label is not read.
 {
-  const bad = adrs.filter((f) => { const t = read(f); return /status:?\s*\**\s*accepted/i.test(t) && !/date:/i.test(t); });
+  // `[ \\t]` not `\\s`: under /m, `\\s` would cross the newline and read the next line as the value;
+  // the value cannot start with markup, or the closing `**` of an empty `**Date:**` would count.
+  const field = (name) => new RegExp(`^[ \\t>*_-]*${name}[ \\t]*[*_]*[ \\t]*:[ \\t]*[*_]*[ \\t]*([^\\s*_].*)$`, 'im');
+  const accepted = (t) => /^accepted\b/i.test((t.match(field('status')) || [])[1] ?? '');
+  const bad = adrs.filter((f) => { const t = read(f); return accepted(t) && !field('date').test(t); });
   if (!adrs.length) add('INV-4', '—', 'na', 'no ADRs');
   else if (!bad.length) add('INV-4', '—', 'pass', `${adrs.length} ADR(s) have Date`);
-  else add('INV-4', '—', 'fail', `Accepted ADR without Date: ${bad.map((f) => f.split('/').pop()).join(', ')}`);
+  else add('INV-4', '—', 'fail', `Accepted ADR without a \`Date:\` field: ${bad.map((f) => f.split('/').pop()).join(', ')} — add \`**Date:** YYYY-MM-DD\` (a date under another label, a localized one included, is not read)`);
 }
 
 // INV-5: @release scenario ⇒ referenced by an issue

@@ -23,8 +23,9 @@
 // Suppress a single intentional line with a trailing  <!-- metadata-ok -->  comment.
 // Zero external dependencies (matches hooks/ convention). Exit 0 = clean, 1 = blocking mismatch.
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const SUPPRESS = 'metadata-ok';
@@ -78,7 +79,7 @@ const W = '(\\d+|one|two|three|four|five|six|seven|eight|nine|ten)';
 const claims = [
   { re: new RegExp(`${W}\\s+invokable\\s+skills`, 'gi'), exp: () => A.skills, label: 'skills' },
   { re: new RegExp(`${W}\\s+numbered\\s+rules`, 'gi'), exp: () => A.totalRules, label: 'rules(total)' },
-  { re: new RegExp(`(?:las|the)\\s+${W}\\s+(?:reglas|rules)\\b`, 'gi'), exp: () => A.totalRules, label: 'rules(total)' },
+  { re: new RegExp(`the\\s+${W}\\s+rules\\b`, 'gi'), exp: () => A.totalRules, label: 'rules(total)' },
   { re: new RegExp(`(?:currently\\s+)?${W}\\s+rules?\\b`, 'gi'), exp: () => A.coreRules, label: 'rules(core)', only: (l) => /core/i.test(l) },
   // FOLLOW-UP 94: a `§1–§N` range upper-bound asserts the WHOLE rule set, so N
   // must equal the current max §N — these strings rotted silently on every new
@@ -90,14 +91,13 @@ const claims = [
   { re: /§1\s*[–-]\s*§(\d+)(?!\s*,\s*§)/g, exp: () => A.totalRules, label: 'rules(range)' },
   { re: new RegExp(`${W}\\s+(?:Claude Code\\s+)?hooks?\\s+(?:are\\s+shipped|that\\b)`, 'gi'), exp: () => A.hooks, label: 'hooks' },
   { re: new RegExp(`all\\s+${W}\\s+files\\b`, 'gi'), exp: () => A.coreFiles, label: 'core-files' },
-  { re: new RegExp(`${W}\\s+archivos de reglas`, 'gi'), exp: () => A.coreFiles, label: 'core-files' },
   { re: new RegExp(`${W}\\s+steps?\\s+with\\s+\\d+\\s+human`, 'gi'), exp: () => A.featureSteps, label: 'feature-steps' },
   { re: new RegExp(`${W}\\s+steps,\\s+\\d+\\s+human\\s+checkpoint`, 'gi'), exp: () => A.featureSteps, label: 'feature-steps' },
   { re: new RegExp(`all\\s+${W}\\s+steps`, 'gi'), exp: () => A.featureSteps, label: 'feature-steps' },
 ];
-// Version footer: "(122 rules|reglas, 30 skills, 1 agent|agente, 4 hooks, 13 steps …)" — verify all five at once.
-// Bilingual (ES/EN): WORKFLOWS-GUIDE may be either language; do not let a translation silently disable this check.
-const FOOTER = /\((\d+)\s+(?:reglas|rules),\s*(\d+)\s+skills,\s*(\d+)\s+(?:agente\w*|agents?),\s*(\d+)\s+hooks,\s*(\d+)\s+steps/gi;
+// Version footer: "(122 rules, 30 skills, 1 agent, 4 hooks, 13 steps …)" — verify all five at once.
+// English only, like every framework doc (the english-only gate below enforces it).
+const FOOTER = /\((\d+)\s+rules,\s*(\d+)\s+skills,\s*(\d+)\s+agents?,\s*(\d+)\s+hooks,\s*(\d+)\s+steps/gi;
 const footerExp = [A.totalRules, A.skills, A.agents, A.hooks, A.featureSteps];
 const footerLbl = ['rules', 'skills', 'agents', 'hooks', 'steps'];
 
@@ -197,6 +197,29 @@ for (const f of [...walk('docs/engineering/core'), ...walk('docs/engineering/cap
         block.push(`${relative(ROOT, f)}  [hook-ext] stale '.js' hook reference '${m[0]}' — shipped hooks are .cjs (FOLLOW-UP 45: .js dies under type:module consumers)`);
       }
     }
+  }
+}
+
+// --- English only (the maintainer's rule) --------------------------------------
+// Everything the framework ships or keeps is English — its own text AND what it
+// asks of consumers (English Gherkin, the ADR `Date:` field). A manual sweep missed
+// Spanish twice, so the rule is executable: Spanish markers (accented letters,
+// inverted punctuation, common Spanish words) in any tracked text file fail here,
+// named file:line. A line carrying `lang-ok` (say why) is exempt; proper names are
+// allowed. Not shipped to consumers: this checks the framework repo itself.
+{
+  const SPANISH = /[áéíóúñ¿¡]|\b(?:que|para|los|las|unas?|unos|por|pero|cuando|como|estos?|estas?|hay|nuevos?|nuevas?|internos?|archivos?|reglas|agentes?|tiene|según|además|también)\b/i; // lang-ok: the detector's own word list
+  const NAMES = /Gutiérrez/g; // lang-ok: proper names
+  const BINARY = /\.(png|jpe?g|gif|ico|pdf|zip|gz|woff2?)$/i;
+  let tracked = [];
+  try { tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean); } catch { /* not a git checkout */ }
+  for (const f of tracked) {
+    if (BINARY.test(f) || !existsSync(f) || !statSync(f).isFile()) continue;   // a tracked symlink may point at a directory
+    readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      if (line.includes('lang-ok')) return;
+      const m = line.replace(NAMES, '').match(SPANISH);
+      if (m) block.push(`${f}:${i + 1}  [english-only] Spanish text ("${m[0]}") — the framework is English only; translate it, or mark a deliberate exception with \`lang-ok\` and the reason`);
+    });
   }
 }
 

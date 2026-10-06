@@ -356,7 +356,7 @@ cucumber-js combines multiple `--tags` flags with **AND**. A scenario carries ex
 
 **Evidence (live).** A plan amendment posted as a comment at 19:31Z was ignored for 5 consecutive iterations; the identical content appended to the **body** (`gh issue edit --body`) was picked up by the very next fresh iteration (which then did the change red-first, correctly).
 
-**Verify:** `grep -n "Read the FULL issue\|gh issue view" ralph-local.sh skills/tdd/SKILL.md` (the prompt is English now; at the time it read the issue body only); `grep -n "issue comment\|issue body" skills/plan/SKILL.md`.
+**Verify (as it stood then):** the iteration prompt in `ralph-local.sh` told the session to read the issue BODY, and `/tdd` named only `gh issue view N` (no `--comments`) — so a plan posted as a comment was invisible. Today `templates/ralph-local.sh.tmpl` reads "Read the FULL issue — body AND comments" (`grep -n "Read the FULL issue" templates/ralph-local.sh.tmpl`); `grep -n "issue comment\|issue body" skills/plan/SKILL.md`.
 
 **Fix — align the channel, pick ONE:**
 - (a) **Recommended:** prompt instructs *"Read the full issue: `gh issue view N --comments`"* (and `/tdd`'s inputs section says the same) — comments become a first-class amendment channel; OR
@@ -650,7 +650,7 @@ gh pr create --draft --head "$BRANCH" …
 **Problem (three live paper-cuts in `templates/ralph-isolated.sh` / `templates/ralph-watch.sh`).**
 (a) **No resume mode:** every #15 resume was manual (`cd` into the kept worktree, re-source `.env`, relaunch, re-bind the watcher) — three times in one night. The wrapper refuses an existing worktree dir by design but offers no sanctioned re-entry.
 (b) **Fixed silence threshold:** the watcher's `--silence-min` default (25) false-alerted on a perfectly healthy 36-minute first iteration (#16 it1 — first iterations are structurally the heaviest: full implementation). 
-(c) **Commit-delta miscount:** live, the watcher reported `commits nuevos: 0` for an iteration that produced commit `5b7ac1a` (belong #16 it1, notification at 04:40:22Z). Suspected: delta computed against a `LAST_HEAD` captured at watcher start vs the poll's read ordering, or `rev-list` arg orientation — reproduce in a replay/E2E test with a fixture repo that commits between polls, then fix. The delta feeds the environmental-blocker heuristic (failing + 0 commits), so a miscount degrades the watcher's best signal.
+(c) **Commit-delta miscount:** live, the watcher reported `new commits: 0` (its output was Spanish then; translated) for an iteration that produced commit `5b7ac1a` (belong #16 it1, notification at 04:40:22Z). Suspected: delta computed against a `LAST_HEAD` captured at watcher start vs the poll's read ordering, or `rev-list` arg orientation — reproduce in a replay/E2E test with a fixture repo that commits between polls, then fix. The delta feeds the environmental-blocker heuristic (failing + 0 commits), so a miscount degrades the watcher's best signal.
 
 **Verify:** (a) `./templates/ralph-isolated.sh <n>` against an existing dir → hard refusal, no alternative; (b)/(c) belong watcher transcript 04:28:56Z (false silence alert) and 04:40:22Z (delta 0 with 1 commit).
 

@@ -237,8 +237,9 @@ Read Terminal 1's stdout carefully and the session log. Common causes:
 
 | Symptom | Action |
 |---|---|
-| "❌ Issue #N does not exist or gh CLI is not authenticated" | Re-run `gh auth login` |
+| "❌ Issue #N does not exist or gh CLI is not authenticated" | The engine prints this whenever it reads NO labels for the issue — so check all three: `gh auth status` (re-run `gh auth login`), that the issue exists AND carries its labels (`gh issue view N --json labels`; an issue with zero labels gives this message, not the "missing ralph-ready" one), and that `jq` is installed |
 | "❌ ralph-lib.sh not found in <dir>" | Confirm `ralph-lib.sh` is present beside `ralph-local.sh` (both at project root; re-run `/setup` if missing) |
+| "❌ ralph-blocked-comment.md.tmpl not found in <dir>" | Same co-location rule: the comment template must sit beside `ralph-local.sh` (re-run `/setup` if missing) |
 | "claude: command not found" inside iteration | Install/relink `claude` CLI |
 | Bash syntax error / unexpected token | Bash version too old; install Bash ≥ 4 |
 | Hook returned 2 on a non-destructive command (false positive) | Edit `hooks/git-guardrails.cjs` regex; file an issue |

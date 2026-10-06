@@ -35,7 +35,7 @@ coverage/
 .claude/.local/
 .claude/sessions/
 
-# Dry-run artifacts internos (no son parte del framework)
+# Internal dry-run artifacts (not part of the framework)
 test-run-feature/
 test-run-feature-2/
 
