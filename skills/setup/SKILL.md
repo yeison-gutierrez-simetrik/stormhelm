@@ -356,7 +356,7 @@ chmod +x .claude/hooks/*.cjs   # re-assert after rewrite
 
 # Night Shift engine (Ralph). `ralph-local.sh` SOURCES `ralph-lib.sh` and RENDERS
 # `ralph-blocked-comment.md.tmpl` — all three must be CO-LOCATED or the loop aborts
-# on entry ("ralph-lib.sh no encontrado"). Deliver all three to the project root,
+# on entry ("ralph-lib.sh not found"). Deliver all three to the project root,
 # matching the documented `./ralph-local.sh <issue>` usage. ralph-lib.sh + the comment
 # template are verbatim (the shared engine); ralph-local.sh is the materialization base
 # whose TEST_CMD/ACCEPTANCE_CMD/... the wizard tailors to the stack (see "ralph-local.sh"

@@ -292,7 +292,7 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
 
 // INV-4: ADR Accepted ⇒ has a Date
 {
-  const bad = adrs.filter((f) => { const t = read(f); return /status:?\s*\**\s*accepted/i.test(t) && !/(date|fecha):/i.test(t); });
+  const bad = adrs.filter((f) => { const t = read(f); return /status:?\s*\**\s*accepted/i.test(t) && !/date:/i.test(t); });
   if (!adrs.length) add('INV-4', '—', 'na', 'no ADRs');
   else if (!bad.length) add('INV-4', '—', 'pass', `${adrs.length} ADR(s) have Date`);
   else add('INV-4', '—', 'fail', `Accepted ADR without Date: ${bad.map((f) => f.split('/').pop()).join(', ')}`);

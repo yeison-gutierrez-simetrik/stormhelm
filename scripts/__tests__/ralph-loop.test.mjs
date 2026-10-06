@@ -323,7 +323,7 @@ test('FU-19: budget:1k label → budget_exceeded block path engages', () => {
 // T18 — em-dash/accents/emoji in the issue title never reach the git ref.
 test('FU-22: non-ASCII title → [a-z0-9-]-only branch slug', () => {
   withConsumer((dir) => {
-    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: '02-Stripe Connect — Onboarding, Sí! 🚀' });
+    const { status, out } = runRalph(dir, ['1', '3'], { MOCK_TITLE: '02-Stripe Connect — Onboarding, résumé! 🚀' });
     assert.equal(status, 0);
     const m = out.match(/on branch (\S+)/);
     assert.ok(m, `branch line missing in: ${out}`);

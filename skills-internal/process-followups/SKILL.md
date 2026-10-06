@@ -34,7 +34,7 @@ stable, implementation is no longer the default — evaluation is.
 
 - The FOLLOW-UPs monitor reports new `## FOLLOW-UP N` sections (N greater than
   `.planning/.fu-watch-state`).
-- A maintainer says "process the follow-ups" / "¿hay follow-ups nuevos?".
+- A maintainer says "process the follow-ups" / "are there new follow-ups?".
 - A maintainer runs a **bare `/process-followups`** (no batch arguments) → enter
   **continuous self-driving mode** (Step 8): process anything already pending,
   then arm the watcher and keep itself alive — no `/loop` wrapper needed.

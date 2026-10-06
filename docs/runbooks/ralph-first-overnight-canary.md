@@ -237,8 +237,8 @@ Read Terminal 1's stdout carefully and the session log. Common causes:
 
 | Symptom | Action |
 |---|---|
-| "❌ Issue #N no existe o gh CLI no está autenticado" | Re-run `gh auth login` |
-| "❌ ralph-lib.sh no encontrado" | Confirm `ralph-lib.sh` is present beside `ralph-local.sh` (both at project root; re-run `/setup` if missing) |
+| "❌ Issue #N does not exist or gh CLI is not authenticated" | Re-run `gh auth login` |
+| "❌ ralph-lib.sh not found in <dir>" | Confirm `ralph-lib.sh` is present beside `ralph-local.sh` (both at project root; re-run `/setup` if missing) |
 | "claude: command not found" inside iteration | Install/relink `claude` CLI |
 | Bash syntax error / unexpected token | Bash version too old; install Bash ≥ 4 |
 | Hook returned 2 on a non-destructive command (false positive) | Edit `hooks/git-guardrails.cjs` regex; file an issue |

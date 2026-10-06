@@ -191,6 +191,18 @@ test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
   assert.match(out, /❌ INV-4/);
 });
 
+// The framework is English-only: INV-4 used to accept a Spanish `Fecha:` as the
+// ADR date field. An Accepted ADR dated only that way now fails like any other
+// missing `Date:` (no known consumer used it — belong's 56 ADRs all say `Date:`).
+test('INV-4 requires the English Date field (a Spanish "Fecha:" no longer counts)', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'docs/adr/0001-auth-approach.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace(/^\*\*Date:\*\*/m, '**Fecha:**'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-4/);
+});
+
 // --- INV-6 (ADR-0002 PR-N): classification stable across the diff ---
 
 const escalateTo3Contexts = (dir) => {
