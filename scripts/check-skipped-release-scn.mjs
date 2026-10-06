@@ -155,7 +155,7 @@ function indexScenarios(parsed) {
 // §58-status mechanism itself (bit belong PRs #350/#357). The status is a
 // header-only contract; a declaration after the header is the misuse that must
 // be loud, not silent. FU-134: the detection lives in parse-feature-status.mjs,
-// the one reader cucumber.mjs also uses (as a verbatim copy).
+// the one reader the cucumber.mjs template also imports.
 const MESSAGES = {
   default: (file, p) => `STATUS LINE ${file}:${p.line} \`${p.text}\` — a '# status:' the runner cannot honor (${p.kind}).`,
   'mid-file': (file, p) => `MID-FILE STATUS ${file}:${p.line} \`${p.text}\` — a '# status:' AFTER the header block (the leading comment block) is IGNORED by cucumber.mjs; the feature stays at its header status and its @release scns are silently skipped under IMPLEMENTED_ONLY → false-green (ISSUE #141). Status belongs only in the feature's FIRST comment block.`,
