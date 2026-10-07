@@ -57,7 +57,7 @@ For each FR, identify which bounded context owns it. The mapping comes from `CON
 
 Scan all existing `features/**/*.feature` for the highest `@scn-` tag. Start your numbering at the next integer. IDs are global across the project, never re-used.
 
-> **Campaign-wide reservation (FOLLOW-UP 105).** Scanning `features/` for the next-free id only sees MERGED work — two parallel slices in the same auto-pilot campaign both scan the same base and collide (live: slices 26 & 27 both took scn-470/471, surfacing as INV-5 orphans + ambiguous traceability only at merge). When a campaign authors multiple slices from one base, **reserve a contiguous scn block up front and partition it per slice** (the campaign already declares its slice set), so the ranges are disjoint by construction. Backstop: `check-invariants.mjs` now fails authoring (CONFIG §59) if any `scn-NNN` is defined in two feature files — a reused id is caught before merge, not after.
+> **Campaign-wide reservation (FOLLOW-UP 105).** Scanning `features/` for the next-free id only sees MERGED work — two parallel slices in the same auto-pilot campaign both scan the same base and collide (live: two slices both took the same two ids, surfacing as INV-5 orphans + ambiguous traceability only at merge). When a campaign authors multiple slices from one base, **reserve a contiguous scn block up front and partition it per slice** (the campaign already declares its slice set), so the ranges are disjoint by construction. Backstop: `check-invariants.mjs` now fails authoring (CONFIG §59) if any `scn-NNN` is defined in two feature files — a reused id is caught before merge, not after.
 
 ### Step 3 — Translate each FR into one or more scenarios
 
@@ -104,7 +104,7 @@ A completeness **prompt**, not a generator. When an entity in the spec has a
 an option enum, a state machine), happy-path + one-step-negative scenarios
 routinely miss the edge/abuse paths where real lifecycle bugs live — and they
 ship green, caught only by the §114 merge-gate reviewer (an extra round-trip).
-Live: belong slice 17 went green (12/12 `@release` + 1137 unit tests) carrying
+Live: a consumer slice went green (every `@release` scenario + the full unit suite) carrying
 four such bugs (option-set never enforced; a double-action CAS result ignored;
 an FR with no covering scenario; an empty-text sealed response).
 

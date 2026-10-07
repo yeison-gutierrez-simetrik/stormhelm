@@ -135,7 +135,7 @@ for (const f of featureFiles) {
   // without the human checkpoint) — and INV-8 *requires* close-outs to flip
   // features to it. The old strict equality made INV-3 and INV-8 contradict
   // each other: a correct close-out flagged every shipped scenario as
-  // "non-approved" (live: all 18 of slice-02). draft/clarifying still reject.
+  // "non-approved" (live: every shipped scenario of a slice). draft/clarifying still reject.
   for (const id of scnIdsOf(f)) {
     definedScns.add(id);
     if (headerBroken(f)) brokenScns.add(id);
@@ -181,7 +181,7 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
     `${issueFiles.length} issue file(s) found but none carry a "**Labels:**" line — the label-driven invariants cannot run and would silently pass. Emit a "**Labels:** \`ralph-ready\` ..." line per issue (see /to-issues).`);
 
 // CONFIG (FOLLOW-UP 35): a scenarios:* label in an unsupported grammar (live
-// near-miss: a range form `scn-031..038`) expands to ZERO scenarios with no
+// near-miss: a range form, before ranges were supported) expands to ZERO scenarios with no
 // error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
 // Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
 {
@@ -208,7 +208,7 @@ if (unlistable.length)
 
 // FOLLOW-UP 105: a scn-NNN id defined in TWO feature files is an authoring-time
 // collision — /to-issues allocates scn ranges per-issue with no campaign-wide
-// reservation, so two parallel slices in one campaign reused scn-470/471 (live).
+// reservation, so two parallel slices in one campaign reused the same ids (live).
 // It surfaced only at merge as INV-5 orphans + ambiguous traceability; catch it
 // HERE (fail authoring) instead. A scn legitimately appears once per file.
 {
@@ -222,8 +222,8 @@ if (unlistable.length)
 
 // CONFIG §59 companion (FU-124): a Scenario TITLE that embeds scn-NNN without the matching
 // @scn-NNN tag on that scenario is gate-invisible drift — the id reads as claimed to a human
-// (and to future range reservations) but defines nothing this checker can see. Live: a belong
-// slice shipped 6 scenarios titled scn-894..899 with ZERO tags; 894/895 silently overlapped a
+// (and to future range reservations) but defines nothing this checker can see. Live: a consumer
+// slice shipped 6 scenarios with the scn id in the TITLE and ZERO tags; two silently overlapped a
 // sibling slice's APPROVED tag block and no invariant went red. §59 already rules "the ID lives
 // in the tag, never in the title" — this makes the rule executable. Tags accumulate across the
 // consecutive tag lines directly above the Scenario line (blank lines don't break the block).
@@ -334,8 +334,8 @@ else add('INV-2', '§87', 'fail', 'sensitive issue(s) but no docs/threat-models/
   // FOLLOW-UP 78: a `skip-invariant: INV-6` override is scoped to the ISSUE
   // FILE that DECLARES it — not the invariant globally. The global-override
   // mechanism (applied at report time) suppressed INV-6 for EVERY issue once
-  // any one file carried the override: live, issue 06's blessed schema-only
-  // override masked issue 09's genuine declared-vs-detected mismatch and the
+  // any one file carried the override: live, one issue's blessed schema-only
+  // override masked another issue's genuine declared-vs-detected mismatch and the
   // gate passed for the wrong reason. INV-6 self-manages its override here
   // (and is excluded from the generic suppression below).
   const inv6OverrideFiles = new Set(

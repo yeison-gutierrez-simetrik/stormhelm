@@ -902,7 +902,7 @@ test('FU-98: a guard that fails to start does not break the run (decoupled, resi
 
 // ── FOLLOW-UP 100: merge-unit ordering — train-merge refuses an out-of-order
 // chain member, so main never holds a window where an intermediate state reads
-// stale code (the slice-24 constraint: the chain merges as a unit, in order).
+// stale code (the live constraint: the chain merges as a unit, in order).
 test('FU-100: train-merge refuses a chain member merged out of order', () => {
   withDir((dir) => {
     mkdirSync(join(dir, 'scripts'), { recursive: true });

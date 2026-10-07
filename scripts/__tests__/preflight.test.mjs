@@ -4,7 +4,7 @@
 // header or the `@feature:<slug>` tag that /to-scenarios writes), not just the
 // legacy `<slug>.feature` filename — a multi-context feature produces N files,
 // none necessarily named after the slug, and the filename-only matcher
-// false-negatived on every one of them (live: slice-02, two approved files,
+// false-negatived on every one of them (live: a consumer slice, two approved files,
 // gate said "run /to-scenarios").
 //
 // Run: node --test scripts/__tests__/preflight.test.mjs
@@ -280,8 +280,8 @@ test('a same-spec file must not borrow approval from its siblings (regression: f
 
 // --- scn-fresh (§59 reservation gate, FU-121/FU-124) -------------------------
 // The three ways an id can be "taken" (tag, title-only, issues label) plus the
-// no-arg allocation helper. Live motivation: three belong slices raced the same
-// range (2026-07-16) even following the manual check-max ritual.
+// no-arg allocation helper. Live motivation: three consumer slices raced the same
+// range even following the manual check-max ritual.
 
 const scnFeature = (body) => `# status: implemented\n\nFeature: X\n\n${body}`;
 

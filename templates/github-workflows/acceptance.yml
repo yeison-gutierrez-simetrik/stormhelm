@@ -57,7 +57,7 @@ jobs:
       # companion), §63 scn↔issue traceability, §87 threat-model presence. Runs
       # BEFORE the expensive suites — zero-dependency static scan of features/ +
       # issues/ + docs/, ~1s. CI-enforced so an INV-* red blocks the PR that
-      # introduces it instead of accumulating silently on the trunk (the belong
+      # introduces it instead of accumulating silently on the trunk (a
       # consumer measured days of accumulated drift blocking every slice's
       # /run-acceptance before this was a CI check). Green out-of-the-box on a
       # fresh adoption: every invariant reads N/A on an empty tree.

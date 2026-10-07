@@ -1,7 +1,7 @@
 // CI coverage for scripts/check-release-step-fidelity.mjs (FOLLOW-UP 103 round-2).
 // The mechanical, stack-agnostic half of §127: a step definition that drives a
 // use case via container.<x>.execute( bypasses the production input adapter —
-// the exact live miss (slice-27c scn-482). This fails RED in CI on that pattern.
+// the exact live miss (a consumer's money use case shipped with no route). This fails RED in CI on that pattern.
 //
 // Run: node --test scripts/__tests__/check-release-step-fidelity.test.mjs
 

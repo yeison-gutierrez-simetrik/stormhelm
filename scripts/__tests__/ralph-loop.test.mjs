@@ -361,7 +361,7 @@ test('FU-29: green path pushes the branch before gh pr create', () => {
 });
 
 // T23 — a failing push takes the block path with a structured reason (never a
-// silent finish-line death like the live issue-15 run).
+// silent finish-line death like the first live run that reached it).
 test('FU-29: push failure → blocked with reason git-push-failed, no PR', () => {
   withConsumer((dir) => {
     const { status } = runRalph(dir, ['1', '1'], { MOCK_PUSH_FAIL: '1' });
@@ -1063,18 +1063,18 @@ test('FU-48: diverging dep branches → loud skip with dep-branches-conflict, cl
 
 // ── FOLLOW-UP 49: label ↔ body scenario-set backstop ──────────────────────────
 
-// Live: a body amendment added scn-067..070; the budget label rotated but the
+// Live: a body amendment added four scenarios; the budget label rotated but the
 // scenarios label didn't — the gate ran 8/8 "green" while four SECURITY
 // scenarios shipped ungated on a require-human-review slice. The engine now
 // refuses to start when the body owns scenarios the label doesn't.
 test('FU-49: body scenarios ⊃ label → abort pre-iteration naming the ungated scns', () => {
   withConsumer((dir) => {
     const { status, out } = runRalph(dir, ['1', '3'], {
-      MOCK_BODY: '## Scenarios covered\n- scn-001\n\n## Scope amendment\nThis issue also owns scn-067 and scn-068.\n',
+      MOCK_BODY: '## Scenarios covered\n- scn-001\n\n## Scope amendment\nThis issue also owns scn-301 and scn-302.\n',
       MOCK_LABELS: 'ralph-ready\nscenarios:scn-001\nbudget:150k',
     });
     assert.notEqual(status, 0);
-    assert.match(out, /scn-067 scn-068.*ship UNGATED|own scn-067/s, out);
+    assert.match(out, /scn-301 scn-302.*ship UNGATED|own scn-301/s, out);
     assert.match(out, /Rotate the label/, 'actionable: the exact gh command');
     assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0, 'pre-spend');
   });
@@ -1104,21 +1104,22 @@ test('FU-49: body without scenario sections → label is authoritative (pinned)'
 // The live amendment was a BLOCKQUOTE inside ## Plan — not a heading. The
 // first backstop only matched headings, so the exact incident that motivated
 // FU-49 would have passed it silently (reproduced by the consumer against
-// belong #29's real body). Pinned verbatim, including the scn range form.
-test('FU-49: the live blockquote amendment shape aborts (belong #29 verbatim)', () => {
+// the real issue body). Pinned in that shape — a bold blockquote line inside
+// ## Plan, with the scn range form — with neutral content.
+test('FU-49: the live blockquote amendment shape aborts', () => {
   withConsumer((dir) => {
     const { status, out } = runRalph(dir, ['1', '3'], {
-      MOCK_BODY: '## Plan\n\nSome plan text.\n\n> **Scope amendment (2026-06-04):** this issue also owns the idempotency-replay hardening scenarios **scn-067..070** (encrypted-store TTL, key rotation, replay rate-limit, audit invariant). Budget bumped to `budget:250k`.\n\nMore plan text.\n',
+      MOCK_BODY: '## Plan\n\nSome plan text.\n\n> **Scope amendment (date):** this issue also owns the hardening scenarios **scn-301..304** (four edge cases of the same flow). Budget bumped to `budget:250k`.\n\nMore plan text.\n',
       MOCK_LABELS: 'ralph-ready\nscenarios:scn-047+048\nbudget:250k',
     });
     assert.notEqual(status, 0, 'the live shape must abort — it passed the heading-only matcher');
-    assert.match(out, /scn-067/, 'range endpoints extracted, enough to abort');
+    assert.match(out, /scn-301/, 'range endpoints extracted, enough to abort');
     assert.match(out, /Rotate the label/);
     assert.equal(readEvents(dir, 1).filter((e) => e.event === 'ralph.iteration.started').length, 0);
   });
 });
 
-// Dependency amendments had the SAME blind spot (belong #31's blockquote
+// Dependency amendments had the SAME blind spot (a consumer issue's blockquote
 // never entered the dep graph → fed the FU-48 incomplete-base incident).
 test('FU-49: deps_from_body reads blockquote dependency amendments', () => {
   const r = spawnSync('bash', ['-c', [
@@ -1286,14 +1287,14 @@ test('FU-64: linear dep chain → base = the chain tail (highest dep covering th
 // set -e. The gate + extraction now accept the body's scenarios:scn-* token.
 test('FU-72: a >9-scenario slice with NO GH label but a body scenarios: token launches', () => {
   withConsumer((dir) => {
-    const compact = 'scn-' + Array.from({ length: 19 }, (_, k) => 137 + k).join('+');
-    const { status, out } = runRalph(dir, ['83', '3'], {
+    const compact = 'scn-' + Array.from({ length: 19 }, (_, k) => 201 + k).join('+');
+    const { status, out } = runRalph(dir, ['42', '3'], {
       MOCK_LABELS: 'ralph-ready\nshift:afk\nbudget:200k\ntier:0',   // NO scenarios: label
-      MOCK_BODY: `# Slice 07\n\n**Labels:** \`ralph-ready\` \`shift:afk\` \`scenarios:${compact}\` \`budget:200k\` \`tier:0\`\n\nFoundation.\n`,
+      MOCK_BODY: `# Foundation slice\n\n**Labels:** \`ralph-ready\` \`shift:afk\` \`scenarios:${compact}\` \`budget:200k\` \`tier:0\`\n\nFoundation.\n`,
     });
     assert.equal(status, 0, `the foundation slice must launch, not abort the §63 gate:\n${out}`);
     const prompts = readFileSync(join(dir, '.mock-claude-prompts'), 'utf8');
-    assert.match(prompts, /run-acceptance for the scn-\* of issue #83 \(scn-137\+138/, 'scenarios sourced from the body and passed to acceptance');
+    assert.match(prompts, /run-acceptance for the scn-\* of issue #42 \(scn-201\+202/, 'scenarios sourced from the body and passed to acceptance');
   });
 });
 
@@ -1503,7 +1504,7 @@ test('FU-83/84: RALPH_FALLBACK_MODEL recovers an outage in-process — session c
 // doc deliverable but a slice diff that never touches a **/skills/**/*.md is NOT
 // done, even with every scenario green. The engine fails it in the green branch
 // (before the §114 reviewer) so Ralph self-corrects in the next /tdd, instead of
-// a human merge-gate BLOCK + round-trip (belong PR #146/#147). Reference: the
+// a human merge-gate BLOCK + round-trip (two consumer PRs in a row). Reference: the
 // Danger.js "changed X ⇒ must change Y" rule class, made deterministic.
 const SKILL_DOC_GATE = join(here, '..', 'check-skill-doc-delivery.mjs');
 

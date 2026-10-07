@@ -29,11 +29,10 @@ this skill is the deliberate, per-slice opt-in whose safety rests on the layered
 enforces — the per-decision audit log, the §114 reviewer, and the invariant gates.
 
 **Status: framework skill — promoted 2026-07-18 per the FU-80 criteria.** Piloted consumer-side
-(belong-marketplace) across three campaigns: slices 08+09 (2026-06-10 — 2 slices to draft PRs with
-zero pre-PR human checkpoints; the §114 reviewer caught a constitution violation the autonomous
-planner itself introduced, proving the gates hold), slices 12–15 (2026-06-12 — 4 slices, 12
-implementation PRs driven to green), and the 574a–c + QA campaigns (2026-07-16..18, ~15
-implementation PRs). The operator's post-hoc audit ratified the track record: overrides
+across three campaigns: 2 slices to draft PRs with zero pre-PR human checkpoints (the §114
+reviewer caught a constitution violation the autonomous planner itself introduced, proving the
+gates hold), 4 slices with 12 implementation PRs driven to green, and a third campaign — three
+slices plus their QA pass — of ~15 implementation PRs. The operator's post-hoc audit ratified the track record: overrides
 concentrated in **policy** decisions, which the blocking rule escalates by design (live: one slice
 correctly held 4 product/brand decisions BLOCKED for the operator instead of guessing). The
 promotion does not change the posture: **the opt-in remains per-slice and explicit; §58's
@@ -76,7 +75,7 @@ blocking rule (below).
 
 ### 2. The referent mapping — which industry leader answers which decision class
 
-The default mapping (proven by the marketplace pilot). A consumer adapts the domain-mechanics row
+The default mapping (proven by the consumer pilot). A consumer adapts the domain-mechanics row
 to its own product domain; the rule itself is invariant — no self-answer without a researched,
 citable referent:
 

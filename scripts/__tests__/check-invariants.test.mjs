@@ -424,8 +424,8 @@ test('FU-58: green runs carry no recap block (output contract unchanged)', () =>
 // the full compact list in the file is SAFE: every @release scenario still
 // maps to its issue.
 test('FU-71: a 19-scenario compact label (>50 chars) in the issue file maps via INV-5', () => {
-  const longList = Array.from({ length: 19 }, (_, k) => 137 + k); // scn-137..155
-  const compact = 'scn-' + longList.join('+').replace(/\+(?=\d)/g, '+'); // scn-137+138+…+155
+  const longList = Array.from({ length: 19 }, (_, k) => 201 + k); // scn-201..219
+  const compact = 'scn-' + longList.join('+').replace(/\+(?=\d)/g, '+'); // scn-201+202+…+219
   const labelToken = `scenarios:${compact}`;
   assert.ok(labelToken.length > 50, `the label must overflow 50 chars to be the FU-71 case (got ${labelToken.length})`);
 
@@ -440,7 +440,7 @@ test('FU-71: a 19-scenario compact label (>50 chars) in the issue file maps via 
   });
   assert.equal(status, 0, `INV-5 must map all 19 file-listed scenarios:\n${out}`);
   assert.match(out, /INV-5.*mapped/, 'INV-5 ran and passed');
-  assert.doesNotMatch(out, /scn-1[3-5][0-9].*no issue/, 'none of scn-137..155 is a false orphan');
+  assert.doesNotMatch(out, /scn-2(?:0[1-9]|1[0-9]).*no issue/, 'none of scn-201..219 is a false orphan');
 });
 
 // ── FOLLOW-UP 78: skip-invariant overrides are scoped to the declaring file ───
@@ -485,7 +485,7 @@ test('FU-78: a single-file override (only escalating issue carries it) still pas
 
 // FOLLOW-UP 105: a scn-NNN defined in two feature files is an authoring-time
 // collision (per-issue scn allocation with no campaign-wide reservation reused
-// scn-470/471 live). check-invariants must fail it HERE, not let it surface as
+// the same ids, live). check-invariants must fail it HERE, not let it surface as
 // an INV-5 orphan at merge.
 test('FU-105: a scn id reused across two feature files fails CONFIG (authoring-time)', () => {
   const { status, out } = runMutated((dir) => {
@@ -505,7 +505,7 @@ test('FU-105: the clean fixture (disjoint scn ids per feature) has no collision'
 });
 
 // --- CONFIG §59 companion: title-embedded scn id must match the scenario's @scn tag (FU-124) ---
-// Live class: a belong slice shipped 6 scenarios TITLED scn-894..899 with zero tags — invisible
+// Live class: a consumer slice shipped 6 scenarios TITLED with scn ids and zero tags — invisible
 // to every invariant while silently overlapping a sibling's approved tag block.
 
 test('CONFIG §59 fails on a Scenario titled scn-NNN with no @scn tag (title-only id)', () => {

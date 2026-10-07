@@ -306,7 +306,7 @@ carries the threat model as **DRAFT**, and the **close-out PR is the single,
 predictable owner of the ratification flip** (the same place §58 flips
 `approved → implemented`). A fast reviewer who merges the impl PR therefore can
 **never orphan** the flip — there is no flip on the impl branch to lose (live:
-slice-35a #300 merged before the flip commit landed, leaving `main` DRAFT until a
+a consumer's impl PR merged before the flip commit landed, leaving `main` DRAFT until a
 manual re-apply). The alternative — a merge gate refusing a DRAFT threat model —
 was considered and rejected as higher-friction (it forces the flip onto the impl
 branch and adds a blocking check); this convention removes the race instead of

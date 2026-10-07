@@ -370,7 +370,7 @@ fi
 # label (it overflows GitHub's 50-char limit — FU-71) and carries the spelled
 # list in the issue body's **Labels:** line instead. The §63 gate must accept
 # EITHER source — the GH label OR a scenarios:scn-* token in the body — or
-# every such slice is un-launchable (live: belong #83, 19 scns scn-137..155).
+# every such slice is un-launchable (live: a 19-scenario slice in a consumer).
 if ! echo "$LABELS" | grep -qE "^scenarios:" \
    && ! printf '%s' "$ISSUE_BODY" | grep -qE 'scenarios:scn-[0-9]'; then
   echo "❌ Issue #$ISSUE_NUM declares no scenarios — neither a 'scenarios:scn-*' GitHub label nor a 'scenarios:scn-*' token in the issue body (§63 mandatory). Note: GitHub REJECTS commas in label names, so a multi-scn label must use the comma-free '+' form (e.g. 'scenarios:scn-627+628+629'); a bug/follow-up reusing existing scns can instead put a 'scenarios:scn-627,scn-628' token (commas OK) in the issue BODY (FU-112). For a >9-scenario slice, carry the spelled list in the body's **Labels:** line (FU-71)." >&2
@@ -416,7 +416,7 @@ fi
 # scns the label doesn't, abort BEFORE iteration 1, pre-spend.
 # Two capture shapes (the consumer review caught the second): the canonical
 # heading sections, AND the legacy blockquote/bold inline form the live
-# incident actually used (`> **Scope amendment (date):** … scn-067..070`),
+# incident actually used (`> **Scope amendment (date):** … scn-A..B`),
 # which closes on a blank line or the next heading.
 BODY_SCNS=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' \
   | awk '{ low = tolower($0) }
@@ -994,8 +994,8 @@ EOF
     # Push BEFORE creating the PR: non-interactive `gh pr create` aborts on
     # an unpushed branch ("you must first push the current branch…"). This
     # is the first instruction every successful run reaches — and it had
-    # never executed until the issue-15 run, where it failed at the finish
-    # line. --head makes the call worktree/detached-HEAD-proof.
+    # never executed until the first live run that reached it, where it
+    # failed at the finish line. --head makes the call worktree/detached-HEAD-proof.
     if ! git push -u origin "$BRANCH"; then
       ralph_git_action "push" "failed" "git push -u origin $BRANCH"
       ralph_error_tool "git" "git push failed before PR creation"
@@ -1081,7 +1081,7 @@ EOF
     # this head, and `gh pr create` has intermittently created a byte-identical
     # DUPLICATE (across auth contexts) instead of failing. Guard with an explicit
     # lookup and REUSE the existing PR rather than trusting create's own
-    # "already exists" error (unreliable; live: dup PRs #215/#219/#220).
+    # "already exists" error (unreliable; live: three duplicate PRs in one consumer run).
     EXISTING_PR=$(gh pr list --head "$BRANCH" ${PR_TARGET:+--base "$PR_TARGET"} --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
     if [ -n "$EXISTING_PR" ]; then
       echo "↪ PR #${EXISTING_PR} is already open for ${BRANCH}${PR_TARGET:+ → ${PR_TARGET}} — reusing it, NOT creating a duplicate (FU-102)." >&2

@@ -52,7 +52,7 @@
 #      commits" for an iteration that produced one — head captured at
 #      watcher start / wrong update ordering, FOLLOW-UP 37c).
 #
-# Graduated from the belong-marketplace consumer prototype (FOLLOW-UP 32).
+# Graduated from a consumer prototype (FOLLOW-UP 32).
 
 set -euo pipefail
 
