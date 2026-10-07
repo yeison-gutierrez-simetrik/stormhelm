@@ -21,7 +21,7 @@ import { PARITY, INDEX } from './fixtures/feature-status-fixtures.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const GATE = join(here, '..', 'check-skipped-release-scn.mjs');
 
-function setup({ status, tags = '@release', scn = 'scn-566', issueToken = 'scenarios:scn-566' }) {
+function setup({ status = 'approved', tags = '@release', scn = 'scn-566', issueToken = 'scenarios:scn-566' }) {
   const dir = mkdtempSync(join(tmpdir(), 'skipscn-'));
   mkdirSync(join(dir, 'features', 'notifications'), { recursive: true });
   const feature = [
@@ -206,7 +206,7 @@ function parityRepo(body, eol = '\n') {
 const lines = (text) => [...text.matchAll(/features\/f\.feature:(\d+)/g)].map((m) => +m[1]);
 
 for (const fx of PARITY) {
-  test(`FU-134 parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
+  test(`${fx.fu ?? 'FU-134'} parity: ${fx.name} → lint and cucumber.mjs both flag [${fx.expect.join(', ')}]`, async () => {
     const dir = parityRepo(fx.body, fx.eol);
     try {
       const lint = spawnSync('node', [GATE, 'features'], { cwd: dir, encoding: 'utf8' });
@@ -291,7 +291,7 @@ test('FU-134: §130b sees @release inherited from Feature/Rule, Example:/Scenari
     const r = runCI(dir, join(dir, 'issue.md'));
     assert.equal(r.status, 1, r.stdout + r.stderr);
     for (const scn of ['scn-1', 'scn-2', 'scn-3', 'scn-4']) {
-      assert.match(r.stdout, new RegExp(`${scn} — @release but its feature is "# status: approved"`), `${scn} flagged`);
+      assert.match(r.stdout, new RegExp(`${scn} — @release[^\\n]*"# status: approved"`), `${scn} flagged`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -343,7 +343,7 @@ test('FU-134: §130b sees @release that only an Examples block carries', () => {
     writeFileSync(join(dir, 'issue.md'), 'scenarios:scn-003\n');
     const r = runCI(dir, join(dir, 'issue.md'));
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stdout, /scn-003 — @release but its feature is "# status: approved"/);
+    assert.match(r.stdout, /scn-003 — @release[^\n]*"# status: approved"/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -377,7 +377,7 @@ const releaseOf = (scenarios) => {
 };
 for (const [set, fixtures] of [['parity', PARITY], ['index', INDEX]]) {
   for (const fx of fixtures) {
-    test(`FU-134 oracle (${set}): ${fx.name} — the reader matches @cucumber/gherkin`, async () => {
+    test(`${fx.fu ?? 'FU-134'} oracle (${set}): ${fx.name} — the reader matches @cucumber/gherkin`, async () => {
       const golden = ORACLE[set][fx.name];
       assert.ok(golden, `no golden for "${fx.name}" — run fixtures/gen-gherkin-oracle.mjs`);
       assert.equal(golden.parseError, undefined, golden.parseError);
@@ -478,4 +478,120 @@ test('FU-134: the shared claims grammar — trailing period, case, range bounds'
   assert.equal(parseClaimToken('scn-1..scn-1000').ids.length, 1000, 'a 1000-id range is the largest accepted');
   assert.deepEqual(parseClaimToken('scn-1..scn-1001').ids, []);
   assert.deepEqual(expandScenarioClaims('scenarios:scn-1..scn-200000000 and scenarios:scn-5'), ['scn-5']);
+});
+
+// ── FOLLOW-UP 135 — duplicate / invalid / transition / empty header status ──
+// The exact duplicate shape: header `approved` then `implemented`, both before
+// Feature. The runner reads the first → the feature is skipped under
+// IMPLEMENTED_ONLY; CI mode was rc 0 on this file — the residual FU-134 recorded.
+test('FU-135: CI mode names a duplicate header status → FAIL exit 1, anchored on the line the runner reads', () => {
+  const dir = setupFeature('# status: approved\n# status: implemented\nFeature: X\n\n  @release @scn-9\n  Scenario: s\n    Given g\n');
+  try {
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /DUPLICATE HEADER STATUS/);
+    assert.match(r.stdout, /x\.feature:2 /, 'the second status line is the offender');
+    assert.match(r.stdout, /the runner reads line 1 \('approved'\)/, 'names the line and status the runner actually reads');
+    assert.doesNotMatch(r.stdout, /MID-FILE STATUS/, 'not misreported as mid-file');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-135: a single header status (plus other header comments) stays clean in CI mode', () => {
+  const dir = setupFeature('# language: en\n# status: approved\n# approved_at: 2026-10-06\n# approved_in_commit: a1b2c3d\nFeature: X\n\n  @release @scn-9\n  Scenario: s\n    Given g\n');
+  try {
+    const r = runCI(dir);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED-SCN GATE: ok/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// The value residual: `# status: implemented.` — the runner reads
+// 'implemented.' and SKIPS the feature, while the old §130b check read \w+ →
+// 'implemented' and passed even with the scn claimed (rc 0).
+test('FU-135: an invalid header status value fails the per-slice gate even when the scn is claimed', () => {
+  const dir = setupFeature('# status: implemented.\nFeature: X\n\n  @release @scn-7\n  Scenario: s\n    Given g\n');
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'Delivers scenarios:scn-7\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /INVALID STATUS VALUE/);
+    assert.match(r.stdout, /x\.feature:1 /);
+    assert.match(r.stdout, /reads the status as 'implemented\.'/, 'names the token the runner actually reads');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// The failure footer must not tell an author to flip a planning feature to
+// `implemented` just because its status token was malformed.
+test('FU-135: the failure footer does not prescribe a flip to implemented', () => {
+  const dir = setupFeature('# status: draft.\nFeature: X\n\n  @release @scn-7\n  Scenario: s\n    Given g\n');
+  try {
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /flip it to\s+`# status: implemented`/);
+    assert.match(r.stdout, /§58 state word and nothing else/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 5 (the maintainer's decision): the slice that COMPLETES a file's
+// @release scenarios flips that file to `implemented` in its own PR, so CI runs
+// them before the merge. The gate fails only then — a file still owed scenarios
+// by another slice is in flight, not a failure — and its remedy is that flip.
+const fileWith = (header, scns) => `${header}\nFeature: X\n` + scns.map((n) => `\n  @release @scn-${n}\n  Scenario: s${n}\n    Given g\n`).join('');
+test('FU-135: a slice that completes its file\'s @release scenarios must flip the file in its PR', () => {
+  const dir = setupFeature(fileWith('# status: approved', [7, 8]));
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'Delivers scenarios:scn-7+8\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED CLAIM scn-7 — @release, and this issue completes its file's @release scenarios/);
+    assert.match(r.stdout, /SKIPPED CLAIM scn-8/);
+    assert.match(r.stdout, /flip the file's '# status:' line from approved to implemented, in place/);
+    assert.match(r.stdout, /HUMAN CHECKPOINT 2/);
+    assert.equal((r.stdout.match(/Why \(SKIPPED CLAIM\)/g) ?? []).length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-135: a claim in a file another slice still owes scenarios to is in flight, not a failure', () => {
+  const dir = setupFeature(fileWith('# status: approved', [7, 8]));
+  try {
+    writeFileSync(join(dir, 'issue.md'), 'Delivers scenarios:scn-7\n');
+    const r = runCI(dir, join(dir, 'issue.md'));
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /SKIPPED-SCN GATE: ok .*all @release ones implemented or in flight \(1\)/);
+    assert.match(r.stdout, /Note: in flight: scn-7 .*does not claim \(scn-8\) — the slice that completes the file flips it/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-135: a claim in a draft feature fails as UNAPPROVED; a broken header is left to its own problem', () => {
+  const draft = setupFeature(fileWith('# status: draft', [7]));
+  try {
+    writeFileSync(join(draft, 'issue.md'), 'Delivers scenarios:scn-7\n');
+    const r = runCI(draft, join(draft, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /UNAPPROVED CLAIM scn-7 — @release in a "# status: draft" feature/);
+    assert.match(r.stdout, /HUMAN CHECKPOINT 1 first/);
+    assert.doesNotMatch(r.stdout, /SKIPPED CLAIM/);
+  } finally { rmSync(draft, { recursive: true, force: true }); }
+  const broken = setupFeature(fileWith('# status: approved\n# status: implemented', [7]));
+  try {
+    writeFileSync(join(broken, 'issue.md'), 'Delivers scenarios:scn-7\n');
+    const r = runCI(broken, join(broken, 'issue.md'));
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /DUPLICATE HEADER STATUS/);
+    assert.doesNotMatch(r.stdout, /(SKIPPED|UNAPPROVED) CLAIM/, 'the header problem is the one failure');
+  } finally { rmSync(broken, { recursive: true, force: true }); }
+});
+
+// Each offending line carries its OWN detail (which line the runner reads, which
+// word it read) while each kind's explanation prints once.
+test('FU-135: per-line detail with each offender, one explanation per kind', () => {
+  const dir = setupFeature('# status: approved\n# status: implemented\nFeature: X\n  @release @scn-1\n  Scenario: s\n    Given g\n');
+  try {
+    writeFileSync(join(dir, 'features', 'x', 'y.feature'), '# status: draft\n# status: approved\nFeature: Y\n  @release @scn-2\n  Scenario: s\n    Given g\n');
+    const r = runCI(dir);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /x\.feature:2 `# status: implemented` — the runner reads line 1 \('approved'\)/);
+    assert.match(r.stdout, /y\.feature:2 `# status: approved` — the runner reads line 1 \('draft'\)/);
+    assert.equal((r.stdout.match(/Why \(DUPLICATE HEADER STATUS\)/g) ?? []).length, 1, r.stdout);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

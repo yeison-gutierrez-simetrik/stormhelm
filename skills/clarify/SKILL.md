@@ -43,7 +43,7 @@ description: |
 
 ## Status transition (§58)
 
-If this run targets an existing `.feature`, flip its header `# status: draft → clarifying` at Step 1 (it may also reopen `approved → clarifying` when re-litigating). The agent may edit the file while it is `draft`/`clarifying`; it becomes read-only again only after re-approval at HUMAN CHECKPOINT 1.
+If this run targets an existing `.feature`, flip its header `# status:` line's word from `draft` to `clarifying` (in place) at Step 1 (it may also reopen `approved` to `clarifying` when re-litigating). The agent may edit the file while it is `draft`/`clarifying`; it becomes read-only again only after re-approval at HUMAN CHECKPOINT 1.
 
 ## Workflow
 

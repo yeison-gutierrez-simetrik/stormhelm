@@ -25,15 +25,19 @@
 // mechanism produces of itself — cucumber.mjs ignores a status after the header,
 // so an approved feature with a per-scenario `# status: implemented` is skipped
 // while the gate is green), and has a CI-safe exit contract so it wires into a
-// plain `pull_request` job.
+// plain `pull_request` job. FU-135: also for an extra status line in the header,
+// a header value that is not exactly one §58 state word (punctuation, a flip
+// written into the line, a note), and an empty one.
 //
 // Usage:
 //   node scripts/check-skipped-release-scn.mjs <features-dir> [issue-or-spec-file...]
 //
 // Behavior (rc 0 clean · 1 a genuine false-green risk · 2 only on a malformed call):
-//   - ALWAYS: the mid-file-status lint across every feature — a `# status:` line
-//     AFTER the header block (the leading comment block — read by the shared
-//     parse-feature-status.mjs, the same reader cucumber.mjs uses) → FAIL, named.
+//   - ALWAYS: the status-line lint across every feature, through the shared
+//     parse-feature-status.mjs (the reader cucumber.mjs imports) — a `# status:`
+//     AFTER the header block (ISSUE #141), an extra one inside it, a header value
+//     that is not exactly one §58 state word, or an empty one (FU-135) → FAIL,
+//     named, with the reader's own explanation.
 //   - <features-dir> ALONE  → CI mode: just the lint (issue-independent backstop).
 //   - A features dir or an issue/spec file that does not exist → rc 2. A
 //     feature that cannot be read (not a dotfile — a symlink whose target is
@@ -43,11 +47,11 @@
 //     scn-A+B / scn-A..B, bare numbers — the check-invariants grammar) and FAILs
 //     naming any claimed @release scn whose feature the runner skips under
 //     IMPLEMENTED_ONLY (a header status other than `implemented`).
-//   - Clean → `SKIPPED-SCN GATE: ok`; issue with no scenarios token + no mid-file
-//     status → `na`. Any problem → `SKIPPED-SCN GATE: FAIL` + offenders, exit 1.
+//   - Clean → `SKIPPED-SCN GATE: ok`; issue with no scenarios token + clean
+//     status lines → `na`. Any problem → `SKIPPED-SCN GATE: FAIL` + offenders, exit 1.
 
 import { readFileSync, statSync, existsSync } from 'node:fs';
-import { featureFiles, parseFeatureStatus } from './parse-feature-status.mjs';
+import { featureFiles, parseFeatureStatus, HEADER_STATUS_KINDS } from './parse-feature-status.mjs';
 import { expandScenarioClaims } from './scenario-claims.mjs';
 
 // ISSUE #141: a sane exit contract so this wires plainly into a `pull_request`
@@ -129,7 +133,16 @@ function indexScenarios(parsed) {
 // be loud, not silent. FU-134: the detection — and each problem's explanation —
 // live in parse-feature-status.mjs, the one reader the cucumber.mjs template
 // also imports. The explanation is printed once per kind, after the list.
-const LABEL = { 'mid-file': 'MID-FILE STATUS', language: 'NON-ENGLISH FEATURE', unreadable: 'UNREADABLE' };
+const LABEL = {
+  'mid-file': 'MID-FILE STATUS',
+  duplicate: 'DUPLICATE HEADER STATUS',   // FU-135: the header holds ONE status line…
+  invalid: 'INVALID STATUS VALUE',          // …holding one §58 state word and nothing else,
+  empty: 'EMPTY STATUS',                    // …and never empty.
+  language: 'NON-ENGLISH FEATURE',
+  unreadable: 'UNREADABLE',
+  'skipped-claim': 'SKIPPED CLAIM',         // §130b: a claimed @release scn the runner skips
+  'unapproved-claim': 'UNAPPROVED CLAIM',   // §130b: a claimed scn in a draft / clarifying / retired feature
+};
 const label = (kind) => LABEL[kind] ?? kind.toUpperCase();
 
 const UNREADABLE = 'a feature the runner should see cannot be read (a symlink whose target is missing? permissions?) — fix or remove it; it must never drop off the CI surface silently.';
@@ -145,18 +158,30 @@ for (const f of features) {
     continue;
   }
   const { status, problems: found, scenarios } = parseFeatureStatus(text);
-  parsed.set(f, { status, scenarios });
+  parsed.set(f, { status, scenarios, headerBroken: found.some((p) => HEADER_STATUS_KINDS.includes(p.kind)) });
   for (const p of found) problems.push({ file: f, ...p });
 }
 
 // (2) §130b claimed-@release-scn check — only when issue files are given
-// (Ralph per-slice acceptance). Distinguishes a legitimately-in-planning
-// @release scn (an approved feature with no claim) from a claimed-done-but-
-// skipped one (the issue claims it via scenarios: yet the runner skips its
-// feature — any header status but `implemented`; no status = legacy, it runs).
+// (Ralph per-slice acceptance). A claimed @release scn whose feature the runner
+// skips (a header status other than `implemented`; no status = legacy, it runs)
+// never ran in CI. Who fixes that (FU-135, the maintainer's decision): the slice
+// that COMPLETES a file's @release scenarios flips that file to `implemented` in
+// its OWN PR, at close-out — the one edit an agent makes to an approved .feature
+// (§58), reviewed by the human at HUMAN CHECKPOINT 2 — so CI runs them before the
+// merge. So, per claimed @release scn in an `approved` file:
+//   - this issue claims EVERY @release scn of the file → FAIL until the flip;
+//   - the file still holds @release scns this issue does not claim → a note, not
+//     a failure: the slice that completes the file flips it (the per-slice run,
+//     ran == expected, is this one's evidence until then);
+// and a claimed scn in a draft / clarifying / retired file → FAIL: it is not
+// deliverable (§58 HUMAN CHECKPOINT 1, INV-3). A feature whose header status is
+// itself broken is left to that header problem.
 // A claim that matches no scenario is named as unverified — it is Step 3's
 // count check's to judge, but it must never read as "implemented" here.
 const skippedClaims = [];
+const unapprovedClaims = [];
+const inFlight = [];
 const unresolved = [];
 let claimedCount = 0;
 if (issueFiles.length) {
@@ -164,36 +189,53 @@ if (issueFiles.length) {
   claimedCount = claimed.size;
   if (claimed.size) {
     const idx = indexScenarios(parsed);
+    const releaseKeysOf = (file) => [...idx.entries()].filter(([, v]) => v.file === file && v.release).map(([k, v]) => [k, v.id]);
     for (const [key, id] of claimed) {
       const info = idx.get(key);
       if (!info) { unresolved.push(id); continue; }
       if (!info.release) continue;    // only @release scns gate CI's definition of done
-      if (info.status !== null && info.status !== 'implemented') {
-        skippedClaims.push(`${info.id} — @release but its feature is "# status: ${info.status}" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
+      if (info.status === null || info.status === 'implemented' || parsed.get(info.file).headerBroken) continue;
+      if (info.status !== 'approved') {
+        unapprovedClaims.push(`${info.id} — @release in a "# status: ${info.status}" feature (${info.file})`);
+        continue;
       }
+      const owed = releaseKeysOf(info.file).filter(([k]) => !claimed.has(k)).map(([, v]) => v);
+      if (owed.length) inFlight.push(`${info.id} (${info.file}): the file also holds @release scn(s) this issue does not claim (${owed.join(', ')}) — the slice that completes the file flips it; until then the per-slice run (ran == expected) is this scenario's evidence`);
+      else skippedClaims.push(`${info.id} — @release, and this issue completes its file's @release scenarios, but the file is still "# status: approved" (${info.file}); SKIPPED under CUCUMBER_IMPLEMENTED_ONLY → CI green without running it`);
     }
   }
 }
+const CLAIM_WHY = "this slice delivers the last @release scenarios of that file, so the file joins the CI surface in THIS PR: at close-out, once its scenarios pass, flip the file's '# status:' line from approved to implemented, in place — the one edit an agent makes to an approved .feature (§58) — then re-run this gate and the full @release suite; the human reviews the flip at HUMAN CHECKPOINT 2. If the slice did not deliver the scenario, drop it from the issue's scenarios: token instead.";
+const UNAPPROVED_WHY = "a claimed scenario lives in a feature that is not approved, so the slice cannot deliver it (§58: HUMAN CHECKPOINT 1 first; INV-3). Stop and escalate to a human, or drop the claim from the issue's scenarios: token.";
 const unverified = unresolved.length ? `; ${unresolved.length} claimed scn(s) not found in features/ (${unresolved.join(', ')}) — not verified here, Step 3's count check owns them` : '';
 
-if (problems.length || skippedClaims.length) {
+const notes = [...inFlight.map((n) => `in flight: ${n}`), ...(unverified ? [unverified.slice(2)] : [])];
+if (problems.length || skippedClaims.length || unapprovedClaims.length) {
   console.log('SKIPPED-SCN GATE: FAIL');
-  for (const p of problems) console.log(`  ✗ ${label(p.kind)} ${p.file}${p.line ? `:${p.line}` : ''} \`${p.text}\``);
-  for (const c of skippedClaims) console.log(`  ✗ ${c}`);
+  for (const p of problems) console.log(`  ✗ ${label(p.kind)} ${p.file}${p.line ? `:${p.line}` : ''} \`${p.text}\`${p.detail ? ` — ${p.detail}` : ''}`);
+  for (const c of skippedClaims) console.log(`  ✗ ${label('skipped-claim')} ${c}`);
+  for (const c of unapprovedClaims) console.log(`  ✗ ${label('unapproved-claim')} ${c}`);
+  // Each explanation once per kind, after the list (a tree with 40 offenders
+  // must not print the same paragraph 40 times).
   const kinds = [...new Map(problems.map((p) => [p.kind, p.message])).entries()];
+  if (skippedClaims.length) kinds.push(['skipped-claim', CLAIM_WHY]);
+  if (unapprovedClaims.length) kinds.push(['unapproved-claim', UNAPPROVED_WHY]);
   if (kinds.length) console.log('');
   for (const [kind, message] of kinds) console.log(`Why (${label(kind)}): ${message}`);
-  if (unverified) console.log(`\nNote${unverified.slice(1)}.`);
-  console.log('\nThe contract: exactly ONE `# status:` line, in the feature\'s FIRST comment block (§58). A');
-  console.log('deliverable @release scenario that does not actually run can never pass the acceptance gate');
+  for (const n of notes) console.log(`Note: ${n}.`);
+  console.log('\nThe contract: exactly ONE `# status:` line, in the feature\'s FIRST comment block, holding one');
+  console.log('§58 state word and nothing else (notes go on a `# status-note:` line). It is flipped IN PLACE —');
+  console.log('to implemented by the slice that completes the file\'s @release scenarios, in its own PR (§58).');
+  console.log('A deliverable @release scenario that does not actually run can never pass the acceptance gate');
   console.log('silently (§130b, ISSUE #141).');
   process.exit(1);
 }
 
 if (issueFiles.length && claimedCount === 0) {
-  console.log('SKIPPED-SCN GATE: na (no scenarios: tokens in the issue/spec; no mid-file status)');
+  console.log('SKIPPED-SCN GATE: na (no scenarios: tokens in the issue/spec; status lines clean)');
 } else {
   const verified = claimedCount - unresolved.length;
-  console.log(`SKIPPED-SCN GATE: ok (${features.length} feature(s) scanned; no mid-file status${issueFiles.length ? `; ${verified} claimed scn(s) found, all @release ones implemented${unverified}` : ', CI mode'})`);
+  console.log(`SKIPPED-SCN GATE: ok (${features.length} feature(s) scanned; status lines clean${issueFiles.length ? `; ${verified} claimed scn(s) found, all @release ones implemented${inFlight.length ? ` or in flight (${inFlight.length})` : ''}` : ', CI mode'})`);
+  for (const n of notes) console.log(`Note: ${n}.`);
 }
 process.exit(0);

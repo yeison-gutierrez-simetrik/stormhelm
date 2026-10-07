@@ -64,13 +64,16 @@ jobs:
       - name: Invariant gate (§59/§63/§87)
         run: node scripts/check-invariants.mjs
 
-      # Skipped-release gate (FU-134, ISSUE #141): the runner reads `# status:`
-      # from the header (the leading comment block) only, so a status declared
-      # after it would leave an approved feature skipped while the suite is
-      # green. cucumber.mjs now throws on that at load; this zero-dependency step
-      # names every offender as file:line before the suites run, and runs even
-      # when install/typecheck failed (`!cancelled()`), so one CI round reports
-      # it. Green on an empty tree (features/.keep).
+      # Skipped-release gate (FU-134/135, ISSUE #141): the runner reads ONE
+      # status — the first word of the first non-empty `# status:` line in the
+      # header (the leading comment block) — so a status declared after it, an
+      # extra one in it, a value that is not exactly one §58 state word, or an
+      # empty one would leave a feature skipped (or unexpectedly run) while the
+      # suite is green. cucumber.mjs now throws on
+      # that at load; this zero-dependency step names every offender as
+      # file:line before the suites run, and runs even when install/typecheck
+      # failed (`!cancelled()`), so one CI round reports it. Green on an empty
+      # tree (features/.keep).
       # Quoted: unquoted, YAML would read ` #141 …` as a comment.
       - name: "Skipped-release gate (§130b, ISSUE #141 — CI mode)"
         if: ${{ !cancelled() }}

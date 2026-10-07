@@ -33,7 +33,22 @@
 //   - Docstring content is data. A fence opens a docstring only right under a
 //     step, and steps exist only inside a Scenario / Background — in a Feature or
 //     Rule description a line like "But only within 30 days:" is prose, and a
-//     fence after it is plain text.
+//     fence after it is plain text;
+//   - FU-135: the header holds ONE status line, and its value is ONE §58 state
+//     word and nothing else (`# status: implemented`). Any other `# status:` line
+//     in the header is an EXTRA (`duplicate`) — a flip written as a new line
+//     instead of an edit leaves the feature at the old status. A value that is not
+//     exactly a state word is `invalid`, whatever follows the first word —
+//     punctuation (`implemented.` is read as `implemented.` and skipped), a flip
+//     written into the line (`approved → implemented`, `approved -- implemented`,
+//     `draft | approved`: read as the old state), or a note. The rule is strict on
+//     purpose: every heuristic that let prose follow the state word (two review
+//     rounds of arrow and separator lists) missed flips or flagged legal notes.
+//     Notes go on their own `# status-note:` line (`migrate-status-notes.mjs`
+//     moves existing ones). An `empty` `# status:` with no other status is not
+//     read at all.
+//     Each problem carries a per-line `detail` and a per-kind `message` (the
+//     explanation, printed once per kind by the lint and the config).
 //
 // It also returns `statusComments` — every `# status:` line it reads as a comment
 // (header or body; docstring content excluded, a comment trailing a tag line
@@ -47,7 +62,17 @@
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const STATUS_COMMENT = /^\s*#+\s*status\s*:\s*(.*)$/i;
+export const STATES = ['draft', 'clarifying', 'approved', 'implemented', 'retired'];
+// The problem kinds that make the HEADER status itself untrustworthy (FU-135) —
+// the gates that read a status defer such a feature to the one failure that
+// names it, instead of acting on a status the author did not mean.
+export const HEADER_STATUS_KINDS = ['duplicate', 'invalid', 'empty'];
+export const STATUS_COMMENT = /^(\s*#+\s*status\s*:)\s*(.*)$/i;
+const WHY = {
+  duplicate: "an extra '# status:' line in the header block is IGNORED — the runner reads one status line, so a flip written as a second line leaves the feature at the old status, skipped under IMPLEMENTED_ONLY unless the read line says 'implemented' (FU-135). Keep exactly ONE '# status:' line: flip it in place, never add a second.",
+  invalid: `the '# status:' line holds ONE §58 state word and nothing else (${STATES.join(' | ')}). The runner reads only its first word, so punctuation (\`implemented.\` is skipped), a flip written into the line (\`approved → implemented\` is read as \`approved\`) or a note leaves a status no gate can trust (FU-135). Write the state word alone — a flip edits it in place — and put any note on its own '# status-note:' line (\`node scripts/migrate-status-notes.mjs features\` moves existing notes).`,
+  empty: "an empty '# status:' is not read: the runner would treat the feature as having no status and RUN it under IMPLEMENTED_ONLY, whatever was meant (FU-135). Write one §58 state word.",
+};
 const TAG_TRAILING_STATUS = /^\s*@[^#]*#+\s*status\s*:\s*(.*)$/i;
 const DOCSTRING_FENCE = /^\s*("""|```)/;
 const KEYWORD = /^\s*(Feature|Business Need|Ability|Rule|Background|Scenario Outline|Scenario Template|Scenario|Example|Examples|Scenarios):/;
@@ -92,17 +117,28 @@ export function parseFeatureStatus(text) {
   const lines = text.split(/\r?\n/);
   let headerEnd = 0;
   while (headerEnd < lines.length && /^\s*(#.*)?$/.test(lines[headerEnd])) headerEnd++;
-  let status = null;
-  let statusLine = 0;
   const problems = [];
   const statusComments = [];
+  const declared = [];
   for (let i = 0; i < headerEnd; i++) {
     const m = STATUS_COMMENT.exec(lines[i]);
-    if (m) statusComments.push(i + 1);
-    const word = m ? m[1].trim().split(/\s+/)[0] : '';
-    if (word && !statusLine) { status = word.toLowerCase(); statusLine = i + 1; }
+    if (m) { statusComments.push(i + 1); declared.push({ line: i + 1, value: m[2].trim(), text: lines[i].trim() }); }
     const lang = /^\s*#\s*language\s*:\s*(\S+)/i.exec(lines[i]);
     if (lang && lang[1].toLowerCase() !== 'en') problems.push({ line: i + 1, kind: 'language', text: lines[i].trim(), message: LANGUAGE });
+  }
+  const read = declared.find((d) => d.value);   // the first NON-EMPTY `# status:` line is the status
+  const word = read ? read.value.split(/\s+/)[0] : '';
+  const status = read ? word.toLowerCase() : null;
+  const statusLine = read ? read.line : 0;
+  for (const d of declared) {
+    if (d === read) {
+      if (!STATES.includes(status)) problems.push({ line: d.line, kind: 'invalid', text: d.text, value: word, detail: `reads the status as '${word}'`, message: WHY.invalid });
+      else if (d.value !== word) problems.push({ line: d.line, kind: 'invalid', text: d.text, value: word, detail: `more than the state word — the runner reads '${word}'`, message: WHY.invalid });
+    } else if (read) {
+      problems.push({ line: d.line, kind: 'duplicate', text: d.text, readLine: read.line, detail: `the runner reads line ${read.line} ('${status}')`, message: WHY.duplicate });
+    } else {
+      problems.push({ line: d.line, kind: 'empty', text: d.text, message: WHY.empty });   // no line has a value: none is read
+    }
   }
 
   const scenarios = [];

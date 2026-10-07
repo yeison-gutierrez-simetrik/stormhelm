@@ -43,7 +43,7 @@ export const PARITY = [
   // docstring (the review: an unbalanced ``` in a description hid everything after it).
   { name: 'a fence in the Feature description is text, not a docstring', expect: [4], reads: 'approved',
     body: ['# status: approved', 'Feature: X', '  ```', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
-  { name: 'prose after the state word in the header', expect: [], reads: 'implemented',
+  { name: 'prose after the state word in the header', expect: [1], reads: 'implemented',
     body: ['# status: implemented (scn-042 delivered — issue #12)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
   { name: 'indented header status is read', expect: [], reads: 'approved',
     body: ['  # status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
@@ -65,7 +65,71 @@ export const PARITY = [
   // other than `en` is reported — the readers only know English keywords, so a
   // non-English feature would otherwise pass the §130b check unindexed.
   { name: 'a non-English `# language:` header is reported', expect: [1], reads: 'approved',
-    body: ['# language: de', '# status: approved', 'Funktionalität: X', '  @release @scn-1', '  Szenario: s', '    Angenommen g'] },
+    body: ['# language: de', '# status: approved', 'Funktionalität: X', '  @release @scn-1', '  Szenario: s', '    Angenommen g'] },  // FU-135 — an EXTRA `# status:` line inside the header block. The runner
+  // reads the first non-empty one only, so a flip written as a new line
+  // (`approved` + `implemented`) leaves the feature skipped. The key is reserved:
+  // every other `# status:` line in the header is flagged, whatever it says.
+  { fu: 'FU-135', name: 'duplicate header status, conflicting (approved then implemented)', expect: [2], reads: 'approved',
+    body: ['# status: approved', '# status: implemented', 'Feature: X', '', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'duplicate header status, same value (a latent flip trap)', expect: [3], reads: 'approved',
+    body: ['# language: en', '# status: approved', '# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'indented duplicate inside the header', expect: [2], reads: 'approved',
+    body: ['# status: approved', '  # status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'the duplicate is anchored on the line the runner reads (indented first)', expect: [2], reads: 'implemented',
+    body: ['  # status: implemented', '# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'duplicate past the old 10-line window', expect: [11], reads: 'approved',
+    body: [...notes.slice(0, 9), '# status: approved', '# status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'duplicate header status AND a mid-file one', expect: [2, 5], reads: 'approved',
+    body: ['# status: approved', '# status: approved', 'Feature: X', '', '  # status: implemented', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'an empty status line next to a real one', expect: [1], reads: 'approved',
+    body: ['# status:', '# status: approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a second `# Status:` line in the header is an extra, whatever it says', expect: [2], reads: 'approved',
+    body: ['# status: approved', '# Status: reviewed by legal on 2026-09-30', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // Prose ABOVE the real status line is what gets read — reported as an invalid
+  // value, and the real line as the extra (the runner reads line 1).
+  { fu: 'FU-135', name: 'a prose `# Status:` line above the real one is read (invalid) and the real one is the extra', expect: [1, 2], reads: 'reviewed',
+    body: ['# Status: reviewed by legal', '# status: implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // A flip written INTO the line is read as its first word: an arrow of any shape
+  // leading to a state word, `to`/`then` + a state, or a bare second state word.
+  { fu: 'FU-135', name: 'a transition written into the status line (approved → implemented)', expect: [1], reads: 'approved',
+    body: ['# status: approved → implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a transition in another notation (approved --> implemented)', expect: [1], reads: 'approved',
+    body: ['# status: approved --> implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a transition with a word between the arrow and the state (approved → now implemented)', expect: [1], reads: 'approved',
+    body: ['# status: approved → now implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a bracketed transition (approved (→ implemented))', expect: [1], reads: 'approved',
+    body: ['# status: approved (→ implemented)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a spelled transition (approved to implemented)', expect: [1], reads: 'approved',
+    body: ['# status: approved to implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a bare second state word (approved implemented)', expect: [1], reads: 'approved',
+    body: ['# status: approved implemented', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // The status line holds the state word ALONE (the maintainer's decision, review
+  // round 5): every heuristic that let a note follow the word missed flips or
+  // flagged legal notes, so any note after the word is invalid — it goes on its
+  // own `# status-note:` line.
+  { fu: 'FU-135', name: 'a note after the state is invalid, even with no state in it', expect: [1], reads: 'implemented',
+    body: ['# status: implemented (approved by the operator, §58 ratified)', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a dash note is invalid (implemented — approved by ops)', expect: [1], reads: 'implemented',
+    body: ['# status: implemented — approved by ops', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'flips the arrow heuristic missed are invalid (approved -- implemented, draft | approved)', expect: [1, 2], reads: 'approved',
+    body: ['# status: approved -- implemented', '# status: draft | approved', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'the note on its own `# status-note:` line is legal', expect: [], reads: 'implemented',
+    body: ['# status: implemented', '# status-note: approved by ops — ratified in #12', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  // FU-135 — the header VALUE. The status is the first token of the line; the
+  // readers agree only when it is exactly a §58 state word, so anything else is
+  // flagged.
+  { fu: 'FU-135', name: 'header value with trailing punctuation (implemented.)', expect: [1], reads: 'implemented.',
+    body: ['# status: implemented.', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'header value outside the §58 states (in-progress)', expect: [2], reads: 'in-progress',
+    body: ['# language: en', '# status: in-progress', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'quoted header value', expect: [1], reads: '"implemented"',
+    body: ['# status: "implemented"', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'empty header value (not read: the feature would run as legacy)', expect: [1], reads: null,
+    body: ['# status:', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'retired is a §58 state', expect: [], reads: 'retired',
+    body: ['# status: retired', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
+  { fu: 'FU-135', name: 'a duplicate with an invalid value is reported once', expect: [2], reads: 'approved',
+    body: ['# status: approved', '# status: implemented.', 'Feature: X', '  @release @scn-1', '  Scenario: s', '    Given g'] },
 ];
 
 // Scenario-tag fixtures for the §130b index (effective tags: Feature/Rule

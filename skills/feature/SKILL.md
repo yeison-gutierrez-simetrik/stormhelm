@@ -65,10 +65,12 @@ Internally, `/feature` invokes the same skills that are callable individually. I
 
 ## Status transitions (§58)
 
-This orchestrator owns two `.feature` status flips:
+This orchestrator owns the approval flip and verifies the implementation flip:
 
-- **Step 7 — HUMAN CHECKPOINT 1:** after the human confirms in chat, flip `# status: clarifying → approved` and write `approved_at`, `approved_by`, `approved_in_commit` (the checkpoint commit SHA). From here the file is read-only to the agent.
-- **Step 13 — post-merge close-out:** flip `approved → implemented` once all `@release` scenarios are green on the default branch.
+- **Step 7 — HUMAN CHECKPOINT 1:** after the human confirms in chat, flip the `# status:` line's word from `clarifying` to `approved` (in place) and write `approved_at`, `approved_by`, `approved_in_commit` (the checkpoint commit SHA). From here the file is read-only to the agent — except for the close-out flip below.
+- **The implementation flip** (`approved` to `implemented`) is made per `.feature` file by the slice that **completes** the file's `@release` scenarios, at its close-out (`/run-acceptance` Step 3b), **in its own PR** — so CI runs them before the merge, and the human reviews the flip at HUMAN CHECKPOINT 2. **Step 13** verifies it after the merge and makes any flip still missing.
+
+A flip **edits the existing `# status:` line in place** — never adds a second one — and leaves the state word **alone**: `# status: implemented`, never `implemented.`, a quoted value, the transition itself (old and new state together, in any notation), or a note. A note goes on its own `# status-note: …` line. The runner reads one header status line and its first word: a second line, a value that is not exactly a state word (FOLLOW-UP 135) or a line below the header (ISSUE #141) leaves the feature skipped under `IMPLEMENTED_ONLY`, and CI fails on it (`check-skipped-release-scn.mjs` + the `cucumber.mjs` config).
 
 ## Workflow — 13 steps with 2 human checkpoints
 
@@ -258,18 +260,33 @@ The script refuses if `mergeable ≠ MERGEABLE` or `mergeStateStatus ≠ CLEAN` 
    node scripts/check-merge-safety.mjs <pr_number> post
    ```
 
-   The script compares the merge commit's 2nd parent against the head GitHub recorded for the PR. If they differ, a commit was lost (the failure mode §67's pre-merge assert guards against). Investigate before proceeding with steps 1-7 below.
+   The script compares the merge commit's 2nd parent against the head GitHub recorded for the PR. If they differ, a commit was lost (the failure mode §67's pre-merge assert guards against). Investigate before proceeding with steps 1-8 below.
 
-1. **Re-run `/traceability-matrix` over the merged commit.** The Step 12 run was on the pre-merge branch; the post-merge run pins the matrix to the actual main-branch commit hash that ships.
-2. **Update the issue with merge metadata:**
+1. **Verify the implementation flip — and make any that is still missing (§58, FOLLOW-UP 135).** The flip normally landed in this PR: the slice that completes a file's `@release` scenarios flips it at its close-out (`/run-acceptance` Step 3b), and the human reviewed it at HUMAN CHECKPOINT 2. For each of the feature's `.feature` files, list its `@release` scn ids and check whether every one is claimed by a merged issue (the `scenarios:` tokens of the merged issues, this PR's included):
+   - **all delivered, file `implemented`** → nothing to do;
+   - **all delivered, file still `approved`** (e.g. the file's scenarios were delivered across several slices and none claimed them all) → flip it now: edit the existing header line's word to `implemented`, alone, never a second line;
+   - **any still owed by a later slice** → the file stays `approved`; flipping it would put undelivered scenarios — their steps still undefined — on the CI surface and turn the trunk red.
+
+   A flip made here puts the file's `@release` scenarios on the CI surface, so before committing it run both the CI-mode lint and the project's acceptance suite over the tree it lands in:
+
+   ```bash
+   node scripts/check-skipped-release-scn.mjs features   # must print SKIPPED-SCN GATE: ok
+   <the project's acceptance command>                    # the implemented-only @release suite, now including the flipped files — must be green
+   ```
+
+   (The acceptance command is the one `/setup` installed for the stack — `test:acceptance`, e.g. `pnpm test:acceptance` on the TypeScript default; `ralph-local.sh` calls it `ACCEPTANCE_CMD`.) If either is red, do not commit the flip — and never edit the scenarios to make it pass: the approved `.feature` is read-only (§58). A lint finding on the status line this step just edited is fixed in that line; anything else (a status problem elsewhere, a failing scenario) is a defect: stop, report it to a human, and leave the file `approved` until it is resolved. A close-out can land without a pull request (a GitHub Action calling `/feature --close`), where no CI step runs; these two checks are what keep a flip the runner would not read — or a file whose newly-included scenarios fail — off the trunk, where it would otherwise surface only as an unrelated slice's red CI.
+
+2. **Re-run `/traceability-matrix` over the merged commit — after the flip.** The Step 12 run was on the pre-merge branch; the post-merge run pins the matrix to the actual main-branch commit hash that ships. It runs after action 1 because the `-final` matrix certifies a feature at `# status: implemented` (INV-8): if the flip's checks are red, there is no release to certify yet.
+
+3. **Update the issue with merge metadata:**
    - PR link, merged-at timestamp, merged-by user.
    - Move label from `ralph-done` → `released`.
    - Close the issue. If the PR body carried `Closes #<issue>` (Step 12), GitHub already closed it on merge — verify and skip. Otherwise close it explicitly: `gh issue close <n> --reason completed --comment "<merge SHA + traceability matrix>"`. Belt-and-suspenders: the `Closes` keyword is the primary mechanism; this is the fallback for any issue that wasn't auto-closed.
-3. **Update the spec status:** edit `docs/specs/<feature-slug>.md` Status from `Clarified` (or `In implementation`) to **`Released`**.
-4. **Update `docs/events.md`** if new event names were registered during `/tdd` Step 6 (logs phase). The Step 13 verifies the event registry is in sync with what production emits.
-5. **Append to `docs/audit/incidents.md`** *only if* an incident was tied to this slice (e.g., this PR was the resolution of a `/postmortem`). Otherwise no-op.
-6. **Optional deploy trigger:** if continuous deployment is wired (separate `/deploy` skill or CI pipeline), the merge auto-deploys. `/feature` does not own this; it just records the deploy trigger in the session log.
-7. **Final session log entry:** structured `feature.released.v1` event with the slug, scenarios closed, and the merged commit.
+4. **Update the spec status:** edit `docs/specs/<feature-slug>.md` Status from `Clarified` (or `In implementation`) to **`Released`**.
+5. **Update `docs/events.md`** if new event names were registered during `/tdd` Step 6 (logs phase). The Step 13 verifies the event registry is in sync with what production emits.
+6. **Append to `docs/audit/incidents.md`** *only if* an incident was tied to this slice (e.g., this PR was the resolution of a `/postmortem`). Otherwise no-op.
+7. **Optional deploy trigger:** if continuous deployment is wired (separate `/deploy` skill or CI pipeline), the merge auto-deploys. `/feature` does not own this; it just records the deploy trigger in the session log.
+8. **Final session log entry:** structured `feature.released.v1` event with the slug, scenarios closed, and the merged commit.
 
 **What this step does NOT do:**
 
