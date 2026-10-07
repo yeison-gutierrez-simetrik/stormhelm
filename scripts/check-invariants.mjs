@@ -30,13 +30,17 @@
 //
 // Override one invariant globally with a line  skip-invariant: INV-X — <reason>
 // anywhere in the repo (the reason is logged and stays auditable in git).
-// Zero npm dependencies (imports only the sibling parser/detector, which /setup
+// Zero npm dependencies (imports only the sibling parsers/detector, which /setup
 // installs alongside this script). Exit 0 = all met (or N/A), 1 = a blocking failure.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseFile } from './parse-layers-affected.mjs';
 import { detectCeremony } from './detect-ceremony.mjs';
+// The features the runner sees, listed the way the runner lists them (FU-134):
+// symlinked directories followed, dotfiles skipped, a broken feature loud.
+import { featureFiles as listFeatureFiles } from './parse-feature-status.mjs';
+import { expandScenarioClaims, parseClaimToken } from './scenario-claims.mjs';
 
 const walk = (dir, re, acc = []) => {
   if (!existsSync(dir)) return acc;
@@ -54,7 +58,10 @@ const read = (f) => readFileSync(f, 'utf8');
 // `.planning/issues/` is also accepted for projects that keep them with planning
 // evidence. Both are scanned so the gate runs regardless of the project's choice.
 const issueFiles = [...walk('issues', /^\d.*\.md$/), ...walk('.planning/issues', /^\d.*\.md$/)];
-const featureFiles = walk('features', /\.feature$/);
+// A feature that cannot be listed (a symlink whose target is missing) is a named
+// CONFIG failure below, not a crash: the gate still reports every other result.
+const unlistable = [];
+const featureFiles = listFeatureFiles('features', { onError: (p, e) => unlistable.push(`${p} (${e.code ?? e.message})`) });
 const sads = walk('docs/architecture', /\.md$/).filter((f) => !/INDEX/i.test(f));
 const threats = walk('docs/threat-models', /\.md$/).filter((f) => !/TEMPLATE/i.test(f));
 // PR-I: docs/decisions/ now holds rationale (grilling, clarify-logs, open-questions),
@@ -71,21 +78,10 @@ const issues = issueFiles.map((f) => {
   // `scn-A..scn-B` (FU-96 — the only single-label shape that fits a >8-scn
   // slice). This MUST agree with ralph-lib.sh `ralph_expand_scns`: the engine
   // and this offline auditor must read a label identically, or a slice that
-  // launches green is flagged orphan here (or vice-versa). The char class now
-  // includes `.` so `scenarios:scn-409..scn-412` is captured whole, not cut at
-  // the first dot (which silently expanded to ZERO — the old near-miss).
-  const scns = [...t.matchAll(/scenarios:([a-z0-9+,.-]+)/gi)].flatMap((m) =>
-    m[1].split(/[+,]/).flatMap((seg) => {
-      const range = seg.match(/^(?:scn-)?(\d+)\.\.(?:scn-)?(\d+)$/);
-      if (range) {
-        const [a, b, w] = [+range[1], +range[2], range[1].length];
-        if (a > b) return [];   // backwards range → nothing (matches the expander)
-        return Array.from({ length: b - a + 1 }, (_, k) => `scn-${String(a + k).padStart(w, '0')}`);
-      }
-      const n = seg.match(/^(?:scn-)?(\d+)$/);
-      return n ? [`scn-${n[1]}`] : [];
-    }),
-  );
+  // launches green is flagged orphan here (or vice-versa). The expander lives in
+  // scripts/scenario-claims.mjs, shared with the §130b skipped-release check, so
+  // the two gates can never read a claim differently (FU-134).
+  const scns = expandScenarioClaims(t);
   return {
     f, hasLabel: (l) => new RegExp('`' + l + '`').test(lbl),
     labelsPresent: lbl.trim().length > 0,
@@ -154,21 +150,26 @@ if (issueFiles.length && !issues.some((i) => i.labelsPresent))
 // error — catastrophic-but-quiet downstream (empty smoke exclusions, empty
 // Step-3 selection, INV-5 blind). Fail loudly naming the file + canonical form.
 {
-  // A segment is a single scn (`scn-021`/`021`) OR a range (`scn-A..scn-B`,
-  // FU-96); segments join with `+`/`,`. Must agree with ralph_expand_scns and
-  // the INV-5 expander above — all three read a label identically.
-  const SEG = '(?:scn-)?\\d+(?:\\.\\.(?:scn-)?\\d+)?';
-  const SCN_VALUE = new RegExp(`^${SEG}(?:[+,]${SEG})*$`);
+  // The grammar is scripts/scenario-claims.mjs' — the module the INV-5 expander
+  // above and the §130b gate import, and the one ralph_expand_scns mirrors — so
+  // a token this check accepts is one every reader expands the same way (FU-134
+  // review: a trailing period, an upper-case `SCN-` and an oversized range were
+  // read differently). A trailing period is sentence punctuation, not the token.
   const malformed = [];
   for (const f of issueFiles) {
     for (const m of read(f).matchAll(/scenarios:([^\s`'")\]]+)/gi)) {
-      if (!SCN_VALUE.test(m[1])) malformed.push(`${f}: 'scenarios:${m[1]}'`);
+      const value = m[1].replace(/\.+$/, '');
+      if (!/^[a-z0-9+,.-]+$/.test(value) || parseClaimToken(value).bad.length) malformed.push(`${f}: 'scenarios:${m[1]}'`);
     }
   }
   if (malformed.length)
     add('CONFIG', '§63', 'fail',
-      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (see /to-issues Step 6): ${malformed.join('; ')}`);
+      `unparseable scenarios label(s) — canonical form is scenarios:scn-NNN+NNN or the range scn-A..scn-B (lower-case, a range under 1000 ids; see /to-issues Step 6): ${malformed.join('; ')}`);
 }
+
+if (unlistable.length)
+  add('CONFIG', '§58', 'fail',
+    `feature file(s) that cannot be read: ${unlistable.join('; ')} — fix or remove them (a symlink whose target is missing?); the runner fails on them too, and their status cannot be read.`);
 
 // FOLLOW-UP 105: a scn-NNN id defined in TWO feature files is an authoring-time
 // collision — /to-issues allocates scn ranges per-issue with no campaign-wide

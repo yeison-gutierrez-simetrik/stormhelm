@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, rmSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -96,6 +96,31 @@ test('FU-39: INV-3 accepts a ralph-ready scn in an IMPLEMENTED feature (close-ou
   assert.equal(status, 0, `INV-3 and INV-8 must hold SIMULTANEOUSLY at close-out:\n${out}`);
   assert.match(out, /INV-3 §63: all ralph-ready scns defined and approved/);
   assert.match(out, /INV-8 §58: .*pinned|INV-8 §58: pass|✅ INV-8/, 'INV-8 satisfied in the same state');
+});
+
+// FU-134 review: an editor lock file (Emacs `.#x.feature`, a dangling symlink)
+// crashed the invariant gate's walk with ENOENT — the same file the lint and the
+// cucumber config already skip.
+test('a dangling symlink in features/ does not crash the gate', () => {
+  const { status, out } = runMutated((dir) => {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', '.#lock.feature'));
+  });
+  assert.doesNotMatch(out, /ENOENT/, out);
+  assert.equal(status, 0, out);
+});
+
+// Review round 3: the invariant gate listed features with its own walk, which
+// does not follow a symlinked directory — the runner (and the lint) do, so the
+// gate audited a different feature set. It now uses the shared featureFiles().
+test('INV-8 sees an implemented feature inside a symlinked features directory', () => {
+  const { status, out } = runMutated((dir) => {
+    mkdirSync(join(dir, 'shared-features'), { recursive: true });
+    writeFileSync(join(dir, 'shared-features', 'x.feature'),
+      '# status: implemented\nFeature: X\n\n  @smoke @scn-900\n  Scenario: s\n    Given g\n');
+    symlinkSync(join(dir, 'shared-features'), join(dir, 'features', 'shared'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-8/, 'the implemented feature is seen and needs its -final matrix');
 });
 
 test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
@@ -396,4 +421,35 @@ test('CONFIG §59 fails when the title id and the scenario tag DISAGREE', () => 
   });
   assert.equal(status, 1, `a title/tag mismatch is drift, not style:\n${out}`);
   assert.match(out, /scn-999 titled but not tagged/);
+});
+
+// FU-134 review round 5: CONFIG §63 reads a `scenarios:` token with the SAME
+// grammar as the expanders (scripts/scenario-claims.mjs, ralph_expand_scns): a
+// trailing period is sentence punctuation; an upper-case `SCN-`, a backwards
+// range and a range spanning 1000+ ids are malformed for every reader.
+test('FU-134: CONFIG §63 shares the expanders\' grammar (trailing period ok; SCN-, backwards and oversized ranges malformed)', () => {
+  const withToken = (token) => runMutated((dir) => {
+    const p = join(dir, 'issues', '002-list.md');
+    writeFileSync(p, readFileSync(p, 'utf8') + `\nDelivers ${token}\n`);
+  });
+  const period = withToken('scenarios:scn-002.');
+  assert.doesNotMatch(period.out, /CONFIG §63/, `a trailing period is not part of the token:\n${period.out}`);
+  for (const bad of ['scenarios:SCN-002', 'scenarios:scn-009..scn-003', 'scenarios:scn-1..scn-200000000']) {
+    const r = withToken(bad);
+    assert.equal(r.status, 1, `${bad}:\n${r.out}`);
+    assert.match(r.out, /❌ CONFIG §63: unparseable scenarios label/, bad);
+  }
+});
+
+// FU-134 review round 5: a feature that cannot be listed (a dangling, non-dot
+// symlink) crashed the gate with a stack trace; it is a named CONFIG failure now,
+// and every other invariant still reports.
+test('FU-134: a dangling feature symlink is a named CONFIG failure, not a crash', () => {
+  const { status, out } = runMutated((dir) => {
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'gone.feature'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ CONFIG §58: feature file\(s\) that cannot be read: .*gone\.feature \(ENOENT\)/);
+  assert.match(out, /INV-1/, 'the other invariants still ran');
+  assert.doesNotMatch(out, /at .*check-invariants\.mjs:\d+/, 'no stack trace');
 });

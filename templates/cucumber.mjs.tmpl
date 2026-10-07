@@ -22,39 +22,67 @@
 // rejected: it duplicates the `# status:` header into a second channel that
 // must rotate per-scenario at close-out (the FOLLOW-UP 49 label↔body fork
 // class). One source of truth, already enforced by INV-3/INV-8.
+//
+// MID-FILE `# status:` FAILS CLOSED (ISSUE #141, FOLLOW-UP 134): status is read
+// from the header only — the file's leading comment block — so a
+// `# status: implemented` placed per-scenario under an approved header is
+// IGNORED: the whole feature is skipped and the run reports green having never
+// executed it. On the CI surface (CUCUMBER_IMPLEMENTED_ONLY=1, i.e.
+// test:acceptance / test:smoke) the config THROWS at load naming every
+// file:line; locally it warns on stderr and continues. This holds even if the
+// workflow's check-skipped-release-scn.mjs step is dropped. One throw blocks
+// every flagged run repo-wide (pre-push smoke included) until the file is fixed
+// — fail closed by design.
+//
+// parseFeatureStatus() is the ONE reader of `# status:` — the status this config
+// honors and the lines it cannot, each with its explanation. It is IMPORTED from
+// scripts/parse-feature-status.mjs, the same module check-skipped-release-scn.mjs
+// uses; /setup vendors it beside this file. Import, not copy: a re-sync refreshes
+// scripts/ but never this (consumer-tuned) config. If this config does not sit at
+// the repo root next to scripts/, point the import at the vendored copy. Keep the
+// import when adapting, and export nothing but the default: a named export here is
+// read by cucumber as a profile.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { featureFiles, parseFeatureStatus } from './scripts/parse-feature-status.mjs';
 
-function featureFiles(dir, acc = []) {
-  let entries;
-  try { entries = readdirSync(dir); } catch { return acc; }
-  for (const e of entries) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) featureFiles(p, acc);
-    else if (e.endsWith('.feature')) acc.push(p);
-  }
-  return acc;
+// No features/ directory on the CI surface is a broken setup, not an empty one:
+// the run would select 0 scenarios and pass. (A fresh /setup has features/.keep.)
+if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1' && !existsSync('features')) {
+  throw new Error("[cucumber.mjs] no features/ directory — the CI surface would run 0 scenarios and pass. Create features/ (a fresh /setup adds features/.keep), or point this config's 'features' paths at where the project keeps them.");
 }
 
-function statusOf(file) {
-  // `# status: <value>` in the file header (first comment block).
-  const head = readFileSync(file, 'utf8').split('\n').slice(0, 10);
-  for (const line of head) {
-    const m = line.match(/^#\s*status:\s*(\S+)/i);
-    if (m) return m[1].toLowerCase();
-    if (/^\s*(Feature|@)/.test(line)) break; // past the header block
-  }
-  return null; // no header → treated as implemented (legacy features)
+// One read per feature: the status the runner honors + every `# status:` line it
+// cannot. Each offending line is listed; each kind's explanation — from the
+// reader — is printed once. A feature that cannot be read (a symlink whose target
+// is missing) is listed too, never a crash: local runs keep working.
+const UNREADABLE = 'a feature the runner should see cannot be read (a symlink whose target is missing? permissions?) — fix or remove it.';
+const found = [];
+const features = [];
+const unreadable = (f, e) => found.push({ f, line: 0, kind: 'unreadable', text: e.code ?? e.message, message: UNREADABLE });
+for (const f of featureFiles('features', { onError: unreadable })) {
+  let text;
+  try { text = readFileSync(f, 'utf8'); } catch (e) { unreadable(f, e); continue; }
+  const read = parseFeatureStatus(text);
+  features.push({ f, ...read });
+  for (const p of read.problems) found.push({ f, ...p });
+}
+if (found.length) {
+  const why = [...new Map(found.map((p) => [p.kind, p.message])).entries()];
+  const msg =
+    `[cucumber.mjs] ${found.length} feature status problem(s) — this config reads ONE status per feature, from its ` +
+    `header block, so each of these can skip @release scenarios while the run reports green (ISSUE #141 / ` +
+    `FOLLOW-UP 134):\n` + found.map((p) => `  - ${p.f}${p.line ? `:${p.line}` : ''} (${p.kind}: ${p.text})`).join('\n') + '\n' +
+    why.map(([kind, message]) => `Why (${kind}): ${message}`).join('\n');
+  if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') throw new Error(msg);
+  console.error(`${msg}\n(warning only: CUCUMBER_IMPLEMENTED_ONLY is unset — the CI surface fails closed on this)`);
 }
 
 let paths = ['features/**/*.feature'];
 if (process.env.CUCUMBER_IMPLEMENTED_ONLY === '1') {
-  const all = featureFiles('features');
   const implemented = [];
   const skipped = [];
-  for (const f of all) {
-    const st = statusOf(f);
+  for (const { f, status: st } of features) {
     // implemented (or legacy header-less) joins the CI surface; anything
     // else (approved, draft, …) is in-flight and gates per-issue instead.
     if (st === null || st === 'implemented') implemented.push(f);

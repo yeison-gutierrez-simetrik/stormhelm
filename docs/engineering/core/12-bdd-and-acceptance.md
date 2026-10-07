@@ -118,7 +118,7 @@ has **no** YAML frontmatter — a `---` block breaks the parser, so the state li
 in `#` comments alongside `# language:` and `# Spec source:`):
 
 ```gherkin
-# language: es
+# language: en
 # status: approved
 # approved_at: 2026-05-28
 # approved_by: approver@example.com
@@ -144,6 +144,20 @@ draft → clarifying → approved → implemented → retired
 `approved_in_commit` is the HUMAN CHECKPOINT 1 commit SHA — stronger than a
 timestamp (which can be edited). The status is **never hand-edited**; the owning
 skill flips it.
+
+Feature files are written in **English Gherkin** (`# language: en`, as
+`/to-scenarios` writes them). The **header** is the file's leading comment block —
+it ends at the first line that is not a comment or blank (a tag line or the
+`Feature:` line) — and its `# status:` line is the only one the runner reads.
+The `# status:` key is **reserved** for that line: any `# status:` comment after
+the header is reported, whatever it says (prose uses another word, e.g.
+`# Note:`), and near-miss spellings (`## status:`, `# status :`) are the same key
+(a second status line *inside* the header is FOLLOW-UP 135). A `# language:` other
+than `en` is reported too: the readers know English keywords only. One module
+does the reading for the runner and the skipped-release lint —
+`scripts/parse-feature-status.mjs`, which the `cucumber.mjs` template imports
+(FOLLOW-UP 134); it is checked against the real Gherkin parser's output in the
+test suite.
 
 > **Opt-in exception (FOLLOW-UP 80 — auto-pilot).** A consumer running the
 > `/auto-pilot` campaign skill (`skills/auto-pilot/`) may write the file
@@ -1025,21 +1039,23 @@ whole `# status: approved` feature files. The documented practice writes scns
 `approved` first and flips to `implemented` only at close-out — so a `@release`
 scn an issue **claims to deliver** (its `scenarios:` token) that still lives in
 an approved feature is **SKIPPED by CI and CI goes green having never run it**
-(live: slice-40b D-11 scn-566). A referenced-but-not-executed scenario is a gate
+(a consumer shipped exactly that). A referenced-but-not-executed scenario is a gate
 failure. `check-skipped-release-scn.mjs` is the backstop: given the issue's
 `scenarios:` tokens and `features/`, it fails naming any claimed `@release` scn
-whose feature would be skipped under `IMPLEMENTED_ONLY` (header not
-`# status: implemented`) — so the skip is observable in `/tdd`, not discovered by
+whose feature the runner skips under `IMPLEMENTED_ONLY` (a header status other
+than `implemented`; a header-less legacy feature runs, so it is not flagged) — the
+claimed scn's tags are read as cucumber reads them (Feature/Rule tags inherited,
+an `Examples` block's own tags, `Example:` / `Scenario Template:`) — so the skip is observable in `/tdd`, not discovered by
 the §114 reviewer or by a production deploy. Pairs with the close-out
 approved→implemented flip discipline (§58), but the gate is the durable fix:
 it does not rely on the human remembering the flip.
 
 **A mid-file `# status:` is the silent-skip the status mechanism produces of
-itself (ISSUE #141).** `cucumber.mjs` `statusOf()` reads `# status:` ONLY from
-the header (it stops at the first `Feature`/`@` line), so a `# status:
+itself (ISSUE #141).** `cucumber.mjs` reads `# status:` ONLY from the header
+(the leading comment block, which ends at the first tag / `Feature:` line), so a `# status:
 implemented` placed per-scenario / mid-file is **silently ignored** — the
 feature keeps its header status, is excluded under `IMPLEMENTED_ONLY`, and its
-`@release` scns never run while the gate stays green (bit belong PRs #350/#357).
+`@release` scns never run while the gate stays green (a consumer hit it twice).
 `check-skipped-release-scn.mjs` therefore also **lints for a `# status:` after
 the header block** and fails naming it: status is a header-only field, and the
 misuse must be loud, not silent. The script runs in two modes with a CI-safe
@@ -1050,17 +1066,36 @@ claimed-scn check above. A bare in-planning `@release` scn (an approved feature
 with no claim and no mid-file status) is correctly NOT flagged — only a
 claimed-done-but-skipped scn or a silently-ignored mid-file status is.
 
+**Wired from a consumer's first PR (FOLLOW-UP 134).** The `/setup`
+acceptance template runs the CI mode as a `pull_request` step (after the
+invariant gate, before `@release`, even when install/typecheck failed), and the
+shipped `cucumber.mjs` **fails closed at load** on a mid-file `# status:` under
+`IMPLEMENTED_ONLY` (it warns and continues locally) — so a mid-file status
+cannot ship green even if the workflow step is dropped while tuning. Both read
+`# status:` through the same module (`scripts/parse-feature-status.mjs`, which the
+template imports — /setup vendors it, and a re-sync updates the lint and the
+runner together), so they cannot disagree about a header. Any `# status:` comment
+after the header is reported, whatever its value; docstring content (a fence
+right under a step — steps exist only inside a Scenario or Background, so a
+"But only within 30 days:" line in a Feature/Rule description is prose) is data,
+while a fence in a description is plain text. A *second*
+status inside the header block is FOLLOW-UP 135.
+
 **The §114 reviewer is a second line, asserting on run-evidence (FOLLOW-UP 116).**
 `/run-acceptance` forwards the slice's `ran`/`expected` counts and this gate's
 result into the reviewer prompt; the reviewer treats `ran < expected` (any
 claimed `@release` scn skipped — typically an untouched `# status: approved`
 feature) as a 🛑 **skip-green** finding. It must NOT read ".feature untouched"
 as §58 compliance at the close-out gate — that conflation nearly shipped a
-false-green money slice (belong slice-41b). The mechanical gate above is the
+false-green money slice in a consumer. The mechanical gate above is the
 durable backstop; the reviewer assertion catches the case the gate's inputs
 miss (e.g. a claimed scn not in the issue's `scenarios:` token).
 
 Enforcement: (a) is a `/run-acceptance` Step 3b contract (a stack-agnostic
-script can't run an arbitrary consumer's BDD runner); (b) is mechanical
-(`check-skipped-release-scn.mjs`, run at acceptance AND as a standalone
-`pull_request` gate). Both make `outcome:green` mean what CI means.
+script can't run an arbitrary consumer's BDD runner); (b) is mechanical:
+`check-skipped-release-scn.mjs <features> <issue-file>` at acceptance (`/run-acceptance`
+Step 3b, Ralph) checks the issue's claimed scns. Its issue-independent half — the
+status-line lint — also runs as the `/setup` template's `pull_request` step (CI
+mode, features dir alone), backed by `cucumber.mjs`'s fail-closed load (FU-134);
+neither of those knows the issue's claims, so the claimed-scn check stays an
+acceptance-time gate. Both make `outcome:green` mean what CI means.

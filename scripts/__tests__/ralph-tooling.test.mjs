@@ -14,10 +14,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, chmodSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { loadCucumberConfig } from './load-cucumber-config.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = join(here, '..', '..', 'templates');
@@ -257,6 +258,72 @@ test('FU-44: workflow invokes the script PLAINLY and documents both prerequisite
   assert.match(yml, /test:acceptance.*script|script.*test:acceptance/i, 'prerequisite 2 documented');
 });
 
+// FOLLOW-UP 134 (ISSUE #141 wiring): #141 gave check-skipped-release-scn.mjs a
+// CI mode, but the template never ran it — a fresh /setup consumer had no
+// mid-file-status backstop in CI. Minimal step reader (the repo is
+// zero-dependency, no YAML parser): one entry per `- ` at the steps indent.
+function workflowSteps(yml) {
+  const lines = yml.split('\n');
+  const from = lines.findIndex((l) => /^\s*steps:\s*$/.test(l));
+  assert.ok(from >= 0, 'template has a steps: list');
+  const steps = [];
+  let indent = null;
+  for (const raw of lines.slice(from + 1)) {
+    const lead = raw.match(/^\s*/)[0].length;
+    if (indent !== null && raw.trim() && !raw.trim().startsWith('#') && lead < indent) break;
+    const item = raw.match(/^(\s*)- (.*)$/);
+    const isStep = item && (indent === null || item[1].length === indent);
+    if (isStep) { indent = item[1].length; steps.push({}); }
+    if (!steps.length) continue;
+    const kv = (isStep ? item[2] : raw.trim()).match(/^(name|run|uses|if):\s*(.*)$/);
+    // YAML semantics: a quoted scalar is taken whole; in a plain one ` #` starts a comment.
+    if (kv) steps.at(-1)[kv[1]] = /^"/.test(kv[2]) ? kv[2].replace(/^"(.*)"\s*$/, '$1') : kv[2].replace(/\s+#.*$/, '');
+  }
+  return steps;
+}
+
+test('FU-134: template runs the skipped-release lint (CI mode) after the invariant gate, before @release', () => {
+  const steps = workflowSteps(readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8'));
+  const at = (re) => steps.findIndex((s) => re.test(s.run ?? ''));
+  const lint = at(/^node scripts\/check-skipped-release-scn\.mjs features$/);
+  const inv = at(/^node scripts\/check-invariants\.mjs$/);
+  const rel = at(/^pnpm test:acceptance$/);
+  assert.ok(lint >= 0, 'a step runs `node scripts/check-skipped-release-scn.mjs features` (features-dir alone = CI mode)');
+  assert.ok(inv >= 0 && rel >= 0, 'invariant gate + @release steps still present');
+  assert.ok(inv < lint && lint < rel, `order: invariant gate (#${inv}) < skipped-release gate (#${lint}) < @release (#${rel})`);
+  // Full name survives YAML parsing — unquoted, ` #141` would truncate it to "…, ISSUE".
+  assert.match(steps[lint].name, /§130b, ISSUE #141 — CI mode\)$/, 'step named for the rule it enforces');
+  // FU-134 review: a zero-dependency static gate must still report when an
+  // earlier step (install / typecheck) failed — not wait for a second CI round.
+  assert.match(steps[lint].if ?? '', /!cancelled\(\)/, 'runs unless the job was cancelled');
+});
+
+// The step's own command, executed in a fresh /setup layout (vendored script +
+// features/.keep): green on an empty tree, red naming file:line on a mid-file
+// `# status:`. This is the CI job a brand-new consumer gets.
+test('FU-134: the template step is green on an empty tree and fails naming file:line on a mid-file status', () => {
+  const steps = workflowSteps(readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8'));
+  const step = steps.find((s) => /check-skipped-release-scn/.test(s.run ?? ''));
+  assert.ok(step, 'skipped-release step present in the template');
+  withDir((dir) => {
+    // Vendor exactly what /setup's copy loop vendors — a script the lint imports
+    // but the loop forgets fails here the way it would in a fresh consumer.
+    const setup = readFileSync(join(TEMPLATES, '..', 'skills', 'setup', 'SKILL.md'), 'utf8');
+    const vendored = setup.match(/for\s+s\s+in\s+([\s\S]*?);\s*do/)[1].match(/[\w-]+\.mjs/g);
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    for (const f of vendored) copyFileSync(join(TEMPLATES, '..', 'scripts', f), join(dir, 'scripts', f));
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', '.keep'), '');
+    const empty = spawnSync('sh', ['-c', step.run], { cwd: dir, encoding: 'utf8' });
+    assert.equal(empty.status, 0, `empty tree must be green: ${empty.stdout}${empty.stderr}`);
+    writeFileSync(join(dir, 'features', 'pay.feature'),
+      '# status: approved\nFeature: Pay\n\n  # status: implemented\n  @release @scn-701\n  Scenario: s\n    Given g\n');
+    const red = spawnSync('sh', ['-c', step.run], { cwd: dir, encoding: 'utf8' });
+    assert.equal(red.status, 1, `mid-file status must fail the job: ${red.stdout}${red.stderr}`);
+    assert.match(red.stdout, /features\/pay\.feature:4/);
+  });
+});
+
 // ── FOLLOW-UP 45: hooks must run under "type": "module" consumers ─────────────
 
 // The live failure: CJS hooks with a .js extension die with 'require is not
@@ -328,14 +395,6 @@ test('watch --queue: a CHILD session.ended is informational, never terminal for 
 // §58 lands approved features BEFORE steps exist; §60 CI must not run them.
 // The narrowing lives INSIDE the config (cucumber v12 merges CLI paths with
 // config paths — a wrapper file-list is a silent no-op, hit live).
-const importCucumberCfg = async (dir, env) => {
-  copyFileSync(join(TEMPLATES, 'cucumber.mjs.tmpl'), join(dir, 'cucumber.mjs'));
-  const r = spawnSync('node', ['-e', `
-    import(${JSON.stringify('file://' + join(dir, 'cucumber.mjs'))})
-      .then((m) => console.log(JSON.stringify(m.default.paths)));
-  `], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
-  return { paths: JSON.parse(r.stdout.trim()), stderr: r.stderr, status: r.status };
-};
 
 test('FU-50: implemented-only gate runs implemented features, skips approved LOUDLY', async () => {
   // NOTE: withDir is sync (its finally would rm the dir under the pending
@@ -346,13 +405,15 @@ test('FU-50: implemented-only gate runs implemented features, skips approved LOU
     writeFileSync(join(dir, 'features', 'pay', 'done.feature'), '# status: implemented\nFeature: Done\n');
     writeFileSync(join(dir, 'features', 'pay', 'planned.feature'), '# status: approved\nFeature: Planned\n');
     writeFileSync(join(dir, 'features', 'legacy.feature'), 'Feature: Legacy headerless\n');
-    const on = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
     assert.deepEqual(on.paths.sort(), ['features/legacy.feature', 'features/pay/done.feature'],
       'implemented + legacy join the surface; approved stays off');
     assert.match(on.stderr, /skipping 1 in-flight feature file/, 'never silent truncation');
     assert.match(on.stderr, /planned\.feature \(# status: approved\)/);
-    const off = await importCucumberCfg(dir, {});
+    assert.doesNotMatch(on.stderr, /mid-file/i, 'no mid-file status → no FU-134 noise');
+    const off = loadCucumberConfig(dir, {});
     assert.deepEqual(off.paths, ['features/**/*.feature'], 'flag unset → full suite (today\'s behavior)');
+    assert.doesNotMatch(off.stderr, /mid-file/i, 'no mid-file status → silent locally too');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -366,12 +427,156 @@ test('FU-50: zero implemented features → benign glob + explicit log, never pat
   try {
     mkdirSync(join(dir, 'features'), { recursive: true });
     writeFileSync(join(dir, 'features', 'planned.feature'), '# status: approved\nFeature: Planned\n');
-    const { paths, stderr } = await importCucumberCfg(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    const { paths, stderr } = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
     assert.notDeepEqual(paths, [], 'an empty array re-opens the v12 default-discovery fallback');
     assert.deepEqual(paths, ['features/__none__/*.feature'], 'benign non-matching glob → 0 scenarios, exit 0');
     assert.match(stderr, /no implemented features yet — regression surface empty/);
     assert.match(stderr, /skipping 1 in-flight feature file/, 'the skip list still names what is off-surface');
+    assert.doesNotMatch(stderr, /mid-file/i, 'no mid-file status → fallback unchanged (FU-134)');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FOLLOW-UP 134 (ISSUE #141): the config reads `# status:` from the header
+// only, so a mid-file `# status: implemented` under an approved header is
+// ignored → the feature is skipped and the run is green (a consumer hit this twice).
+// The config must not depend on the CI lint step surviving: under the flag it
+// THROWS at load naming every file:line; locally it warns and keeps going.
+function midFileFixture(dir) {
+  mkdirSync(join(dir, 'features', 'pay'), { recursive: true });
+  writeFileSync(join(dir, 'features', 'pay', 'done.feature'), '# status: implemented\nFeature: Done\n');
+  writeFileSync(join(dir, 'features', 'pay', 'split.feature'), [
+    '# status: approved',
+    'Feature: Split',
+    '',
+    '  # status: implemented',      // line 4 — never read by the config
+    '  @release @scn-701',
+    '  Scenario: a deliverable',
+    '    Given g',
+    '',
+    '  # status: implemented',      // line 9
+    '  @release @scn-702',
+    '  Scenario: another',
+    '    Given g',
+  ].join('\n'));
+  writeFileSync(join(dir, 'features', 'tagged.feature'),
+    '@release\n# status: implemented\nFeature: Tagged first\n');   // line 2 — after the @ break
+}
+
+test('FU-134: implemented-only gate FAILS CLOSED on a mid-file # status, naming every file:line', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134-'));
+  try {
+    midFileFixture(dir);
+    const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notEqual(on.status, 0, `config load must throw on the CI surface:\n${on.stderr}`);
+    assert.equal(on.paths, null, 'no config is produced');
+    for (const loc of ['features/pay/split.feature:4', 'features/pay/split.feature:9', 'features/tagged.feature:2']) {
+      assert.ok(on.stderr.includes(loc), `names ${loc}:\n${on.stderr}`);
+    }
+    assert.doesNotMatch(on.stderr, /done\.feature:\d/, 'a clean feature is not named');
+    assert.match(on.stderr, /header block/, 'says where the status belongs');
+    assert.match(on.stderr, /split the feature/, 'offers the split alternative');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134: without the flag a mid-file # status WARNS on stderr and the config still loads', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134w-'));
+  try {
+    midFileFixture(dir);
+    const off = loadCucumberConfig(dir, {});
+    assert.equal(off.status, 0, `local runs must not break:\n${off.stderr}`);
+    assert.deepEqual(off.paths, ['features/**/*.feature'], 'paths unchanged — full suite');
+    assert.match(off.stderr, /warning/i);
+    for (const loc of ['features/pay/split.feature:4', 'features/pay/split.feature:9', 'features/tagged.feature:2']) {
+      assert.ok(off.stderr.includes(loc), `names ${loc}:\n${off.stderr}`);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FU-134 review: the config now walks features/ on every load, so an editor
+// lock file (Emacs `.#x.feature`, a dangling symlink) crashed even a local run
+// with ENOENT — main only did that walk under the flag. Unreadable entries are
+// skipped.
+test('FU-134: a dangling symlink in features/ does not crash the config (local or CI)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134s-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented\nFeature: Done\n');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', '.#lock.feature'));
+    const off = loadCucumberConfig(dir, {});
+    assert.equal(off.status, 0, off.stderr);
+    const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.equal(on.status, 0, on.stderr);
+    assert.deepEqual(on.paths, ['features/done.feature']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 3: an unreadable feature that is not a dotfile (a symlink whose
+// target is missing in the checkout) must fail the load — never silently drop
+// off the CI surface.
+test('FU-134: an unreadable non-dotfile feature fails the config load', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134u-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'done.feature'), '# status: implemented\nFeature: Done\n');
+    symlinkSync(join(dir, 'nonexistent'), join(dir, 'features', 'shared.feature'));
+    const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notEqual(on.status, 0, 'the feature must not silently vanish from the CI surface');
+    assert.match(on.stderr, /shared\.feature \(unreadable: ENOENT\)/, 'named, not a stack trace');
+    // FU-134 review round 5: a local run (flag unset) warns and keeps working.
+    const off = loadCucumberConfig(dir, {});
+    assert.equal(off.status, 0, `a local run must not crash on it:\n${off.stderr}`);
+    assert.match(off.stderr, /shared\.feature \(unreadable: ENOENT\)/);
+    assert.match(off.stderr, /warning only/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 4: with no features/ directory the config used to run 0 scenarios
+// green — the lint calls that "a malformed call, never a green no-op".
+test('FU-134: no features/ directory under the flag fails the config load', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134n-'));
+  try {
+    const on = loadCucumberConfig(dir, { CUCUMBER_IMPLEMENTED_ONLY: '1' });
+    assert.notEqual(on.status, 0, on.stderr);
+    assert.match(on.stderr, /no features\/ directory/);
+    assert.equal(loadCucumberConfig(dir, {}).status, 0, 'a local run is not blocked');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('FU-134: the config prints each explanation once, however many lines it covers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ralph-fu134o-'));
+  try {
+    mkdirSync(join(dir, 'features'), { recursive: true });
+    writeFileSync(join(dir, 'features', 'x.feature'), '# status: approved\nFeature: X\n  # status: implemented\n  # status: implemented\n');
+    const off = loadCucumberConfig(dir, {});
+    assert.equal((off.stderr.match(/features\/x\.feature:\d/g) ?? []).length, 2);
+    assert.equal((off.stderr.match(/is IGNORED/g) ?? []).length, 1, off.stderr);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Review round 4: /setup step 8's checks must hold for a correctly wired consumer
+// however its files are formatted (prettier: double quotes, a multi-line import;
+// `node ./scripts/...`), and must catch a config that lost its throw. The commands
+// are read from the skill itself, so the doc and the test cannot drift.
+test('FU-134: /setup step 8 checks pass on formatted-but-correct artifacts and catch a dropped throw', () => {
+  const setup = readFileSync(join(TEMPLATES, '..', 'skills', 'setup', 'SKILL.md'), 'utf8');
+  const step8 = setup.split('\n').find((l) => l.startsWith('8. Verify the §60 CI surface'));
+  const cmds = [...step8.matchAll(/`(grep -q[^`]+)`/g)].map((m) => m[1]);
+  assert.ok(cmds.length >= 2, `step 8 grep commands found: ${cmds.length}`);
+  const tmpl = readFileSync(join(TEMPLATES, 'cucumber.mjs.tmpl'), 'utf8');
+  const prettier = tmpl
+    .replace("import { featureFiles, parseFeatureStatus } from './scripts/parse-feature-status.mjs';",
+      'import {\n  featureFiles,\n  parseFeatureStatus,\n} from "./scripts/parse-feature-status.mjs";')
+    .replaceAll("=== '1'", '=== "1"');
+  const run = (cfg, wf) => withDir((dir) => {
+    mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'cucumber.mjs'), cfg);
+    writeFileSync(join(dir, '.github', 'workflows', 'acceptance.yml'), wf);
+    return cmds.every((c) => spawnSync('sh', ['-c', c], { cwd: dir }).status === 0);
+  });
+  const wf = readFileSync(join(TEMPLATES, 'github-workflows', 'acceptance.yml'), 'utf8');
+  assert.equal(run(tmpl, wf), true, 'the template as installed');
+  assert.equal(run(prettier, wf.replace('node scripts/check-skipped-release-scn.mjs', 'node ./scripts/check-skipped-release-scn.mjs')), true, 'formatted, ./scripts path');
+  assert.equal(run(tmpl.replace(/if \(process\.env\.CUCUMBER_IMPLEMENTED_ONLY === '1'\) throw new Error\(msg\);/, ''), wf), false, 'a config that dropped its throw');
 });
 
 // ── FOLLOW-UP 60: train-merge retargets dependents BEFORE deleting the base ───
