@@ -152,8 +152,8 @@ Clarifications log**: the log is a reviewer-citable audit artifact,
 decision-only by design — the preamble orients, it is not a decision (see
 `references/clarifications-log-format.md`).
 
-Direct operator feedback after 4 live slices: *"no siempre estamos al tanto
-de lo que hace el slice"* — both live Q1s (closed-set mechanics, outbox
+Direct operator feedback after 4 live slices (translated from Spanish): *"we
+are not always aware of what the slice does"* — both live Q1s (closed-set mechanics, outbox
 ordering) presumed full spec recall and worked only because the same sitting
 had produced the spec.
 

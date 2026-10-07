@@ -461,7 +461,7 @@ this primitive.
 ### Provider (asynchronous reader)
 - **Goal:** be notified when I receive a Review so I can adjust my offering.
 
-### Público (read-only)
+### Public (read-only)
 - **Goal:** browse Reviews on a Provider's profile to evaluate trustworthiness.
 
 ## Functional requirements

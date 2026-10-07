@@ -352,14 +352,14 @@ cucumber-js combines multiple `--tags` flags with **AND**. A scenario carries ex
 
 ## FOLLOW-UP 17 — Ralph's sessions receive the issue BODY only; comments (where `/plan` writes!) are invisible  ·  **Severity: HIGH**
 
-**Problem.** The iteration prompt (`ralph-local.sh` line ~197) says *"Lee el cuerpo del issue …"* and sessions comply — they run plain `gh issue view N`, which **does not include comments**. But `/plan` (skill) documents its output as *"added to the issue body **(via `gh issue comment` or by editing the issue body)**"* — and the comment path is the natural choice. Result: **the technical plan and any mid-flight amendments posted as comments never reach the implementing agent.** The two skills contradict each other on the contract channel.
+**Problem.** The iteration prompt (`ralph-local.sh` line ~197) said *"Read the issue body …"* (the prompt was in Spanish then; translated) and sessions comply — they run plain `gh issue view N`, which **does not include comments**. But `/plan` (skill) documents its output as *"added to the issue body **(via `gh issue comment` or by editing the issue body)**"* — and the comment path is the natural choice. Result: **the technical plan and any mid-flight amendments posted as comments never reach the implementing agent.** The two skills contradict each other on the contract channel.
 
 **Evidence (live).** A plan amendment posted as a comment at 19:31Z was ignored for 5 consecutive iterations; the identical content appended to the **body** (`gh issue edit --body`) was picked up by the very next fresh iteration (which then did the change red-first, correctly).
 
-**Verify:** `grep -n "cuerpo del issue\|gh issue view" ralph-local.sh skills/tdd/SKILL.md`; `grep -n "issue comment\|issue body" skills/plan/SKILL.md`.
+**Verify (as it stood then):** the iteration prompt in `ralph-local.sh` told the session to read the issue BODY, and `/tdd` named only `gh issue view N` (no `--comments`) — so a plan posted as a comment was invisible. Today `templates/ralph-local.sh.tmpl` reads "Read the FULL issue — body AND comments" (`grep -n "Read the FULL issue" templates/ralph-local.sh.tmpl`); `grep -n "issue comment\|issue body" skills/plan/SKILL.md`.
 
 **Fix — align the channel, pick ONE:**
-- (a) **Recommended:** prompt instructs *"Lee el issue completo: `gh issue view N --comments`"* (and `/tdd`'s inputs section says the same) — comments become a first-class amendment channel; OR
+- (a) **Recommended:** prompt instructs *"Read the full issue: `gh issue view N --comments`"* (and `/tdd`'s inputs section says the same) — comments become a first-class amendment channel; OR
 - (b) `/plan` MUST write into the body (drop the comment option), and document that comments are advisory-only for Ralph.
 Either way, state the chosen contract in BOTH `skills/plan/SKILL.md` and `skills/tdd/SKILL.md` + the ralph prompt, so they can't drift apart again.
 
@@ -650,7 +650,7 @@ gh pr create --draft --head "$BRANCH" …
 **Problem (three live paper-cuts in `templates/ralph-isolated.sh` / `templates/ralph-watch.sh`).**
 (a) **No resume mode:** every #15 resume was manual (`cd` into the kept worktree, re-source `.env`, relaunch, re-bind the watcher) — three times in one night. The wrapper refuses an existing worktree dir by design but offers no sanctioned re-entry.
 (b) **Fixed silence threshold:** the watcher's `--silence-min` default (25) false-alerted on a perfectly healthy 36-minute first iteration (#16 it1 — first iterations are structurally the heaviest: full implementation). 
-(c) **Commit-delta miscount:** live, the watcher reported `commits nuevos: 0` for an iteration that produced commit `5b7ac1a` (belong #16 it1, notification at 04:40:22Z). Suspected: delta computed against a `LAST_HEAD` captured at watcher start vs the poll's read ordering, or `rev-list` arg orientation — reproduce in a replay/E2E test with a fixture repo that commits between polls, then fix. The delta feeds the environmental-blocker heuristic (failing + 0 commits), so a miscount degrades the watcher's best signal.
+(c) **Commit-delta miscount:** live, the watcher reported `new commits: 0` (its output was Spanish then; translated) for an iteration that produced commit `5b7ac1a` (belong #16 it1, notification at 04:40:22Z). Suspected: delta computed against a `LAST_HEAD` captured at watcher start vs the poll's read ordering, or `rev-list` arg orientation — reproduce in a replay/E2E test with a fixture repo that commits between polls, then fix. The delta feeds the environmental-blocker heuristic (failing + 0 commits), so a miscount degrades the watcher's best signal.
 
 **Verify:** (a) `./templates/ralph-isolated.sh <n>` against an existing dir → hard refusal, no alternative; (b)/(c) belong watcher transcript 04:28:56Z (false silence alert) and 04:40:22Z (delta 0 with 1 commit).
 
@@ -1158,9 +1158,9 @@ named ❌ recap; green run output unchanged.
 ## FOLLOW-UP 59 — /clarify and /grill-me open question rounds cold: no orientation step exists between "read the spec" and "ask Q1", so the human signs contract-grade answers without shared context  ·  **Severity: MEDIUM (HITL answer quality — clarifications persist as audit-grade contracts; a disoriented answer is a wrong contract, not a wasted question)**
 
 **Problem.** Direct operator feedback after 4 slices of live use (belong maintainer, 2026-06-06,
-verbatim): *"cuando se hace el clarify podrían dar un contexto corto de lo que trata el slice y
-aclarar nomenclatura clave antes de comenzar con las preguntas. No siempre estamos al tanto de lo
-que hace el slice."*
+translated from Spanish): *"when /clarify runs, it could give a short context of what the slice is
+about and clarify key naming before starting the questions. We are not always aware of what the
+slice does."*
 
 The mechanism: `skills/clarify/SKILL.md` goes **Step 1 — Read with adversarial eye** (the AGENT
 reads the spec) directly into **Step 2 — Ask targeted questions** (one per turn). There is no step
@@ -2469,7 +2469,7 @@ Surfaced across the campaign while running/killing/resuming Ralph on a macOS hos
 
 **Problem.** `hooks/git-guardrails.js` (vendored; belong copy `.claude/hooks/git-guardrails.cjs`) decides whether to block a Bash `PreToolUse` by SUBSTRING-matching the guarded verbs (e.g. `git branch -D`, `git reset --hard`, `git push --force`) against the *full command string*. It does not parse the command, so the match fires when the verb appears as DATA rather than as an invocation: a `printf '…' >> log`, an `echo`, or a heredoc body whose text merely mentions the verb is blocked even though no git subprocess runs. The block is keyed on `cmdString.includes('<verb>')`, not on "is there a git invocation whose argv is `[branch, -D, …]`".
 
-**Live evidence:** belong campaign 28→39 (this session). A `printf '…' >> .planning/slice-36-bitacora.log` whose bitácora line contained the words "since force-delete is guardrail-blocked" — earlier worded literally as the `branch -D` verb — was blocked by the hook (`Matched rule: git branch -D`). The operator had to reword the log line to "force-delete" to write a plain log append. The same class blocks any commit message / doc / echo that quotes a guarded verb.
+**Live evidence:** belong campaign 28→39 (this session). A `printf '…' >> .planning/slice-36-bitacora.log` whose log line contained the words "since force-delete is guardrail-blocked" — earlier worded literally as the `branch -D` verb — was blocked by the hook (`Matched rule: git branch -D`). The operator had to reword the log line to "force-delete" to write a plain log append. The same class blocks any commit message / doc / echo that quotes a guarded verb.
 
 **Verify:**
 ```bash
@@ -2480,7 +2480,7 @@ echo '{"tool_input":{"command":"git branch -D feature"}}'              | node .c
 
 **Fix.** Parse the command; do not substring-match. Anchor each guarded pattern to a real `git` invocation at a command boundary (start-of-command, or after `&&` / `;` / `|` / `\n`), and evaluate only the argv that belongs to that git invocation. Exclude quoted/heredoc string LITERALS from matching (a verb inside `'…'` / `"…"` / a heredoc body is data, never an invocation). The structured-contract replacement for `cmdString.includes('git branch -D')` is a minimal segment/argv check: split the command into invocations, and for each whose program is `git`, test its argv against the blocked-verb table. Apply the same fix to EVERY guarded pattern (`reset --hard`, `branch -D`, `push --force`/`--force-with-lease`, `clean -f`, etc.). Anti-drift: the hook ships in `hooks/` and installs to `.claude/hooks/` — both copies carry the parser.
 
-**Acceptance.** A fixture test (`scripts/__tests__/git-guardrails.test.mjs`, node:test, zero deps) pins: (a) `git branch -D foo` → BLOCKED; (b) `printf "git branch -D" >> file`, `echo "git reset --hard"`, and a heredoc body containing the verb → ALLOWED; (c) `true && git reset --hard` → BLOCKED (real invocation after `&&`); (d) `git commit -m "mentions git reset --hard"` → ALLOWED (verb is a quoted message arg). A consumer can write a bitácora line or commit message that mentions a guarded verb without the hook false-blocking the write.
+**Acceptance.** A fixture test (`scripts/__tests__/git-guardrails.test.mjs`, node:test, zero deps) pins: (a) `git branch -D foo` → BLOCKED; (b) `printf "git branch -D" >> file`, `echo "git reset --hard"`, and a heredoc body containing the verb → ALLOWED; (c) `true && git reset --hard` → BLOCKED (real invocation after `&&`); (d) `git commit -m "mentions git reset --hard"` → ALLOWED (verb is a quoted message arg). A consumer can write a log line or commit message that mentions a guarded verb without the hook false-blocking the write.
 
 ## FOLLOW-UP 115 — no liveness/wedge detection for a stuck engine call: a hung `/run-acceptance` (or `/tdd`) runs out the full `RALPH_CALL_TIMEOUT` and needs manual kill + `--resume` · **Severity: MEDIUM (autonomy gap — a genuinely WEDGED engine (alive PID, ~0 CPU, no test subprocess, no writes) burns up to the full 45 min before ralph-local scores it, and a human/supervisor must hand-detect & recover it; the productive-timeout path FU-111 handles a BUSY-but-slow engine, not a wedged one)**
 

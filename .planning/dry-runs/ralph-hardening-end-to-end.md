@@ -36,7 +36,7 @@ Total new/changed lines: ~1,100 across 7 files. Spec line budget was "~280 lines
 LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
 
 if ! ralph_has_label "$LABELS" "ralph-ready"; then
-  echo "❌ Issue #$ISSUE_NUM no tiene label 'ralph-ready' (§63)" >&2; exit 1
+  echo "❌ Issue #$ISSUE_NUM does not have the 'ralph-ready' label (§63)" >&2; exit 1
 fi
 if ! echo "$LABELS" | grep -qE "^scenarios:"; then exit 1; fi
 if ! echo "$LABELS" | grep -qE "^budget:"; then exit 1; fi

@@ -6,7 +6,7 @@ No rule numbers change. No code changes. Only narrative text in docs and skill m
 
 ## Provenance
 
-The gap was surfaced by a thorough audit performed on the `task-flow` test project. The audit document (kept in that project as `docs/AUDITORIA-CONTEOS-REGLAS.md`) catalogued 13 references across 8 files, distinguished proyecto-editable vs framework-immutable, and protected 6 legitimate `§116` mentions that refer to the individual rule for the Security-auditor agent (correctly excluded from the rename).
+The gap was surfaced by a thorough audit performed on the `task-flow` test project. The audit document (kept in that project as a rule-count audit document) catalogued 13 references across 8 files, distinguished proyecto-editable vs framework-immutable, and protected 6 legitimate `§116` mentions that refer to the individual rule for the Security-auditor agent (correctly excluded from the rename).
 
 ## Changes — mechanical replacements (8 refs, single number)
 
@@ -16,7 +16,7 @@ The gap was surfaced by a thorough audit performed on the `task-flow` test proje
 | `skills/feature/SKILL.md` | 25, 314 | `§1-§116` → `§1-§122` |
 | `skills/onboard/SKILL.md` | 70 | `Active rule count: §1 – §122` |
 | `docs/engineering/core/16-security-supply-chain.md` | 451 | `Total rules in the set: §1 – §122` (was §90) |
-| `docs/WORKFLOWS-GUIDE.md` | 5, 1594 | `116 reglas` → `122 reglas` |
+| `docs/WORKFLOWS-GUIDE.md` | 5, 1594 | the rule count `116` → `122` (the guide was in Spanish then) |
 
 ## Changes — conceptual rewrites (3 refs, structural)
 
@@ -54,13 +54,13 @@ Same approach as setup/SKILL.md — replaced `§1-§3, §11-§90 minus stack-spe
 
 ## Excluded from this PR
 
-- **`Analisis-Comparativo-Frameworks-AI-Development.md`** still has stale totals (`§1-§90`, `116 reglas`). That document is historical research, not operational framework. A future PR can rev it if useful for reference, but its consumption pattern (linked from outside, read for context) does not warrant a fix here.
+- **`Analisis-Comparativo-Frameworks-AI-Development.md`** still has stale totals (`§1-§90`, a 116-rule count). That document is historical research, not operational framework. A future PR can rev it if useful for reference, but its consumption pattern (linked from outside, read for context) does not warrant a fix here.
 - **`task_flow/` scaffold copies in this repo** also have stale numbers. They are intentionally out of scope — those refresh automatically on the next `/setup` re-run downstream from this PR.
 - **Downstream projects (`pruebas/task-flow`)** that already adopted Stormhelm with the older texts will pick up the fixed wording the next time their operator runs `/setup` (or copies the affected files manually).
 
 ## Reviewer checklist
 
-- [ ] Read the audit (`task-flow/docs/AUDITORIA-CONTEOS-REGLAS.md` in any downstream project that ran it, or reproduce locally with `grep -rn "§1-§116\|§1 – §116\|§1-§90\|116 reglas" --include="*.md"`).
+- [ ] Read the audit (the rule-count audit document in any downstream project that ran it, or reproduce locally with `grep -rn "§1-§116\|§1 – §116\|§1-§90\|116 rules" --include="*.md"`).
 - [ ] Verify `grep -rn "§1-§116\|§1 – §116\|§1-§90"` against this branch returns only the legitimate §116 references in `core/20-agents.md` and `AGENTS.md` (the formal-sub-agents file, where §116 names the deferred Security-auditor agent — never the total).
 - [ ] Optional sanity: render `docs/engineering/AGENTS.md` provenance block and confirm the new enumeration reads naturally.
 

@@ -44,7 +44,7 @@ verifies claims, and the contributor fixes the divergence.
 
 | Check | Severity | What |
 |---|---|---|
-| Cardinality | BLOCK | Canonical phrases — "N invokable skills", the version footer `(N reglas, N skills, N agente, N hooks, N steps)`, "Active rule count: §1–§N", "N rule files / archivos de reglas", "N steps with N human checkpoints", "the N rules", "N (core) rules" — must equal the filesystem count. |
+| Cardinality | BLOCK | Canonical phrases — "N invokable skills", the version footer `(N rules, N skills, N agents, N hooks, N steps)`, "Active rule count: §1–§N", "N rule files", "N steps with N human checkpoints", "the N rules", "N (core) rules" — must equal the filesystem count. |
 | Rule references | BLOCK | Every `§N` cited in docs/skills must resolve to a rule defined in `core/` or `capabilities/` (`-py` twins recognized). |
 | Phantom skills | WARN | A `/slug` in a markdown link or cheat-sheet row should have `skills/<slug>/SKILL.md`. (Catches renamed/ghost skills, e.g. `/slice-plan` vs `/plan`.) |
 

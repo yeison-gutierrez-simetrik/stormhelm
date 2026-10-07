@@ -191,6 +191,59 @@ test('INV-4 fails (exit 1) when an Accepted ADR loses its Date', () => {
   assert.match(out, /❌ INV-4/);
 });
 
+// The framework is English-only: INV-4 used to accept a non-English alias of
+// the ADR date field. An Accepted ADR dated only that way now fails like any
+// other missing `Date:` (no known consumer used the alias).
+test('INV-4 requires the English Date field (a Spanish "Fecha:" no longer counts)', () => {
+  const { status, out } = runMutated((dir) => {
+    const p = join(dir, 'docs/adr/0001-auth-approach.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace(/^\*\*Date:\*\*/m, '**Fecha:**'));
+  });
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-4/);
+});
+
+// Review round: INV-4 matched `date:` ANYWHERE, so `**Candidate:**` dated an ADR;
+// and `**Status**: Accepted` / `**Date**: …` (colon outside the bold) slipped
+// past it. Both fields are now read as header field lines, with a value.
+const setAdr = (text) => (dir) => writeFileSync(join(dir, 'docs/adr/0001-auth-approach.md'), text);
+test('INV-4 reads Date as a field line — a word ending in "date:" does not count', () => {
+  const { status, out } = runMutated(setAdr('# ADR-0001\n\n**Status:** Accepted\n\n## Options\n\n**Candidate:** Postgres\n'));
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-4/);
+});
+test('INV-4 reads the `**Field**: value` markdown style for Status and Date', () => {
+  const dated = runMutated(setAdr('# ADR-0001\n\n**Status**: Accepted\n**Date**: 2026-06-02\n'));
+  assert.match(dated.out, /✅ INV-4/, dated.out);
+  // …and the same style WITHOUT a date is an Accepted ADR missing its date (the
+  // old regex never saw `**Status**:` as Accepted, so this passed silently).
+  const undated = runMutated(setAdr('# ADR-0001\n\n**Status**: Accepted\n'));
+  assert.equal(undated.status, 1, undated.out);
+  assert.match(undated.out, /❌ INV-4/);
+});
+test('INV-4: an empty Date field is not a date', () => {
+  const { status, out } = runMutated(setAdr('# ADR-0001\n\n**Status:** Accepted\n**Date:**\n'));
+  assert.equal(status, 1, out);
+  assert.match(out, /❌ INV-4/);
+});
+
+// Review round 5: a Nygard-style ADR (`## Status` heading, the value on the next
+// line) or a `## Status: Accepted` heading was no longer read as Accepted, so an
+// undated Accepted ADR passed. Both shapes are read now; a qualified date field
+// (`**Decision date:**`) still counts as the date.
+test('INV-4 reads a Nygard-style `## Status` section and a `## Status:` heading; a qualified date field counts', () => {
+  const withAdr = (text) => runMutated((dir) => writeFileSync(join(dir, 'docs/adr/0001-auth-approach.md'), text));
+  for (const text of ['# ADR 0001\n\n## Status\n\nAccepted\n\n## Context\nx\n', '# ADR 0001\n\n## Status: Accepted\n\n## Context\nx\n']) {
+    const { status, out } = withAdr(text);
+    assert.equal(status, 1, out);
+    assert.match(out, /❌ INV-4 .*0001-auth-approach\.md/, JSON.stringify(text));
+  }
+  for (const text of ['# ADR 0001\n\n## Status\n\nAccepted\n\n## Date\n\n2026-06-02\n', '**Status:** Accepted\n**Decision date:** 2026-06-02\n']) {
+    const { out } = withAdr(text);
+    assert.match(out, /✅ INV-4/, JSON.stringify(text));
+  }
+});
+
 // --- INV-6 (ADR-0002 PR-N): classification stable across the diff ---
 
 const escalateTo3Contexts = (dir) => {

@@ -30,12 +30,12 @@ coverage/
 .env.local
 .env.*.local
 
-# Claude Code session/cache (skills/agents/hooks SÍ se versionan)
+# Claude Code session/cache (skills/agents/hooks ARE versioned)
 .claude/cache/
 .claude/.local/
 .claude/sessions/
 
-# Dry-run artifacts internos (no son parte del framework)
+# Internal dry-run artifacts (not part of the framework)
 test-run-feature/
 test-run-feature-2/
 
